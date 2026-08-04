@@ -1,0 +1,12 @@
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+web/node_modules/
+web/dist/
+bin/
+*.exe
+.DS_Store
+.idea/

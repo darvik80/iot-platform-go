@@ -1,0 +1,41 @@
+name: Synology
+
+on:
+  push:
+    branches: [ "master", "main" ]
+
+env:
+  TARGET_PORT: 9082
+  CONTAINER_NAME: crearts-iot-platform
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare data directory
+        run: |
+          mkdir -p /volume1/docker/$CONTAINER_NAME/data
+          mkdir -p /volume1/docker/$CONTAINER_NAME/etc
+
+      - name: Build docker image
+        run: |
+          export DOCKER_API_VERSION=1.43
+          docker build -t localhost/$CONTAINER_NAME:latest .
+
+      - name: Restart crearts-iot-platform
+        run: |
+          export DOCKER_API_VERSION=1.43
+          docker rm -f $CONTAINER_NAME || true
+          docker run \
+            -d \
+            -p $TARGET_PORT:8080 \
+            --restart unless-stopped \
+            --name $CONTAINER_NAME \
+            --env-file /volume1/docker/$CONTAINER_NAME/etc/.env \
+            -v /volume1/docker/$CONTAINER_NAME/data:/data \
+            -e SQLITE_PATH=/data/platform.db \
+            -e HTTP_ADDR=:8080 \
+            localhost/$CONTAINER_NAME:latest

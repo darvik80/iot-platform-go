@@ -1,0 +1,219 @@
+$primary: #3d9cf0;
+$dark: #0f1419;
+$body-bg: #0f1419;
+$body-color: #e6edf3;
+$border-color: #2a3544;
+$card-bg: #1c2430;
+$card-border-color: #2a3544;
+$input-bg: #171d25;
+$input-color: #e6edf3;
+$input-border-color: #2a3544;
+$input-focus-border-color: #3d9cf0;
+$modal-content-bg: #1c2430;
+$modal-content-border-color: #2a3544;
+$dropdown-bg: #1c2430;
+$dropdown-link-color: #e6edf3;
+$dropdown-link-hover-bg: #141a22;
+$offcanvas-bg-color: #141a22;
+$navbar-dark-color: #8b9bb0;
+$navbar-dark-hover-color: #e6edf3;
+$table-color: #e6edf3;
+$table-border-color: #2a3544;
+$table-hover-bg: rgba(61, 156, 240, 0.06);
+$secondary: #2a3544;
+$success: #3ecf8e;
+$warning: #e6a23c;
+$danger: #f07178;
+$info: #3d9cf0;
+
+@import "bootstrap/scss/bootstrap";
+
+:root {
+  --bg: #0f1419;
+  --panel: #1c2430;
+  --border: #2a3544;
+  --muted: #8b9bb0;
+  --accent: #3d9cf0;
+  --ok: #3ecf8e;
+  --crit: #f07178;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #1a2a3d 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #1a2433 0%, transparent 50%),
+    var(--bg);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.muted {
+  color: var(--muted) !important;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background: rgba(20, 26, 34, 0.95);
+  border-right: 1px solid var(--border);
+  min-height: 100vh;
+}
+
+.sidebar .nav-link {
+  color: var(--muted);
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.sidebar .nav-link.active,
+.sidebar .nav-link:hover {
+  background: var(--panel);
+  color: #e6edf3;
+}
+
+.brand {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.brand span {
+  color: var(--accent);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.85rem 1rem;
+}
+
+.stat-card .label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-card .value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+.badge-online {
+  background: rgba(62, 207, 142, 0.15);
+  color: var(--ok);
+}
+.badge-offline {
+  background: rgba(240, 113, 120, 0.15);
+  color: var(--crit);
+}
+.badge-unknown,
+.badge-info {
+  background: rgba(61, 156, 240, 0.15);
+  color: var(--accent);
+}
+.badge-warning,
+.badge-WARN {
+  background: rgba(230, 162, 60, 0.15);
+  color: var(--warning);
+}
+.badge-critical,
+.badge-ERROR {
+  background: rgba(240, 113, 120, 0.15);
+  color: var(--crit);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+.metric {
+  background: #141a22;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.metric .m-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.metric .m-value {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 1rem;
+  margin-top: 0.2rem;
+}
+.metric .m-key {
+  font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.7;
+  margin-top: 0.15rem;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.prop-cell .m-key {
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.table-responsive {
+  -webkit-overflow-scrolling: touch;
+}
+
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.login-box {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+}
+
+.schema-compact input,
+.schema-compact select {
+  padding: 0.28rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+.method-block {
+  border: 1px solid var(--border);
+  background: #141a22;
+  border-radius: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.45rem;
+}
+
+@media (max-width: 767.98px) {
+  .sidebar {
+    display: none;
+  }
+  .main-pad {
+    padding: 1rem !important;
+  }
+}
