@@ -11,6 +11,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/rabbitmq/amqp091-go v1.10.0
 	golang.org/x/crypto v0.32.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.34.5
 )
 

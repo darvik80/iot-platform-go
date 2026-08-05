@@ -74,6 +74,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     volumes:
       - platform_data:/data
+      - ./config:/etc/iot-platform-go:ro
 
 volumes:
   rabbitmq_data:

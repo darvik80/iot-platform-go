@@ -1,0 +1,55 @@
+server:
+  http_addr: ":8080"
+  public_base_url: "http://localhost:8080"
+  platform_name: "Crearts IoT"
+
+database:
+  sqlite_path: "./data/platform.db"
+
+mqtt:
+  broker: "tcp://192.168.1.100:1883"
+  username: "crearts"
+  password: "crearts"
+  client_id: "crearts-platform"
+
+rabbitmq:
+  mgmt_url: "http://192.168.1.100:15672"
+  broker_host_public: "192.168.1.100"
+
+auth:
+  jwt_secret: "dev-jwt-secret-change-me"
+  register_enabled: true
+  register_default_role: "viewer"
+  require_email_verify: true
+
+admin:
+  login: "admin"
+  email: "admin@crearts.local"
+  password: "admin"
+
+email:
+  mode: "log"        # smtp | log
+  smtp_host: ""
+  smtp_port: 587
+  smtp_user: ""
+  smtp_pass: ""
+  smtp_from: "noreply@crearts.local"
+
+google:
+  client_id: ""
+  client_secret: ""
+  # redirect_url: "http://localhost:8080/api/v1/auth/google/callback"
+
+nodered:
+  url: "http://192.168.1.100:1880"
+  mqtt_password: "nodered"
+
+rules:
+  bus_enabled: true
+  bus_prefix: "platform/v1"
+
+telemetry:
+  retention_days: 30
+
+rpc:
+  default_timeout_ms: 30000

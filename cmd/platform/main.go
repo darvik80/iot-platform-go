@@ -23,6 +23,8 @@ import (
 
 func main() {
 	config.LoadDotEnv(".env")
+	config.LoadYAML("./config.yml")
+	config.LoadYAML("/etc/iot-platform-go/config.yml")
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg := config.Load()
 	if cfg.GoogleEnabled() {

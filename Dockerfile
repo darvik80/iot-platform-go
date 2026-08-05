@@ -18,7 +18,8 @@ RUN test -f internal/webui/dist/index.html \
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata \
   && adduser -D -u 1000 platform \
-  && mkdir -p /data && chown platform:platform /data
+  && mkdir -p /data && chown platform:platform /data \
+  && mkdir -p /etc/iot-platform-go
 WORKDIR /
 COPY --from=build /out/platform /platform
 USER platform
