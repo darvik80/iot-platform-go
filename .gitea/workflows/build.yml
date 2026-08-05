@@ -41,9 +41,4 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: iot-platform-go
-          path: /tmp/platform
-          if-no-files-found: error
+
