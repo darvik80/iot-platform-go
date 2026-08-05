@@ -11,6 +11,16 @@ export interface User {
   auth_provider?: string;
 }
 
+export interface APIToken {
+  id: number;
+  user_id: number;
+  name: string;
+  token?: string;
+  token_prefix: string;
+  created_at: number;
+  last_used_at?: number | null;
+}
+
 export interface ProductMethodParam {
   name: string;
   label?: string;

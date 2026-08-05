@@ -74,6 +74,9 @@ func (s *Server) Router() http.Handler {
 			r.Use(s.authenticate)
 			r.Get("/overview", s.overview)
 			r.Get("/me", s.me)
+			r.Get("/me/tokens", s.listAPITokens)
+			r.Post("/me/tokens", s.createAPIToken)
+			r.Delete("/me/tokens/{id}", s.revokeAPIToken)
 
 			r.Get("/users", s.requireAdmin(s.listUsers))
 			r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
@@ -161,7 +164,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		u, err := s.Plat.UserByAPIToken(tok)
-		if err != nil {
+		if err != nil || u.Disabled {
 			writeErr(w, http.StatusUnauthorized, "invalid token")
 			return
 		}

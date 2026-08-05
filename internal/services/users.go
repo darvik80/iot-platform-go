@@ -277,6 +277,76 @@ func (p *Platform) UserByAPIToken(token string) (*models.User, error) {
 	return p.GetUser(id)
 }
 
+func (p *Platform) ListAPITokens(userID int64) ([]models.APIToken, error) {
+	rows, err := p.DB.Query(`SELECT id, user_id, name, token_prefix, created_at, last_used_at
+		FROM api_tokens WHERE user_id=? ORDER BY id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.APIToken
+	for rows.Next() {
+		var t models.APIToken
+		var last sql.NullInt64
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.CreatedAt, &last); err != nil {
+			return nil, err
+		}
+		if last.Valid {
+			v := last.Int64
+			t.LastUsedAt = &v
+		}
+		out = append(out, t)
+	}
+	if out == nil {
+		out = []models.APIToken{}
+	}
+	return out, rows.Err()
+}
+
+func (p *Platform) CreateAPIToken(userID int64, name string) (*models.APIToken, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("name required")
+	}
+	if len(name) > 64 {
+		return nil, errors.New("name too long")
+	}
+	raw, err := auth.GenerateAccessToken()
+	if err != nil {
+		return nil, err
+	}
+	// Prefix so humans can tell API tokens from JWTs in configs.
+	raw = "cip_" + raw
+	now := db.NowMS()
+	prefix := auth.TokenPrefix(raw)
+	res, err := p.DB.Exec(`INSERT INTO api_tokens(user_id, name, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
+		userID, name, auth.HashToken(raw), prefix, now)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &models.APIToken{
+		ID:        id,
+		UserID:    userID,
+		Name:      name,
+		Token:     raw,
+		Prefix:    prefix,
+		CreatedAt: now,
+	}, nil
+}
+
+func (p *Platform) RevokeAPIToken(userID, tokenID int64) error {
+	res, err := p.DB.Exec(`DELETE FROM api_tokens WHERE id=? AND user_id=?`, tokenID, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("not found")
+	}
+	return nil
+}
+
 func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	var u models.User
 	var verified, disabled int
