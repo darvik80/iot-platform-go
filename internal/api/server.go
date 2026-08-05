@@ -13,23 +13,30 @@ import (
 	"github.com/go-chi/cors"
 
 	"crearts-iot-platform/internal/auth"
+	"crearts-iot-platform/internal/mcpbridge"
+	"crearts-iot-platform/internal/models"
 	"crearts-iot-platform/internal/services"
 	"crearts-iot-platform/internal/ws"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Server struct {
-	Plat   *services.Platform
-	Hub    *ws.Hub
-	SpaFS  fs.FS // optional embedded SPA (dist contents)
+	Plat  *services.Platform
+	Hub   *ws.Hub
+	SpaFS fs.FS // optional embedded SPA (dist contents)
 }
 
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{
+			"Accept", "Authorization", "Content-Type",
+			"Mcp-Session-Id", "Last-Event-ID", "MCP-Protocol-Version",
+		},
 		AllowCredentials: true,
 	}))
 
@@ -106,6 +113,21 @@ func (s *Server) Router() http.Handler {
 			r.Get("/settings", s.getSettings)
 			r.Get("/ws", s.Hub.ServeWS)
 		})
+	})
+
+	// Embedded Streamable HTTP MCP (same process as platform — not a separate deploy).
+	mcpHandler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+		u := userFrom(req)
+		role := models.Role("")
+		if u != nil {
+			role = u.Role
+		}
+		return mcpbridge.NewServer(mcpbridge.NewLocal(s.Plat, role))
+	}, &mcp.StreamableHTTPOptions{Stateless: true})
+	r.Group(func(r chi.Router) {
+		r.Use(s.authenticate)
+		r.Handle("/mcp", mcpHandler)
+		r.Handle("/mcp/*", mcpHandler)
 	})
 
 	if s.SpaFS != nil {

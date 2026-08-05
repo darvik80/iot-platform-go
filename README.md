@@ -8,6 +8,7 @@ Self-hosted IoT backend + ops dashboard for the Crearts device MQTT protocol (**
 | Broker | RabbitMQ MQTT (+ management API for device users) |
 | Automation | Node-RED (rules bus on `platform/v1/...`) |
 | UI | React + Bootstrap 5 (Vite), embedded in Go binary |
+| MCP | Embedded at `/mcp` (JWT) — LLM device tools |
 
 ## Quick start
 
@@ -111,6 +112,7 @@ Dashboard (SPA) ──HTTPS──┘
 - [Automation / Node-RED](docs/automation.md)
 - [Operations](docs/operations.md)
 - [Synology / Gitea deploy](docs/deploy-synology.md)
+- [MCP (LLM device tools)](docs/mcp.md)
 - [Product schema](docs/product-schema.md)
 
 ## Acceptance checklist
