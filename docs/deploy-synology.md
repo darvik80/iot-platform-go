@@ -34,6 +34,6 @@ ADMIN_PASSWORD=...
 
 Dashboard: `http://<nas>:9082`
 
-## Build check (`build.yml`)
+## Build check (`build.yml_`)
 
 Runs `go build` + `go vet` on push/PR.

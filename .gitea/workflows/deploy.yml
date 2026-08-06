@@ -5,7 +5,7 @@ on:
     branches: [ "master", "main" ]
 
 env:
-  TARGET_PORT: 9082
+  TARGET_PORT: 9083
   CONTAINER_NAME: iot-platform-go
 
 jobs:
