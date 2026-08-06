@@ -36,7 +36,7 @@ Shown as buttons on the device page; click fills method/params and invokes RPC.
 
 `format`: `bytes` | `percent` | `duration` | `bool` | `rssi` | `number` | `text`
 
-New products get ESP defaults automatically (`reboot` + system metrics). Use **Reset to ESP presets** on the product page to restore predefined entries while keeping your custom methods/metrics.
+New products get ESP defaults automatically (`reboot` + system metrics including `freeHeap`, `freeDram`, PSRAM/storage). Use **Reset to ESP presets** on the product page to restore predefined entries while keeping your custom methods/metrics.
 
 Methods support multiple parameters via the UI parameter rows (`+ Add parameter`).
 

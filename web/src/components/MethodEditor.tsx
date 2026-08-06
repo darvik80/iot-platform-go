@@ -8,6 +8,7 @@ export const PRESET_METRICS: Record<string, true> = {
   wifiIp: true,
   wifiRssi: true,
   freeHeap: true,
+  freeDram: true,
   minFreeHeap: true,
   largestFreeBlock: true,
   freePsram: true,

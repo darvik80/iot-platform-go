@@ -9,6 +9,14 @@ import (
 	"crearts-iot-platform/internal/models"
 )
 
+// uniqueClientID appends the hostname to base to produce a per-instance MQTT client ID.
+func uniqueClientID(base string) string {
+	if h, _ := os.Hostname(); h != "" && h != base {
+		return base + "-" + h
+	}
+	return base
+}
+
 type Config struct {
 	HTTPAddr               string
 	SQLitePath             string
@@ -57,7 +65,7 @@ func Load() Config {
 		MQTTBroker:             getenv("MQTT_BROKER", "tcp://192.168.1.100:1883"),
 		MQTTUsername:           getenv("MQTT_USERNAME", "crearts"),
 		MQTTPassword:           getenv("MQTT_PASSWORD", "crearts"),
-		MQTTClientID:           getenv("MQTT_CLIENT_ID", "crearts-platform"),
+		MQTTClientID:           uniqueClientID(getenv("MQTT_CLIENT_ID", "crearts-platform")),
 		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me"),
 		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
 		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,

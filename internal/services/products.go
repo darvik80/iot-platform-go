@@ -270,6 +270,7 @@ func DefaultESPMetrics() []models.ProductMetric {
 		{Key: "wifiIp", Label: "IP address", Group: "Network", Format: "text", Description: "Station IP"},
 		{Key: "wifiRssi", Label: "Wi‑Fi signal", Group: "Network", Unit: "dBm", Format: "rssi", Description: "Received signal strength"},
 		{Key: "freeHeap", Label: "Free heap", Group: "Memory", Unit: "bytes", Format: "bytes", Description: "Free internal RAM"},
+		{Key: "freeDram", Label: "Free DRAM", Group: "Memory", Unit: "bytes", Format: "bytes", Description: "Free internal DRAM"},
 		{Key: "minFreeHeap", Label: "Min free heap", Group: "Memory", Unit: "bytes", Format: "bytes", Description: "Lowest free heap watermark"},
 		{Key: "largestFreeBlock", Label: "Largest free block", Group: "Memory", Unit: "bytes", Format: "bytes", Description: "Largest contiguous free heap block"},
 		{Key: "freePsram", Label: "Free PSRAM", Group: "Memory", Unit: "bytes", Format: "bytes", Description: "Free external PSRAM"},
