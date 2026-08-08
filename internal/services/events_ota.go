@@ -26,30 +26,44 @@ func (p *Platform) StoreEvent(d *models.Device, payload []byte) error {
 	if err := json.Unmarshal(payload, &e); err != nil {
 		return err
 	}
-	if e.TS == 0 {
-		e.TS = db.NowMS()
+	if err := p.RecordEvent(d, e.ID, e.Type, e.Severity, e.Code, e.Message, e.TS, e.Data); err != nil {
+		return err
 	}
-	if e.Severity == "" {
-		e.Severity = "info"
+	p.TouchSeen(d)
+	return nil
+}
+
+// RecordEvent persists a discrete incident (device v1/e or platform-generated).
+func (p *Platform) RecordEvent(d *models.Device, eventID, typ, severity, code, message string, ts int64, data map[string]any) error {
+	if d == nil {
+		return errors.New("device required")
+	}
+	if ts == 0 {
+		ts = db.NowMS()
+	}
+	if severity == "" {
+		severity = "info"
+	}
+	if typ == "" {
+		typ = "info"
 	}
 	var dataJSON *string
-	if e.Data != nil {
-		s := jsonValue(e.Data)
+	if data != nil {
+		s := jsonValue(data)
 		dataJSON = &s
 	}
 	now := db.NowMS()
 	res, err := p.DB.Exec(`INSERT INTO events(device_pk, event_id, type, severity, code, message, data_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		d.ID, e.ID, e.Type, e.Severity, e.Code, e.Message, dataJSON, e.TS, now)
+		d.ID, eventID, typ, severity, code, message, dataJSON, ts, now)
 	if err != nil {
 		return err
 	}
 	id, _ := res.LastInsertId()
-	p.TouchSeen(d)
-	ev := models.Event{ID: id, DevicePK: d.ID, ProductID: d.ProductID, DeviceID: d.DeviceID, EventID: e.ID, Type: e.Type, Severity: e.Severity, Code: e.Code, Message: e.Message, DataJSON: dataJSON, TS: e.TS, IngestedAt: now}
+	ev := models.Event{ID: id, DevicePK: d.ID, ProductID: d.ProductID, DeviceID: d.DeviceID, EventID: eventID, Type: typ, Severity: severity, Code: code, Message: message, DataJSON: dataJSON, TS: ts, IngestedAt: now}
 	p.emit("event", ev)
 	p.publishRules(d.ProductID, d.DeviceID, "event", map[string]any{
-		"ts": e.TS, "product_id": d.ProductID, "device_id": d.DeviceID,
-		"type": e.Type, "severity": e.Severity, "code": e.Code, "message": e.Message, "data": e.Data,
+		"ts": ts, "product_id": d.ProductID, "device_id": d.DeviceID,
+		"type": typ, "severity": severity, "code": code, "message": message, "data": data,
 	})
 	return nil
 }

@@ -118,12 +118,16 @@ export interface TelemetrySample {
 }
 
 export interface EventRow {
+  id?: number;
+  device_pk?: number;
   ts: number;
   product_id: string;
   device_id: string;
+  type?: string;
   severity: string;
   code: string;
   message?: string;
+  data_json?: string | null;
 }
 
 export interface LogRow {

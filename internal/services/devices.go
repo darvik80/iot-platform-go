@@ -295,6 +295,7 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	d.LastSeenAt = &now
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
 	p.publishRules(d.ProductID, d.DeviceID, "status", map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
+	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
 }
 
 func (p *Platform) MarkOffline(d *models.Device, reason string) {
@@ -303,6 +304,11 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 	d.Status = "offline"
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
 	p.publishRules(d.ProductID, d.DeviceID, "status", map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
+	msg := "Device offline"
+	if reason != "" {
+		msg = "Device offline (" + reason + ")"
+	}
+	_ = p.RecordEvent(d, "", "status", "warning", "offline", msg, now, map[string]any{"reason": reason})
 }
 
 func (p *Platform) TouchSeen(d *models.Device) {

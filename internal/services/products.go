@@ -259,6 +259,35 @@ func DefaultESPMethods() []models.ProductMethod {
 				{Name: "delayMs", Label: "Delay (ms)", Type: "number", Default: float64(500)},
 			},
 		},
+		{
+			Name: "led_attach", Label: "Attach LED strip", Description: "Bind a WS2812 strip to a GPIO",
+			Params: []models.ProductMethodParam{
+				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
+				{Name: "count", Label: "LED count", Type: "number", Default: float64(16), Required: true},
+				{Name: "brightness", Label: "Brightness", Type: "number", Default: float64(32)},
+			},
+		},
+		{
+			Name: "led_detach", Label: "Detach LED strip", Description: "Unbind strip from GPIO",
+			Params: []models.ProductMethodParam{
+				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
+			},
+		},
+		{
+			Name: "led_list", Label: "List LED strips", Description: "List attached strips (gpio, count, brightness)",
+		},
+		{
+			Name: "set_led", Label: "Set LED strip", Description: "Set a range on an attached strip",
+			Params: []models.ProductMethodParam{
+				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
+				{Name: "offset", Label: "Offset", Type: "number", Default: float64(0), Required: true},
+				{Name: "length", Label: "Length", Type: "number", Default: float64(1), Required: true},
+				{Name: "on", Label: "On", Type: "boolean", Default: true},
+				{Name: "r", Label: "Red", Type: "number", Default: float64(255)},
+				{Name: "g", Label: "Green", Type: "number", Default: float64(255)},
+				{Name: "b", Label: "Blue", Type: "number", Default: float64(255)},
+			},
+		},
 	}
 }
 

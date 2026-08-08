@@ -25,16 +25,19 @@ type Client struct {
 	mqtt      pahomqtt.Client
 	amqpConn  *amqp.Connection
 	amqpCh    *amqp.Channel
-	connected atomic.Bool
+	mqttOK    atomic.Bool
+	amqpOK    atomic.Bool
+	stopped   atomic.Bool
 	mu        sync.Mutex
 	stop      chan struct{}
+	closeOnce sync.Once
 }
 
 func New(cfg config.Config, plat *services.Platform, log *slog.Logger) *Client {
 	return &Client{cfg: cfg, plat: plat, log: log, stop: make(chan struct{})}
 }
 
-func (c *Client) Connected() bool { return c.connected.Load() }
+func (c *Client) Connected() bool { return c.mqttOK.Load() || c.amqpOK.Load() }
 
 func (c *Client) Start() error {
 	go func() {
@@ -42,28 +45,57 @@ func (c *Client) Start() error {
 			c.log.Warn("mqtt publish client failed", "err", err)
 		}
 	}()
-	if err := c.startAMQPIngest(); err != nil {
-		c.log.Warn("amqp ingest unavailable", "err", err)
-		// retry loop in background
-		go c.reconnectAMQP()
-		return err
+	err := c.startAMQPIngest()
+	if err != nil {
+		c.log.Warn("amqp ingest unavailable (will retry)", "err", err)
 	}
-	return nil
+	go c.superviseAMQP()
+	return err
 }
 
-func (c *Client) reconnectAMQP() {
-	t := time.NewTicker(5 * time.Second)
-	defer t.Stop()
+// superviseAMQP reconnects ingest after broker restart / channel drop.
+// reconnectAMQP used to exit after the first successful dial, so a later
+// RabbitMQ bounce left the platform running without ingest.
+func (c *Client) superviseAMQP() {
+	backoff := time.Second
 	for {
+		if c.stopped.Load() {
+			return
+		}
+		if !c.amqpOK.Load() {
+			if err := c.startAMQPIngest(); err != nil {
+				c.log.Warn("amqp ingest reconnect failed", "err", err, "backoff", backoff.String())
+				select {
+				case <-c.stop:
+					return
+				case <-time.After(backoff):
+				}
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+			backoff = time.Second
+		}
+
+		c.mu.Lock()
+		conn, ch := c.amqpConn, c.amqpCh
+		c.mu.Unlock()
+		if conn == nil || ch == nil {
+			c.amqpOK.Store(false)
+			continue
+		}
+		connErr := conn.NotifyClose(make(chan *amqp.Error, 1))
+		chErr := ch.NotifyClose(make(chan *amqp.Error, 1))
 		select {
 		case <-c.stop:
 			return
-		case <-t.C:
-			if err := c.startAMQPIngest(); err == nil {
-				c.log.Info("amqp ingest reconnected")
-				return
-			}
+		case err := <-connErr:
+			c.log.Warn("amqp connection lost", "err", err)
+		case err := <-chErr:
+			c.log.Warn("amqp channel lost", "err", err)
 		}
+		c.teardownAMQP()
 	}
 }
 
@@ -78,11 +110,11 @@ func (c *Client) startMQTT() error {
 	opts.SetConnectRetryInterval(3 * time.Second)
 	opts.SetKeepAlive(30 * time.Second)
 	opts.OnConnect = func(_ pahomqtt.Client) {
-		c.connected.Store(true)
+		c.mqttOK.Store(true)
 		c.log.Info("mqtt publish connected", "broker", c.cfg.MQTTBroker)
 	}
 	opts.OnConnectionLost = func(_ pahomqtt.Client, err error) {
-		c.connected.Store(false)
+		c.mqttOK.Store(false)
 		c.log.Warn("mqtt connection lost", "err", err)
 	}
 	c.mqtt = pahomqtt.NewClient(opts)
@@ -106,9 +138,20 @@ func amqpURLFromMQTT(broker, user, pass string) string {
 }
 
 func (c *Client) startAMQPIngest() error {
+	if c.stopped.Load() {
+		return fmt.Errorf("stopped")
+	}
+	if c.amqpOK.Load() {
+		return nil
+	}
+	c.teardownAMQP()
+
 	url := amqpURLFromMQTT(c.cfg.MQTTBroker, c.cfg.MQTTUsername, c.cfg.MQTTPassword)
 	conn, err := amqp.DialConfig(url, amqp.Config{
 		Dial: amqp.DefaultDial(5 * time.Second),
+		Properties: amqp.Table{
+			"connection_name": c.cfg.MQTTClientID + "-ingest",
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("amqp dial: %w", err)
@@ -135,18 +178,43 @@ func (c *Client) startAMQPIngest() error {
 			return fmt.Errorf("bind %s: %w", rk, err)
 		}
 	}
-	deliveries, err := ch.Consume(q.Name, "crearts-platform", true, false, false, false, nil)
+	// Unique consumer tag so a stale connection cannot collide on reconnect.
+	tag := fmt.Sprintf("crearts-platform-%d", time.Now().UnixNano())
+	deliveries, err := ch.Consume(q.Name, tag, true, false, false, false, nil)
 	if err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
 		return err
 	}
+	if c.stopped.Load() {
+		_ = ch.Close()
+		_ = conn.Close()
+		return fmt.Errorf("stopped")
+	}
+	c.mu.Lock()
 	c.amqpConn = conn
 	c.amqpCh = ch
-	c.connected.Store(true)
+	c.mu.Unlock()
+	c.amqpOK.Store(true)
 	go c.consume(deliveries)
 	c.log.Info("amqp ingest started", "queue", q.Name)
 	return nil
+}
+
+func (c *Client) teardownAMQP() {
+	c.mu.Lock()
+	ch := c.amqpCh
+	conn := c.amqpConn
+	c.amqpCh = nil
+	c.amqpConn = nil
+	c.mu.Unlock()
+	c.amqpOK.Store(false)
+	if ch != nil {
+		_ = ch.Close()
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
 }
 
 func (c *Client) consume(deliveries <-chan amqp.Delivery) {
@@ -156,6 +224,8 @@ func (c *Client) consume(deliveries <-chan amqp.Delivery) {
 			return
 		case d, ok := <-deliveries:
 			if !ok {
+				c.amqpOK.Store(false)
+				c.log.Warn("amqp ingest consumer closed")
 				return
 			}
 			topic := strings.ReplaceAll(d.RoutingKey, ".", "/")
@@ -165,16 +235,15 @@ func (c *Client) consume(deliveries <-chan amqp.Delivery) {
 }
 
 func (c *Client) Close() {
-	close(c.stop)
-	if c.amqpCh != nil {
-		_ = c.amqpCh.Close()
-	}
-	if c.amqpConn != nil {
-		_ = c.amqpConn.Close()
-	}
-	if c.mqtt != nil && c.mqtt.IsConnected() {
-		c.mqtt.Disconnect(250)
-	}
+	c.closeOnce.Do(func() {
+		c.stopped.Store(true)
+		close(c.stop)
+		c.teardownAMQP()
+		if c.mqtt != nil && c.mqtt.IsConnected() {
+			c.mqtt.Disconnect(250)
+		}
+		c.mqttOK.Store(false)
+	})
 }
 
 func (c *Client) Publish(topic string, qos byte, retained bool, payload []byte) error {
@@ -185,7 +254,6 @@ func (c *Client) Publish(topic string, qos byte, retained bool, payload []byte) 
 		tok.Wait()
 		return tok.Error()
 	}
-	// fallback AMQP publish to amq.topic
 	if c.amqpCh == nil {
 		return fmt.Errorf("mqtt not connected")
 	}

@@ -209,6 +209,19 @@ body {
   margin-bottom: 0.45rem;
 }
 
+.nodered-embed {
+  min-height: calc(100vh - 6rem);
+}
+
+.nodered-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: #1c2430;
+}
+
 @media (max-width: 767.98px) {
   .sidebar {
     display: none;

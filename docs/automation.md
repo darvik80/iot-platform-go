@@ -1,6 +1,6 @@
 # Automation (Node-RED)
 
-The platform does **not** embed a visual flow editor. Use Node-RED for CEP / multi-device logic.
+Node-RED stays a separate process (compose / Synology). The dashboard **Automation** page embeds the editor in an iframe (`NODERED_URL`, e.g. `http://192.168.1.100:1880`). Same-origin reverse proxy is optional; iframe is enough for the lab if Node-RED allows `frame-ancestors` (see `deploy/nodered/settings.js`).
 
 ## Rules bus
 
@@ -59,4 +59,4 @@ Platform provisions RabbitMQ user `nodered` (password from `NODERED_MQTT_PASSWOR
 
 `deploy/nodered/flows.json` ships a temperature-threshold → desired-attribute example and an offline status debug node.
 
-Dashboard → **Automation** opens the Node-RED editor URL from settings.
+Dashboard → **Automation** shows the editor inline (and “Open in new tab”). `NODERED_URL` must be reachable **from the browser**, not the Docker hostname `nodered`.

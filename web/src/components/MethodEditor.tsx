@@ -1,6 +1,12 @@
 import type { ProductMethod, ProductMethodParam } from '../types';
 
-export const PRESET_METHODS: Record<string, boolean> = { reboot: true };
+export const PRESET_METHODS: Record<string, boolean> = {
+  reboot: true,
+  led_attach: true,
+  led_detach: true,
+  led_list: true,
+  set_led: true,
+};
 export const PRESET_METRICS: Record<string, true> = {
   cpuUsagePercent: true,
   uptimeSeconds: true,

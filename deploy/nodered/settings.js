@@ -17,4 +17,10 @@ module.exports = {
     page: { title: "Crearts IoT — Node-RED" },
     header: { title: "Crearts Automation" },
   },
+  // Allow dashboard iframe (platform UI on another port).
+  httpAdminMiddleware: function (req, res, next) {
+    res.setHeader("Content-Security-Policy", "frame-ancestors *");
+    res.removeHeader("X-Frame-Options");
+    next();
+  },
 };

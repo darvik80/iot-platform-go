@@ -4,22 +4,24 @@ export function AutomationPage() {
   const { settings } = useAuth();
   const url = settings?.nodered_url || 'http://localhost:1880';
   return (
-    <div>
-      <h1 className="h3 mb-3">Automation</h1>
-      <div className="panel">
-        <p>
-          Rules / CEP are handled by <strong>Node-RED</strong>. The platform republishes normalized events and accepts
-          commands on the rules bus.
-        </p>
-        <p className="mono small">Events: platform/v1/events/{'{product}'}/{'{device}'}/#</p>
-        <p className="mono small">Commands: platform/v1/commands/{'{product}'}/{'{device}'}/rpc|attributes/desired|ota</p>
-        <a className="btn btn-primary" href={url} target="_blank" rel="noreferrer">
-          Open Node-RED
+    <div className="nodered-embed d-flex flex-column">
+      <div className="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
+        <h1 className="h3 mb-0">Automation</h1>
+        <a className="small" href={url} target="_blank" rel="noreferrer">
+          Open in new tab
         </a>
-        <p className="muted small mt-3 mb-0">
-          MQTT user for Node-RED: <span className="mono">nodered</span>. Do not use device access tokens in flows.
-        </p>
       </div>
+      <p className="muted small mb-2">
+        Node-RED editor (MQTT user <span className="mono">nodered</span>). Events{' '}
+        <span className="mono">platform/v1/events/…</span> → commands{' '}
+        <span className="mono">platform/v1/commands/…/rpc</span>.
+      </p>
+      <iframe
+        className="nodered-frame"
+        title="Node-RED"
+        src={url}
+        referrerPolicy="no-referrer-when-downgrade"
+      />
     </div>
   );
 }
