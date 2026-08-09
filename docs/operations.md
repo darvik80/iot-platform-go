@@ -1,5 +1,11 @@
 # Operations
 
+## Config files
+
+Priority (first non-empty wins): **OS env → `.env` → `./config.yml` → `/etc/iot-platform-go/config.yml`**.
+
+YAML: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. `.env` / compose: `PUBLIC_BASE_URL`, `HTTP_ADDR` (win over yaml). Full examples: `config.yml.example`, `.env.example`.
+
 ## Run locally (dev)
 
 ```bash
@@ -51,7 +57,15 @@ Backup: stop writes or use `sqlite3 .backup` against a checkpointed copy.
 
 ## Logging
 
-Structured logs to stdout (`slog`). Key events: MQTT listen, MQTT connect/auth/ACL/ingest, HTTP requests (chi logger).
+Structured logs to **stdout** (`slog`). Docker: `docker compose logs -f platform` / `docker logs -f crearts-platform` (stdout+stderr). HTTP access log (chi) goes to stderr — same `docker logs`.
+
+`LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`). MQTT telemetry ingest is **debug**. Connect / ACL / RPC / OTA stay info.
+
+```bash
+# compose
+LOG_LEVEL=debug docker compose up -d
+docker compose logs -f platform
+```
 
 Dashboard → **MQTT** shows live sessions and a recent broker event trail (`GET /api/v1/mqtt`).
 

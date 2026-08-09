@@ -77,7 +77,7 @@ Short-topic messages are attributed using MQTT username (`{product}.{device}`). 
 
 Dashboard **MQTT** page (`GET /api/v1/mqtt`): live sessions (client id, username, remote IP, subscriptions) and an in-memory event trail (auth, connect/disconnect, ACL deny, ingest, publish).
 
-Stdout (`slog`, level Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (non-telemetry), `command`, downlink `publish`. Telemetry ingest is Debug.
+Stdout (`slog`, `LOG_LEVEL`, default Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (non-telemetry), `command`, downlink `publish`. Telemetry ingest is Debug. Docker: `docker compose logs -f platform`.
 
 WebSocket event `mqtt` is broadcast on connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 

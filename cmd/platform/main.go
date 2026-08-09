@@ -24,8 +24,9 @@ func main() {
 	config.LoadDotEnv(".env")
 	config.LoadYAML("./config.yml")
 	config.LoadYAML("/etc/iot-platform-go/config.yml")
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg := config.Load()
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
+	slog.SetDefault(log)
 	if cfg.GoogleEnabled() {
 		log.Info("google oauth enabled", "redirect", cfg.GoogleCallbackURL())
 	} else {
@@ -76,7 +77,7 @@ func main() {
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
 
 	go func() {
-		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "name", cfg.PlatformName, "tz", cfg.TimezoneOrUTC())
+		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "public", cfg.PublicBaseURL, "name", cfg.PlatformName, "tz", cfg.TimezoneOrUTC(), "log", cfg.LogLevel)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("http server failed", "err", err)
 			os.Exit(1)

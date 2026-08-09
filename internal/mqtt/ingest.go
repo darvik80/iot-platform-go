@@ -27,7 +27,7 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 		return
 	}
 	kind := protocol.NormalizeCapOp(capOp)
-	level := "info"
+	level := "debug"
 	if kind == protocol.KindTelemetry {
 		level = "debug"
 	}

@@ -75,6 +75,8 @@ password  = <access_token>
 
 ## Configuration
 
+YAML: `server.public_base_url`. `.env`: `PUBLIC_BASE_URL` (wins if set). See `config.yml.example` and `.env.example`.
+
 | Env | Default | Description |
 |-----|---------|-------------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
@@ -82,6 +84,7 @@ password  = <access_token>
 | `OTA_DIR` | `{sqlite dir}/firmware` | Hosted OTA `.bin` storage |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Absolute URLs (email, Google, **OTA download**). Use a LAN IP devices can reach |
 | `TIMEZONE` | `UTC` | IANA zone for schedule / LED quiet hours. Binding `tz` overrides |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`. Telemetry ingest is debug |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
 | `MQTT_WS_ADDR` | (off) | Optional MQTT-over-WebSocket listen |
 | `JWT_SECRET` | (dev default) | Dashboard JWT signing key |

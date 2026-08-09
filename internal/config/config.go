@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ type Config struct {
 	PlatformName           string
 	PublicBaseURL          string
 	Timezone               string
+	LogLevel               string
 	OTADir                 string
 	RegisterEnabled        bool
 	RegisterDefaultRole    models.Role
@@ -48,18 +50,18 @@ type Config struct {
 }
 
 func Load() Config {
-	role := models.Role(getenv("REGISTER_DEFAULT_ROLE", "viewer"))
+	role := models.Role(getenv("REGISTER_DEFAULT_ROLE", "viewer", "AUTH_REGISTER_DEFAULT_ROLE"))
 	switch role {
 	case models.RoleAdmin, models.RoleOperator, models.RoleViewer:
 	default:
 		role = models.RoleViewer
 	}
 	return Config{
-		HTTPAddr:               getenv("HTTP_ADDR", ":8080"),
-		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db"),
+		HTTPAddr:               getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
+		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH"),
 		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
 		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ""),
-		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me"),
+		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
 		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
 		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
 		LabAllowUnknown:        getenvBool("LAB_ALLOW_UNKNOWN_DEVICES", false),
@@ -72,18 +74,19 @@ func Load() Config {
 		AdminEmail:             getenv("ADMIN_EMAIL", "admin@crearts.local"),
 		AdminPassword:          getenv("ADMIN_PASSWORD", "admin"),
 		AdminLogin:             getenv("ADMIN_LOGIN", "admin"),
-		PlatformName:           getenv("PLATFORM_NAME", "Crearts IoT"),
-		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+		PlatformName:           getenv("PLATFORM_NAME", "Crearts IoT", "SERVER_PLATFORM_NAME"),
+		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL"), "/"),
 		Timezone:               strings.TrimSpace(getenv("TIMEZONE", "UTC")),
+		LogLevel:               strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
 		OTADir:                 getenv("OTA_DIR", ""),
-		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true),
+		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true, "AUTH_REGISTER_ENABLED"),
 		RegisterDefaultRole:    role,
-		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", true),
-		SMTPHost:               getenv("SMTP_HOST", ""),
-		SMTPPort:               getenvInt("SMTP_PORT", 587),
-		SMTPUser:               getenv("SMTP_USER", ""),
-		SMTPPass:               getenv("SMTP_PASS", ""),
-		SMTPFrom:               getenv("SMTP_FROM", "noreply@crearts.local"),
+		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", true, "AUTH_REQUIRE_EMAIL_VERIFY"),
+		SMTPHost:               getenv("SMTP_HOST", "", "EMAIL_SMTP_HOST"),
+		SMTPPort:               getenvInt("SMTP_PORT", 587, "EMAIL_SMTP_PORT"),
+		SMTPUser:               getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),
+		SMTPPass:               getenv("SMTP_PASS", "", "EMAIL_SMTP_PASS"),
+		SMTPFrom:               getenv("SMTP_FROM", "noreply@crearts.local", "EMAIL_SMTP_FROM"),
 		EmailMode:              strings.ToLower(getenv("EMAIL_MODE", "log")),
 		GoogleClientID:         getenv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:     getenv("GOOGLE_CLIENT_SECRET", ""),
@@ -93,6 +96,19 @@ func Load() Config {
 
 func (c Config) GoogleEnabled() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
+}
+
+func (c Config) SlogLevel() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(c.LogLevel)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // TimezoneOrUTC returns a valid IANA zone (UTC if empty or unknown).
@@ -159,15 +175,29 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func getenv(k, def string) string {
+func getenv(k, def string, alts ...string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	for _, a := range alts {
+		if v := os.Getenv(a); v != "" {
+			return v
+		}
 	}
 	return def
 }
 
-func getenvInt(k string, def int) int {
-	v := os.Getenv(k)
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func getenvInt(k string, def int, alts ...string) int {
+	v := firstEnv(append([]string{k}, alts...)...)
 	if v == "" {
 		return def
 	}
@@ -178,8 +208,8 @@ func getenvInt(k string, def int) int {
 	return n
 }
 
-func getenvBool(k string, def bool) bool {
-	v := strings.ToLower(os.Getenv(k))
+func getenvBool(k string, def bool, alts ...string) bool {
+	v := strings.ToLower(firstEnv(append([]string{k}, alts...)...))
 	if v == "" {
 		return def
 	}

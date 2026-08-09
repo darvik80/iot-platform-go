@@ -1,35 +1,38 @@
+# Priority: OS env > .env > ./config.yml > /etc/iot-platform-go/config.yml
+# Flatten: mqtt.addr → MQTT_ADDR, server.public_base_url → SERVER_PUBLIC_BASE_URL
+# .env uses PUBLIC_BASE_URL / HTTP_ADDR (those win if set).
+
 server:
   http_addr: ":8080"
-  public_base_url: "http://localhost:8080"
+  public_base_url: "http://192.168.1.22:8080"   # device-reachable (OTA, email, Google)
   platform_name: "Crearts IoT"
 
-# IANA timezone for schedule / quiet hours. Plugin config.tz overrides per binding.
 timezone: "Asia/Bangkok"
+log_level: info                                 # debug | info | warn | error
 
 database:
   sqlite_path: "./data/platform.db"
 
-# Hosted OTA images (default: beside sqlite → ./data/firmware)
 ota_dir: "./data/firmware"
 
 mqtt:
   addr: ":1883"
   # ws_addr: ":8083"
-  broker_host_public: "192.168.1.100"
+  broker_host_public: "192.168.1.22"
 
 auth:
   jwt_secret: "dev-jwt-secret-change-me"
   register_enabled: true
-  register_default_role: "viewer"
+  register_default_role: viewer                 # admin | operator | viewer
   require_email_verify: true
 
 admin:
-  login: "admin"
-  email: "admin@crearts.local"
-  password: "admin"
+  login: admin
+  email: admin@crearts.local
+  password: admin
 
 email:
-  mode: "log"        # smtp | log
+  mode: log                                     # smtp | log
   smtp_host: ""
   smtp_port: 587
   smtp_user: ""
@@ -39,12 +42,12 @@ email:
 google:
   client_id: ""
   client_secret: ""
-  # redirect_url: "http://localhost:8080/api/v1/auth/google/callback"
+  # redirect_url: "http://192.168.1.22:8080/api/v1/auth/google/callback"
 
 nodered:
-  url: "http://192.168.1.100:1880"
-  mqtt_user: "nodered"
-  mqtt_password: "nodered"
+  url: "http://192.168.1.22:1880"
+  mqtt_user: nodered
+  mqtt_password: nodered
 
 rules:
   bus_enabled: true
@@ -55,3 +58,5 @@ telemetry:
 
 rpc:
   default_timeout_ms: 30000
+
+lab_allow_unknown_devices: false

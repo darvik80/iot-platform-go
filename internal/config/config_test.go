@@ -14,6 +14,15 @@ func TestTimezoneOrUTC(t *testing.T) {
 	}
 }
 
+func TestSlogLevel(t *testing.T) {
+	if (Config{LogLevel: "debug"}).SlogLevel().String() != "DEBUG" {
+		t.Fatal("debug")
+	}
+	if (Config{}).SlogLevel().String() != "INFO" {
+		t.Fatal("default info")
+	}
+}
+
 func TestMQTTPublicPort(t *testing.T) {
 	cases := map[string]int{
 		"":               1883,
