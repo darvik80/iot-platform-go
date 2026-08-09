@@ -3,6 +3,9 @@ server:
   public_base_url: "http://localhost:8080"
   platform_name: "Crearts IoT"
 
+# IANA timezone for schedule / quiet hours. Plugin config.tz overrides per binding.
+timezone: "Asia/Bangkok"
+
 database:
   sqlite_path: "./data/platform.db"
 

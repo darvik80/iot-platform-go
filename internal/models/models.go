@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 type Role string
 
 const (
@@ -204,4 +206,27 @@ type MQTTStatus struct {
 	ClientCount int          `json:"client_count"`
 	Clients     []MQTTClient `json:"clients"`
 	Events      []MQTTEvent  `json:"events"`
+}
+
+type PluginInfo struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	DefaultConfig json.RawMessage `json:"default_config"`
+	Effects       []string        `json:"effects,omitempty"`
+}
+
+type DevicePluginBinding struct {
+	ID          int64           `json:"id"`
+	DevicePK    int64           `json:"device_pk"`
+	PluginID    string          `json:"plugin_id"`
+	Enabled     bool            `json:"enabled"`
+	Config      json.RawMessage `json:"config"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Effects     []string        `json:"effects,omitempty"`
+	Running     bool            `json:"running,omitempty"`
+	LastError   string          `json:"last_error,omitempty"`
 }

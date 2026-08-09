@@ -11,6 +11,7 @@ import (
 	"crearts-iot-platform/internal/auth"
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 )
 
 func DeviceMQTTUsername(productID, deviceID string) string {
@@ -133,7 +134,7 @@ func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceC
 	now := db.NowMS()
 	res, err := p.DB.Exec(`INSERT INTO devices(product_pk, device_id, name, description, tags, access_token_hash, token_prefix, status, topic_style, enabled, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`,
-		pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", "short", now, now)
+		pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", protocol.StyleShort, now, now)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -271,7 +272,7 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 				Port:       port,
 				Token:      token,
 				TLS:        false,
-				TopicShort: style != "full",
+				TopicShort: style != protocol.StyleFull,
 			},
 		},
 	}
@@ -286,7 +287,7 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	d.Status = "online"
 	d.LastSeenAt = &now
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, "status", map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
 	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
 	p.flushPendingOTA(d)
 	_ = p.maybeAutoOTA(d, d.FwVersion, "main")
@@ -300,7 +301,7 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 	_, _ = p.DB.Exec(`UPDATE devices SET status='offline', updated_at=? WHERE id=?`, now, d.ID)
 	d.Status = "offline"
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, "status", map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
 	msg := "Device offline"
 	if reason != "" {
 		msg = "Device offline (" + reason + ")"

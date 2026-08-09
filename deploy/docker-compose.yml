@@ -39,6 +39,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       BROKER_HOST_PUBLIC: ${BROKER_HOST_PUBLIC:-localhost}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      TIMEZONE: ${TIMEZONE:-Asia/Bangkok}
       NODERED_URL: http://localhost:1880
       NODERED_MQTT_USER: ${NODERED_MQTT_USER:-nodered}
       NODERED_MQTT_PASSWORD: ${NODERED_MQTT_PASSWORD:-nodered}

@@ -9,10 +9,11 @@ import (
 
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 )
 
 func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
-	if p.SeenRecently(d.ID, "telemetry", payload, 2*time.Second) {
+	if p.SeenRecently(d.ID, protocol.BusTelemetry, payload, 2*time.Second) {
 		return nil
 	}
 	now := db.NowMS()
@@ -56,7 +57,7 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 	}
 	p.TouchSeen(d)
 	p.emit("telemetry", map[string]any{"device_id": d.ID, "product_id": d.ProductID, "device": d.DeviceID, "keys": keys, "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, "telemetry", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusTelemetry, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "keys": keys,
 	})
 	return nil
@@ -261,7 +262,7 @@ func (p *Platform) MergeReported(d *models.Device, attrs map[string]any) error {
 	}
 	p.TouchSeen(d)
 	p.emit("attributes.reported", map[string]any{"device_id": d.ID, "attrs": attrs})
-	p.publishRules(d.ProductID, d.DeviceID, "attributes/reported", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusAttributesReported, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
 	return nil
@@ -289,11 +290,11 @@ func (p *Platform) SetDesired(d *models.Device, attrs map[string]any, publish bo
 	}
 	if publish && p.Pub != nil {
 		b, _ := json.Marshal(attrs)
-		topic := p.DownTopic(d, "attributes", "update")
+		topic := p.DownTopic(d, protocol.CapAttributes, protocol.OpUpdate)
 		_ = p.Pub.Publish(topic, 1, false, b)
 	}
 	p.emit("attributes.desired", map[string]any{"device_id": d.ID, "attrs": attrs})
-	p.publishRules(d.ProductID, d.DeviceID, "attributes/desired", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusAttributesDesired, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
 	return nil
@@ -323,7 +324,7 @@ func (p *Platform) ReplyAttributeRequest(d *models.Device, payload []byte) error
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, "attributes", "response"), 1, false, b)
+	return p.Pub.Publish(p.DownTopic(d, protocol.CapAttributes, protocol.OpResponse), 1, false, b)
 }
 
 func filterKeys(src map[string]any, keys []string) map[string]any {
@@ -371,7 +372,7 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 	if p.Pub == nil {
 		return nil, errors.New("mqtt not connected")
 	}
-	if err := p.Pub.Publish(p.DownTopic(d, "rpc", "request"), 1, false, b); err != nil {
+	if err := p.Pub.Publish(p.DownTopic(d, protocol.CapRPC, protocol.OpRequest), 1, false, b); err != nil {
 		return nil, err
 	}
 	key := fmt.Sprintf("%d:%d", d.ID, rid)
@@ -443,7 +444,7 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 		}
 	}
 	p.emit("rpc.completed", call)
-	p.publishRules(d.ProductID, d.DeviceID, "rpc/result", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"request_id": resp.ID, "code": resp.Code, "message": resp.Message, "method": call.Method,
 		"correlation_id": call.CorrelationID, "data": json.RawMessage(ptrStr(dataStr)),
@@ -514,7 +515,7 @@ func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, "rpc", "response"), 1, false, b)
+	return p.Pub.Publish(p.DownTopic(d, protocol.CapRPC, protocol.OpResponse), 1, false, b)
 }
 
 func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) error {
@@ -536,5 +537,5 @@ func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) erro
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, "ntp", "response"), 1, false, b)
+	return p.Pub.Publish(p.DownTopic(d, protocol.CapNTP, protocol.OpResponse), 1, false, b)
 }

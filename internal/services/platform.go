@@ -18,6 +18,8 @@ import (
 	"crearts-iot-platform/internal/config"
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/plugins"
+	"crearts-iot-platform/internal/protocol"
 )
 
 var idRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
@@ -50,10 +52,12 @@ type Platform struct {
 	byToken    map[string]*models.Device // hash -> device
 	rpcWaiters map[string]chan models.RPCCall
 	rpcSeq     uint32
+
+	Plugins *PluginHub
 }
 
 func New(database *sql.DB, cfg config.Config, log *slog.Logger) *Platform {
-	return &Platform{
+	p := &Platform{
 		DB:         database,
 		Cfg:        cfg,
 		Log:        log,
@@ -61,6 +65,9 @@ func New(database *sql.DB, cfg config.Config, log *slog.Logger) *Platform {
 		byToken:    map[string]*models.Device{},
 		rpcWaiters: map[string]chan models.RPCCall{},
 	}
+	p.Plugins = newPluginHub(p)
+	plugins.SetDefaultTZ(cfg.TimezoneOrUTC())
+	return p
 }
 
 func (p *Platform) SetPublisher(pub Publisher)   { p.Pub = pub }
@@ -117,6 +124,9 @@ func (p *Platform) emit(event string, data any) {
 }
 
 func (p *Platform) publishRules(productID, deviceID, kind string, payload any) {
+	if p.Plugins != nil {
+		p.Plugins.Dispatch(productID, deviceID, kind, payload)
+	}
 	if p.Pub == nil || !p.Cfg.RulesBusEnabled {
 		return
 	}
@@ -130,7 +140,7 @@ func (p *Platform) publishRules(productID, deviceID, kind string, payload any) {
 
 // ObserveTopicStyle stores the MQTT dialect inferred from Will / subscribe / publish prefixes.
 func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
-	if d == nil || (style != "short" && style != "full") {
+	if d == nil || !protocol.ValidStyle(style) {
 		return
 	}
 	if d.TopicStyle == style {
@@ -148,30 +158,7 @@ func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
 }
 
 func (p *Platform) DownTopic(d *models.Device, capability, operation string) string {
-	if d.TopicStyle == "full" {
-		if operation == "" {
-			return fmt.Sprintf("iot/v1/%s/%s/down/%s", d.ProductID, d.DeviceID, capability)
-		}
-		return fmt.Sprintf("iot/v1/%s/%s/down/%s/%s", d.ProductID, d.DeviceID, capability, operation)
-	}
-	switch capability + "/" + operation {
-	case "attributes/response":
-		return "v1/me/a/res"
-	case "attributes/update":
-		return "v1/me/a/upd"
-	case "rpc/request":
-		return "v1/me/r/req"
-	case "rpc/response":
-		return "v1/me/r/cres"
-	case "ntp/response":
-		return "v1/me/n/res"
-	case "ota/update":
-		return "v1/me/o/upd"
-	case "ota/cancel":
-		return "v1/me/o/can"
-	default:
-		return "v1/me/" + capability
-	}
+	return protocol.DownTopic(d.TopicStyle, d.ProductID, d.DeviceID, capability, operation)
 }
 
 func ValidateIDs(productID, deviceID string) error {

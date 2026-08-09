@@ -10,6 +10,7 @@ import (
 
 	"crearts-iot-platform/internal/auth"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 )
 
 type platHook struct {
@@ -82,7 +83,7 @@ func (h *platHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 		h.b.note("warn", "auth_fail", clientID, user, remote, "", "bad token", 0)
 		return false
 	}
-	if style := DetectTopicStyle(pk.Connect.WillTopic); style != "" {
+	if style := protocol.DetectStyle(pk.Connect.WillTopic); style != "" {
 		h.b.plat.ObserveTopicStyle(d, style)
 	}
 	return true
@@ -111,20 +112,20 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if user == h.b.cfg.NodeRedMQTTUser {
 		prefix := strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")
 		if write {
-			return topicUnder(topic, prefix+"/commands/")
+			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
 		}
-		return topicUnder(topic, prefix+"/events/")
+		return topicUnder(topic, protocol.RulesEventsRoot(prefix))
 	}
 	d := h.deviceFor(user)
 	if d == nil || !d.Enabled {
 		return false
 	}
-	up := "iot/v1/" + d.ProductID + "/" + d.DeviceID + "/up/"
-	down := "iot/v1/" + d.ProductID + "/" + d.DeviceID + "/down/"
+	up := protocol.FullUpRoot(d.ProductID, d.DeviceID)
+	down := protocol.FullDownRoot(d.ProductID, d.DeviceID)
 	if write {
-		return topicUnder(topic, up) || topicUnder(topic, "v1/")
+		return topicUnder(topic, up) || topicUnder(topic, protocol.PrefixShort)
 	}
-	return topicUnder(topic, down) || topicUnder(topic, "v1/")
+	return topicUnder(topic, down) || topicUnder(topic, protocol.PrefixShort)
 }
 
 func (h *platHook) OnSessionEstablished(cl *mochi.Client, _ packets.Packet) {
@@ -184,7 +185,7 @@ func (h *platHook) OnSubscribed(cl *mochi.Client, pk packets.Packet, _ []byte) {
 		return
 	}
 	for _, f := range filters {
-		if style := DetectTopicStyle(f); style != "" {
+		if style := protocol.DetectStyle(f); style != "" {
 			if d := h.deviceFor(user); d != nil {
 				h.b.plat.ObserveTopicStyle(d, style)
 			}
@@ -198,7 +199,7 @@ func (h *platHook) OnPublished(cl *mochi.Client, pk packets.Packet) {
 		return
 	}
 	topic := pk.TopicName
-	if h.b.cfg.RulesBusEnabled && strings.HasPrefix(topic, strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")+"/events/") {
+	if h.b.cfg.RulesBusEnabled && strings.HasPrefix(topic, protocol.RulesEventsRoot(h.b.cfg.RulesBusPrefix)) {
 		return
 	}
 	user := string(cl.Properties.Username)

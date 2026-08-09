@@ -107,6 +107,13 @@ func (s *Server) Router() http.Handler {
 			r.Get("/devices/{id}/rpc", s.listRPC)
 			r.Post("/devices/{id}/ota", s.requireWrite(s.startOTA))
 			r.Post("/devices/{id}/ota/cancel", s.requireWrite(s.cancelOTA))
+
+			r.Get("/plugins", s.listPluginCatalog)
+			r.Get("/devices/{id}/plugins", s.listDevicePlugins)
+			r.Post("/devices/{id}/plugins", s.requireWrite(s.bindDevicePlugin))
+			r.Put("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.updateDevicePlugin))
+			r.Delete("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.deleteDevicePlugin))
+			r.Post("/devices/{id}/plugins/{bindingId}/apply", s.requireWrite(s.applyDevicePlugin))
 			r.Post("/ota/firmwares/{id}/notify", s.requireWrite(s.notifyFirmware))
 
 			r.Get("/events", s.listEvents)
@@ -694,5 +701,6 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"require_email_verify":     s.Plat.Cfg.RequireEmailVerify,
 		"google_enabled":           s.Plat.Cfg.GoogleEnabled(),
 		"public_base_url":          s.Plat.Cfg.PublicBaseURL,
+		"timezone":                 s.Plat.Cfg.TimezoneOrUTC(),
 	})
 }

@@ -61,6 +61,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go plat.RetentionLoop(ctx)
+	plat.StartPlugins(ctx)
 
 	var spa fs.FS
 	if embedded, err := webui.FS(); err == nil {
@@ -75,7 +76,7 @@ func main() {
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
 
 	go func() {
-		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "name", cfg.PlatformName)
+		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "name", cfg.PlatformName, "tz", cfg.TimezoneOrUTC())
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("http server failed", "err", err)
 			os.Exit(1)

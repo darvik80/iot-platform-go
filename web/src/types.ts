@@ -158,6 +158,67 @@ export interface LogRow {
   message: string;
 }
 
+export interface PluginInfo {
+  id: string;
+  name: string;
+  description: string;
+  default_config?: Record<string, unknown>;
+  effects?: string[];
+}
+
+export interface LedGarlandStrip {
+  gpio: number;
+  length: number;
+}
+
+export interface LedTimeWindow {
+  enabled?: boolean;
+  from?: string;
+  to?: string;
+  effect?: string;
+}
+
+export interface LedGarlandConfig {
+  strips?: LedGarlandStrip[];
+  mode?: 'auto' | 'effect';
+  effect?: string;
+  interval_ms?: number;
+  auto_ms?: number;
+  rpc?: string;
+  attach_rpc?: string;
+  brightness?: number;
+  tz?: string;
+  quiet?: LedTimeWindow;
+  active?: LedTimeWindow;
+}
+
+export interface ScheduleJob {
+  name?: string;
+  at: string;
+  days?: number[];
+  rpc: string;
+  params?: Record<string, unknown>;
+}
+
+export interface ScheduleConfig {
+  tz?: string;
+  jobs?: ScheduleJob[];
+}
+
+export interface DevicePluginBinding {
+  id: number;
+  device_pk: number;
+  plugin_id: string;
+  enabled: boolean;
+  config: LedGarlandConfig | ScheduleConfig | Record<string, unknown>;
+  name?: string;
+  description?: string;
+  effects?: string[];
+  running?: boolean;
+  last_error?: string;
+  updated_at?: number;
+}
+
 export interface Firmware {
   id: number;
   product_id: string;
@@ -250,6 +311,7 @@ export interface Settings {
   rules_bus_enabled: boolean;
   nodered_url: string;
   public_base_url?: string;
+  timezone?: string;
   register_enabled?: boolean;
   require_email_verify?: boolean;
   google_enabled?: boolean;

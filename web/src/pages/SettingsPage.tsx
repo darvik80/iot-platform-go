@@ -36,6 +36,7 @@ export function SettingsPage() {
         <div>Rules bus: {String(s.rules_bus_enabled)}</div>
         <div>Node-RED: {s.nodered_url}</div>
         <div>Public URL: {s.public_base_url || '—'}</div>
+        <div>Timezone: {s.timezone || 'UTC'}</div>
         <div>Registration: {String(s.register_enabled)}</div>
         <div>Email verify: {String(s.require_email_verify)}</div>
         <div>Google OAuth: {String(s.google_enabled)}</div>

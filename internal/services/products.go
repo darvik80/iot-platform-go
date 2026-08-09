@@ -9,6 +9,7 @@ import (
 
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 )
 
 const productSelect = `SELECT id, product_id, name, description, topic_style_default,
@@ -128,9 +129,9 @@ func (p *Platform) CreateProduct(in ProductInput) (*models.Product, error) {
 		in.Name = in.ProductID
 	}
 	if in.TopicStyleDefault == "" {
-		in.TopicStyleDefault = "short"
+		in.TopicStyleDefault = protocol.StyleShort
 	}
-	if in.TopicStyleDefault != "short" && in.TopicStyleDefault != "full" {
+	if !protocol.ValidStyle(in.TopicStyleDefault) {
 		return nil, errors.New("invalid topic_style_default")
 	}
 	if in.Methods == nil {
@@ -168,6 +169,9 @@ func (p *Platform) UpdateProduct(id int64, in ProductInput) (*models.Product, er
 	}
 	pr.Description = in.Description
 	if in.TopicStyleDefault != "" {
+		if !protocol.ValidStyle(in.TopicStyleDefault) {
+			return nil, errors.New("invalid topic_style_default")
+		}
 		pr.TopicStyleDefault = in.TopicStyleDefault
 	}
 	if in.SetMethods || in.Methods != nil {

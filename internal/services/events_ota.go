@@ -16,10 +16,11 @@ import (
 
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 )
 
 func (p *Platform) StoreEvent(d *models.Device, payload []byte) error {
-	if p.SeenRecently(d.ID, "event", payload, 2*time.Second) {
+	if p.SeenRecently(d.ID, protocol.BusEvent, payload, 2*time.Second) {
 		return nil
 	}
 	var e struct {
@@ -69,7 +70,7 @@ func (p *Platform) RecordEvent(d *models.Device, eventID, typ, severity, code, m
 	id, _ := res.LastInsertId()
 	ev := models.Event{ID: id, DevicePK: d.ID, ProductID: d.ProductID, DeviceID: d.DeviceID, EventID: eventID, Type: typ, Severity: severity, Code: code, Message: message, DataJSON: dataJSON, TS: ts, IngestedAt: now}
 	p.emit("event", ev)
-	p.publishRules(d.ProductID, d.DeviceID, "event", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusEvent, map[string]any{
 		"ts": ts, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"type": typ, "severity": severity, "code": code, "message": message, "data": data,
 	})
@@ -155,7 +156,7 @@ func (p *Platform) StoreLogs(d *models.Device, payload []byte) error {
 		_, _ = p.DB.Exec(`INSERT INTO device_logs(device_pk, level, module, code, message, context_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
 			d.ID, it.Level, it.Module, it.Code, it.Message, ctx, it.TS, now)
 		p.emit("log", map[string]any{"device_id": d.ID, "level": it.Level, "module": it.Module, "message": it.Message, "ts": it.TS})
-		p.publishRules(d.ProductID, d.DeviceID, "log", map[string]any{
+		p.publishRules(d.ProductID, d.DeviceID, protocol.BusLog, map[string]any{
 			"ts": it.TS, "product_id": d.ProductID, "device_id": d.DeviceID,
 			"level": it.Level, "module": it.Module, "code": it.Code, "message": it.Message, "context": it.Context,
 		})
@@ -265,7 +266,7 @@ func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
 	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status=?, step=?, desc=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
 		status, prog.Step, prog.Desc, now, d.ID)
 	p.emit("ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "desc": prog.Desc, "status": status})
-	p.publishRules(d.ProductID, d.DeviceID, "ota", map[string]any{
+	p.publishRules(d.ProductID, d.DeviceID, protocol.BusOTA, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "step": prog.Step, "desc": prog.Desc, "status": status,
 	})
 	return nil
@@ -741,7 +742,7 @@ func (p *Platform) PushOTA(d *models.Device, fw *models.OTAFirmware, force bool)
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, "ota", "update"), 1, false, b)
+	return p.Pub.Publish(p.DownTopic(d, protocol.CapOTA, protocol.OpUpdate), 1, false, b)
 }
 
 func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
@@ -756,7 +757,7 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, "ota", "cancel"), 1, false, b)
+	return p.Pub.Publish(p.DownTopic(d, protocol.CapOTA, protocol.OpCancel), 1, false, b)
 }
 
 func (p *Platform) ListOTAJobs(devicePK int64) ([]models.OTAJob, error) {

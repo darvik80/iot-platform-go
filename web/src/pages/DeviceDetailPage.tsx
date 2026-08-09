@@ -7,6 +7,7 @@ import { CredsModal } from '../components/CredsModal';
 import { MetricCards } from '../components/MetricCards';
 import { RpcConsole } from '../components/RpcConsole';
 import { SeverityBadge, StatusBadge } from '../components/StatusBadge';
+import { DevicePlugins } from '../components/DevicePlugins';
 import { formatOtaProgress } from '../utils/format';
 import type { DeviceCredentials, DeviceDetail, Firmware, OTAJob } from '../types';
 
@@ -254,6 +255,8 @@ export function DeviceDetailPage() {
           </div>
         )}
       </div>
+
+      <DevicePlugins deviceId={d.id} online={d.status === 'online'} />
 
       <div className="panel">
         <h2 className="h6 text-uppercase muted">RPC</h2>

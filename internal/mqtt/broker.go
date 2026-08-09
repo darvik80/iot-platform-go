@@ -14,6 +14,7 @@ import (
 
 	"crearts-iot-platform/internal/config"
 	"crearts-iot-platform/internal/models"
+	"crearts-iot-platform/internal/protocol"
 	"crearts-iot-platform/internal/services"
 )
 
@@ -107,7 +108,7 @@ func (b *Broker) Publish(topic string, qos byte, retained bool, payload []byte) 
 		return err
 	}
 	level := "debug"
-	if !strings.Contains(topic, "/events/") {
+	if !strings.Contains(topic, "/"+protocol.SegEvents+"/") {
 		level = "info"
 	}
 	b.note(level, "publish", "inline", "", "", topic, "", len(payload))

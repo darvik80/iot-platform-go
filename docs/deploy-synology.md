@@ -28,6 +28,7 @@ Example `.env` on NAS:
 MQTT_ADDR=:1883
 BROKER_HOST_PUBLIC=192.168.1.100
 PUBLIC_BASE_URL=http://192.168.1.100:9083
+TIMEZONE=Asia/Bangkok
 # ESP OTA: devices GET {PUBLIC_BASE_URL}/ota/fw/{token}.bin (no JWT)
 JWT_SECRET=change-me
 ADMIN_LOGIN=admin

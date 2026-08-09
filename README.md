@@ -81,6 +81,7 @@ password  = <access_token>
 | `SQLITE_PATH` | `./data/platform.db` | SQLite file |
 | `OTA_DIR` | `{sqlite dir}/firmware` | Hosted OTA `.bin` storage |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Absolute URLs (email, Google, **OTA download**). Use a LAN IP devices can reach |
+| `TIMEZONE` | `UTC` | IANA zone for schedule / LED quiet hours. Binding `tz` overrides |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
 | `MQTT_WS_ADDR` | (off) | Optional MQTT-over-WebSocket listen |
 | `JWT_SECRET` | (dev default) | Dashboard JWT signing key |
@@ -117,6 +118,7 @@ Dashboard (SPA) ──HTTPS──► platform-api
 - [Auth & users](docs/auth.md)
 - [MQTT protocol](docs/mqtt.md) (summary; full spec lives in embed-framework)
 - [Automation / Node-RED](docs/automation.md)
+- [Device plugins](docs/plugins.md)
 - [Operations](docs/operations.md)
 - [Synology / Gitea deploy](docs/deploy-synology.md)
 - [MCP (LLM device tools)](docs/mcp.md)

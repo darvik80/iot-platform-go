@@ -39,6 +39,10 @@ Backup: stop writes or use `sqlite3 .backup` against a checkpointed copy.
 
 `PUBLIC_BASE_URL` must be reachable from the device (NAS/LAN IP, not `localhost`).
 
+## Timezone
+
+`TIMEZONE` (IANA, e.g. `Asia/Bangkok`) in `.env` / `config.yml`. Used by schedule and LED quiet hours / night-light. Default `UTC`. Plugin `config.tz` overrides per device. Shown on Settings.
+
 ## Token rotation
 
 1. Operator rotates token in UI/API.

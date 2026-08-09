@@ -36,7 +36,7 @@ Current user.
 | GET | `/readyz` | DB + embedded MQTT ready (no auth); includes `mqtt_clients` |
 | GET | `/overview` | online/offline counts, MQTT flag + client count |
 | GET | `/mqtt` | live MQTT sessions + recent broker events |
-| GET | `/settings` | retention, broker host, Node-RED URL |
+| GET | `/settings` | retention, broker host, Node-RED URL, timezone |
 
 ## Products
 
@@ -68,6 +68,12 @@ Current user.
 | POST | `/devices/{id}/token/rotate` | new credentials once |
 | POST | `/devices/{id}/enable` | |
 | POST | `/devices/{id}/disable` | |
+| GET | `/plugins` | builtin plugin catalog |
+| GET | `/devices/{id}/plugins` | bindings for this device |
+| POST | `/devices/{id}/plugins` | `{ "plugin_id", "config"?, "enabled"? }` |
+| PUT | `/devices/{id}/plugins/{bindingId}` | update config / enabled |
+| DELETE | `/devices/{id}/plugins/{bindingId}` | |
+| POST | `/devices/{id}/plugins/{bindingId}/apply` | run one plugin frame now |
 
 ### Create response
 

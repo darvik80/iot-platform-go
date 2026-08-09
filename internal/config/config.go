@@ -31,6 +31,7 @@ type Config struct {
 	AdminLogin             string
 	PlatformName           string
 	PublicBaseURL          string
+	Timezone               string
 	OTADir                 string
 	RegisterEnabled        bool
 	RegisterDefaultRole    models.Role
@@ -73,6 +74,7 @@ func Load() Config {
 		AdminLogin:             getenv("ADMIN_LOGIN", "admin"),
 		PlatformName:           getenv("PLATFORM_NAME", "Crearts IoT"),
 		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+		Timezone:               strings.TrimSpace(getenv("TIMEZONE", "UTC")),
 		OTADir:                 getenv("OTA_DIR", ""),
 		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true),
 		RegisterDefaultRole:    role,
@@ -91,6 +93,18 @@ func Load() Config {
 
 func (c Config) GoogleEnabled() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
+}
+
+// TimezoneOrUTC returns a valid IANA zone (UTC if empty or unknown).
+func (c Config) TimezoneOrUTC() string {
+	tz := strings.TrimSpace(c.Timezone)
+	if tz == "" {
+		return "UTC"
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return "UTC"
+	}
+	return tz
 }
 
 func (c Config) MQTTPublicPort() int {
