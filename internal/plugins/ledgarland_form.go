@@ -17,6 +17,7 @@ var ledGarlandForm = []FormField{
 	{Key: "interval_ms", Type: "number", Label: "Frame interval ms", Min: num(80)},
 	{Key: "brightness", Type: "number", Label: "Brightness", Min: num(1), Max: num(255)},
 	{Key: "tz", Type: "timezone", Label: "Timezone"},
+	{Key: "_hours", Type: "break"},
 	{
 		Key: "quiet", Type: "object", Label: "Quiet hours (wraps midnight)",
 		Fields: []FormField{

@@ -1,6 +1,6 @@
 import type { PluginFormField, PluginFormOption } from '../types';
 
-const TZ_OPTIONS = [
+const TZ_FALLBACK = [
   'UTC',
   'Asia/Bangkok',
   'Asia/Singapore',
@@ -14,6 +14,29 @@ const TZ_OPTIONS = [
   'America/New_York',
   'America/Los_Angeles',
 ];
+
+const IANA_TZ: string[] = (() => {
+  try {
+    const zones = Intl.supportedValuesOf('timeZone');
+    return zones.length ? zones : TZ_FALLBACK;
+  } catch {
+    return TZ_FALLBACK;
+  }
+})();
+
+function timezoneGroups(current: string): [string, string[]][] {
+  const set = new Set(IANA_TZ);
+  if (current && current !== 'UTC') set.add(current);
+  const groups = new Map<string, string[]>();
+  for (const z of [...set].sort((a, b) => a.localeCompare(b))) {
+    const i = z.indexOf('/');
+    const g = i < 0 ? 'Other' : z.slice(0, i);
+    const list = groups.get(g);
+    if (list) list.push(z);
+    else groups.set(g, [z]);
+  }
+  return [...groups.entries()];
+}
 
 const WEEKDAYS = [
   { d: 0, label: 'Su' },
@@ -93,7 +116,15 @@ export function PluginForm({
 
   return (
     <div className="row g-2 align-items-end">
-      {fields.map((field) => {
+      {fields.map((field, i) => {
+        if (field.type === 'break') {
+          return (
+            <div key={field.key || `break-${i}`} className="col-12">
+              {field.label ? <div className="small text-uppercase muted mt-2 mb-0">{field.label}</div> : null}
+              <hr className="mt-1 mb-2 opacity-25" />
+            </div>
+          );
+        }
         if (field.type === 'array') {
           return (
             <div key={field.key} className="col-12 mb-1">
@@ -105,6 +136,13 @@ export function PluginForm({
           return (
             <div key={field.key} className={field.wide ? 'col-12' : 'col-md-6'}>
               <ObjectField field={field} value={asRecord(value[field.key])} onChange={(v) => set(field.key, v)} root={root} effects={effects} platformTz={platformTz} idPrefix={`${idPrefix}-${field.key}`} />
+            </div>
+          );
+        }
+        if (field.type === 'timezone') {
+          return (
+            <div key={field.key} className="col-md-4">
+              <ScalarField field={field} value={value[field.key]} onChange={(v) => set(field.key, v)} root={root} effects={effects} platformTz={platformTz} idPrefix={`${idPrefix}-${field.key}`} />
             </div>
           );
         }
@@ -334,22 +372,27 @@ function ScalarField({
     );
   }
   if (field.type === 'timezone') {
+    const cur = typeof value === 'string' ? value : '';
     return (
       <div>
-        {field.label && <label className="form-label small mb-1">{field.label}</label>}
-        <input
-          className="form-control form-control-sm"
-          list={`${idPrefix}-tz`}
-          placeholder={platformTz || 'UTC'}
-          disabled={off}
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-        <datalist id={`${idPrefix}-tz`}>
-          {TZ_OPTIONS.map((z) => (
-            <option key={z} value={z} />
+        {field.label && (
+          <label className="form-label small mb-1" htmlFor={idPrefix}>
+            {field.label}
+          </label>
+        )}
+        <select id={idPrefix} className="form-select form-select-sm" disabled={off} value={cur} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Platform ({platformTz || 'UTC'})</option>
+          <option value="UTC">UTC</option>
+          {timezoneGroups(cur).map(([region, zones]) => (
+            <optgroup key={region} label={region}>
+              {zones.map((z) => (
+                <option key={z} value={z}>
+                  {z.includes('/') ? z.slice(z.indexOf('/') + 1).replace(/_/g, ' ') : z}
+                </option>
+              ))}
+            </optgroup>
           ))}
-        </datalist>
+        </select>
       </div>
     );
   }

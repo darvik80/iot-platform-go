@@ -247,7 +247,7 @@ Optional `Effects []string` feeds `options_from: "effects"` on select fields.
 
 ### 3. UI (do not touch webui)
 
-Set `Descriptor.Form` (`[]FormField`). Types: `number` `string` `select` `checkbox` `time` `timezone` `json` `weekdays` `object` `array`. Dashboard renders it; Save/Apply/Remove stay in the shell. Empty `Form` → JSON textarea.
+Set `Descriptor.Form` (`[]FormField`). Types: `number` `string` `select` `checkbox` `time` `timezone` `json` `weekdays` `object` `array` `break`. `break` is layout-only (optional `label` + `<hr>`). Dashboard renders it; Save/Apply/Remove stay in the shell. Empty `Form` → JSON textarea.
 
 ```go
 Form: []FormField{

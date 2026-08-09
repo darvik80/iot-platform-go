@@ -165,7 +165,7 @@ export interface PluginFormOption {
 
 export interface PluginFormField {
   key: string;
-  type: 'number' | 'string' | 'select' | 'checkbox' | 'time' | 'timezone' | 'json' | 'weekdays' | 'object' | 'array';
+  type: 'number' | 'string' | 'select' | 'checkbox' | 'time' | 'timezone' | 'json' | 'weekdays' | 'object' | 'array' | 'break';
   label?: string;
   help?: string;
   min?: number;

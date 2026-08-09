@@ -5,7 +5,7 @@ import "encoding/json"
 // FormField is the plugin-owned config UI. Web dashboard only renders this schema.
 type FormField struct {
 	Key          string          `json:"key"`
-	Type         string          `json:"type"` // number|string|select|checkbox|time|timezone|json|weekdays|object|array
+	Type         string          `json:"type"` // number|string|select|checkbox|time|timezone|json|weekdays|object|array|break
 	Label        string          `json:"label,omitempty"`
 	Help         string          `json:"help,omitempty"`
 	Min          *float64        `json:"min,omitempty"`

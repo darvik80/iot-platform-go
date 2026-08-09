@@ -26,6 +26,7 @@ func init() {
 
 var scheduleForm = []FormField{
 	{Key: "tz", Type: "timezone", Label: "Timezone"},
+	{Key: "_jobs", Type: "break"},
 	{
 		Key: "jobs", Type: "array", Label: "Jobs",
 		AddLabel: "Add job", RemoveLabel: "Delete job",
