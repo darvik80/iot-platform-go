@@ -271,6 +271,7 @@ func (p *Platform) ListPluginCatalog() []models.PluginInfo {
 		out = append(out, models.PluginInfo{
 			ID: d.ID, Name: d.Name, Description: d.Description,
 			DefaultConfig: d.DefaultConfig, Effects: d.Effects,
+			Form: plugins.FormJSON(d.Form),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -318,6 +319,7 @@ func (p *Platform) GetPluginBinding(id int64) (*models.DevicePluginBinding, erro
 func (p *Platform) decorateBinding(b *models.DevicePluginBinding) {
 	if d, _, ok := plugins.Lookup(b.PluginID); ok {
 		b.Name, b.Description, b.Effects = d.Name, d.Description, d.Effects
+		b.Form = plugins.FormJSON(d.Form)
 	}
 	if p.Plugins != nil {
 		b.Running, b.LastError = p.Plugins.Running(b.ID)

@@ -157,7 +157,7 @@ Jobs run once per matching minute while the device is online (10s poll). `days` 
 | DELETE | `/devices/{id}/plugins/{bindingId}` |
 | POST | `/devices/{id}/plugins/{bindingId}/apply` | one frame now (device must be online) |
 
-UI: device page → **Plugins**. Unknown plugins get a JSON config editor.
+UI: device page → **Plugins**. The form is **`Descriptor.Form`** from the plugin (GET `/plugins` → `form`). Save / Apply / Remove stay in the shell. No `form` → JSON textarea.
 
 ## How to add a new plugin
 
@@ -180,6 +180,11 @@ func init() {
 		Name:          "Ping",
 		Description:   "RPC ping while device is online",
 		DefaultConfig: json.RawMessage(`{"interval_ms":5000,"rpc":"echo","msg":"ping"}`),
+		Form: []FormField{
+			{Key: "interval_ms", Type: "number", Label: "Interval ms", Min: num(200)},
+			{Key: "rpc", Type: "string", Label: "RPC"},
+			{Key: "msg", Type: "string", Label: "Message"},
+		},
 	}, func() Instance { return &Ping{} })
 }
 
@@ -238,12 +243,18 @@ Contract:
 
 `init()` + `Register(...)` is enough. Same package `plugins` is imported by the hub, so the new file is linked automatically. **Do not** forget `init()` or the plugin will not appear in `GET /plugins`.
 
-Optional `Effects []string` on the descriptor is only for LED-style UIs.
+Optional `Effects []string` feeds `options_from: "effects"` on select fields.
 
-### 3. UI
+### 3. UI (do not touch webui)
 
-- **No extra UI required.** Unknown `plugin_id` shows a JSON textarea on the device page.
-- Custom form: branch in `web/src/components/DevicePlugins.tsx` (like `led-garland` / `schedule`).
+Set `Descriptor.Form` (`[]FormField`). Types: `number` `string` `select` `checkbox` `time` `timezone` `json` `weekdays` `object` `array`. Dashboard renders it; Save/Apply/Remove stay in the shell. Empty `Form` → JSON textarea.
+
+```go
+Form: []FormField{
+  {Key: "interval_ms", Type: "number", Label: "Interval ms", Min: num(200)},
+  {Key: "rpc", Type: "string", Label: "RPC"},
+},
+```
 
 ### 4. Run
 

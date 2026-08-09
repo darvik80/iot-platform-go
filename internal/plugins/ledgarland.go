@@ -19,6 +19,7 @@ func init() {
 		Description:   "WS2812 strips: led_attach on save/online, then set_led effects",
 		DefaultConfig: ledGarlandDefault,
 		Effects:       LEDEffects,
+		Form:          ledGarlandForm,
 	}, func() Instance { return &LEDGarland{} })
 }
 

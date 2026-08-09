@@ -214,6 +214,7 @@ type PluginInfo struct {
 	Description   string          `json:"description"`
 	DefaultConfig json.RawMessage `json:"default_config"`
 	Effects       []string        `json:"effects,omitempty"`
+	Form          json.RawMessage `json:"form,omitempty"`
 }
 
 type DevicePluginBinding struct {
@@ -227,6 +228,7 @@ type DevicePluginBinding struct {
 	Name        string          `json:"name,omitempty"`
 	Description string          `json:"description,omitempty"`
 	Effects     []string        `json:"effects,omitempty"`
+	Form        json.RawMessage `json:"form,omitempty"`
 	Running     bool            `json:"running,omitempty"`
 	LastError   string          `json:"last_error,omitempty"`
 }

@@ -158,51 +158,37 @@ export interface LogRow {
   message: string;
 }
 
+export interface PluginFormOption {
+  value: string;
+  label: string;
+}
+
+export interface PluginFormField {
+  key: string;
+  type: 'number' | 'string' | 'select' | 'checkbox' | 'time' | 'timezone' | 'json' | 'weekdays' | 'object' | 'array';
+  label?: string;
+  help?: string;
+  min?: number;
+  max?: number;
+  options?: PluginFormOption[];
+  options_from?: 'effects';
+  disabled_when?: Record<string, unknown>;
+  fields?: PluginFormField[];
+  add?: unknown;
+  add_label?: string;
+  remove_label?: string;
+  placeholder?: string;
+  suggest?: number[];
+  wide?: boolean;
+}
+
 export interface PluginInfo {
   id: string;
   name: string;
   description: string;
   default_config?: Record<string, unknown>;
   effects?: string[];
-}
-
-export interface LedGarlandStrip {
-  gpio: number;
-  length: number;
-}
-
-export interface LedTimeWindow {
-  enabled?: boolean;
-  from?: string;
-  to?: string;
-  effect?: string;
-}
-
-export interface LedGarlandConfig {
-  strips?: LedGarlandStrip[];
-  mode?: 'auto' | 'effect';
-  effect?: string;
-  interval_ms?: number;
-  auto_ms?: number;
-  rpc?: string;
-  attach_rpc?: string;
-  brightness?: number;
-  tz?: string;
-  quiet?: LedTimeWindow;
-  active?: LedTimeWindow;
-}
-
-export interface ScheduleJob {
-  name?: string;
-  at: string;
-  days?: number[];
-  rpc: string;
-  params?: Record<string, unknown>;
-}
-
-export interface ScheduleConfig {
-  tz?: string;
-  jobs?: ScheduleJob[];
+  form?: PluginFormField[];
 }
 
 export interface DevicePluginBinding {
@@ -210,10 +196,11 @@ export interface DevicePluginBinding {
   device_pk: number;
   plugin_id: string;
   enabled: boolean;
-  config: LedGarlandConfig | ScheduleConfig | Record<string, unknown>;
+  config: Record<string, unknown>;
   name?: string;
   description?: string;
   effects?: string[];
+  form?: PluginFormField[];
   running?: boolean;
   last_error?: string;
   updated_at?: number;

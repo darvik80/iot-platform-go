@@ -20,7 +20,24 @@ func init() {
 				{"name":"night off","at":"23:00","days":[],"rpc":"set_led","params":{"gpio":16,"offset":0,"length":8,"on":false}}
 			]
 		}`),
+		Form: scheduleForm,
 	}, func() Instance { return &Schedule{} })
+}
+
+var scheduleForm = []FormField{
+	{Key: "tz", Type: "timezone", Label: "Timezone"},
+	{
+		Key: "jobs", Type: "array", Label: "Jobs",
+		AddLabel: "Add job", RemoveLabel: "Delete job",
+		Add: json.RawMessage(`{"name":"","at":"07:00","days":[],"rpc":"reboot","params":{}}`),
+		Fields: []FormField{
+			{Key: "name", Type: "string", Label: "Name"},
+			{Key: "at", Type: "time", Label: "At"},
+			{Key: "rpc", Type: "string", Label: "RPC"},
+			{Key: "days", Type: "weekdays", Label: "Days", Help: "empty / all = every day", Wide: true},
+			{Key: "params", Type: "json", Label: "Params JSON", Wide: true},
+		},
+	},
 }
 
 type schedJob struct {

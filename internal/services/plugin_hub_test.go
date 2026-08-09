@@ -43,6 +43,14 @@ func TestBindLEDGarlandPlugin(t *testing.T) {
 	if !foundSched {
 		t.Fatal("schedule missing from catalog")
 	}
+	for _, c := range cat {
+		if c.ID == plugins.PluginLEDGarland && len(c.Form) < 10 {
+			t.Fatal("led-garland form schema missing")
+		}
+		if c.ID == plugins.PluginSchedule && len(c.Form) < 10 {
+			t.Fatal("schedule form schema missing")
+		}
+	}
 
 	b, err := p.BindDevicePlugin(dev.ID, PluginBindingInput{PluginID: plugins.PluginLEDGarland})
 	if err != nil {

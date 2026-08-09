@@ -53,6 +53,7 @@ type Descriptor struct {
 	Description   string          `json:"description"`
 	DefaultConfig json.RawMessage `json:"default_config"`
 	Effects       []string        `json:"effects,omitempty"`
+	Form          []FormField     `json:"form,omitempty"`
 }
 
 type Factory func() Instance
