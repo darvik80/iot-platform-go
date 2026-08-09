@@ -6,6 +6,7 @@ on:
 
 env:
   TARGET_PORT: 9083
+  TARGET_MQTT_PORT: 1883
   CONTAINER_NAME: iot-platform-go
 
 jobs:
@@ -32,6 +33,7 @@ jobs:
           docker run \
             -d \
             -p $TARGET_PORT:8080 \
+            -p $TARGET_MQTT_PORT:1883 \
             --restart unless-stopped \
             --name $CONTAINER_NAME \
             -v /volume1/docker/$CONTAINER_NAME/data:/data \

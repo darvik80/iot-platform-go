@@ -1,3 +1,19 @@
+export function formatOtaProgress(j: { status?: string; step?: number; desc?: string }) {
+  const status = j.status || '';
+  const step = Number(j.step) || 0;
+  const desc = (j.desc || '').trim();
+
+  let head = '';
+  if (status === 'done' || step >= 101) head = 'finish';
+  else if (status === 'cancelled' || step === -4) head = 'cancelled';
+  else if (status === 'failed' || step < 0) head = 'failed';
+  else if (step > 0 && step <= 100) head = `${step}%`;
+  else if (status === 'pending') head = 'queued';
+
+  if (head && desc && desc.toLowerCase() !== head) return `${head} · ${desc}`;
+  return head || desc || '—';
+}
+
 export function formatBytes(n: unknown) {
   const v = Number(n);
   if (!Number.isFinite(v)) return String(n);

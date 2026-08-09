@@ -10,7 +10,7 @@ Streamable HTTP MCP is **embedded in the platform** at `/mcp` (same process, JWT
 | `list_devices` | Filter by product/status/query |
 | `get_device` | Full detail (telemetry, attributes, schema) |
 | `list_products` / `get_product` | Product schemas |
-| `list_device_methods` | RPC methods for a device |
+| `list_device_methods` | Product schema RPC methods (includes built-in `rpc-list`) |
 | `invoke_rpc` | Call device method (`reboot`, custom, …) |
 | `reboot_device` | Shortcut for product `reboot` RPC |
 | `get_telemetry` | Latest samples |

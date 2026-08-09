@@ -1,12 +1,16 @@
 import type { ProductMethod, ProductMethodParam } from '../types';
 
 export const PRESET_METHODS: Record<string, boolean> = {
+  'rpc-list': true,
+  rpc_list: true,
   reboot: true,
-  led_attach: true,
-  led_detach: true,
-  led_list: true,
-  set_led: true,
 };
+
+export function isReservedMethodName(name: string) {
+  const n = (name || '').trim().toLowerCase();
+  return n === 'rpc-list' || n === 'rpc_list' || !!PRESET_METHODS[name] || !!PRESET_METHODS[n];
+}
+
 export const PRESET_METRICS: Record<string, true> = {
   cpuUsagePercent: true,
   uptimeSeconds: true,

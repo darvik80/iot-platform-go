@@ -1,7 +1,9 @@
 package config
 
 import (
+	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -9,21 +11,11 @@ import (
 	"crearts-iot-platform/internal/models"
 )
 
-// uniqueClientID appends the hostname to base to produce a per-instance MQTT client ID.
-func uniqueClientID(base string) string {
-	if h, _ := os.Hostname(); h != "" && h != base {
-		return base + "-" + h
-	}
-	return base
-}
-
 type Config struct {
 	HTTPAddr               string
 	SQLitePath             string
-	MQTTBroker             string
-	MQTTUsername           string
-	MQTTPassword           string
-	MQTTClientID           string
+	MQTTAddr               string
+	MQTTWSAddr             string
 	JWTSecret              string
 	TelemetryRetentionDays int
 	RPCDefaultTimeout      time.Duration
@@ -31,13 +23,15 @@ type Config struct {
 	RulesBusEnabled        bool
 	RulesBusPrefix         string
 	NodeRedURL             string
-	RabbitMQMgmtURL        string
+	NodeRedMQTTUser        string
+	NodeRedMQTTPassword    string
 	BrokerHostPublic       string
 	AdminEmail             string
 	AdminPassword          string
 	AdminLogin             string
 	PlatformName           string
 	PublicBaseURL          string
+	OTADir                 string
 	RegisterEnabled        bool
 	RegisterDefaultRole    models.Role
 	RequireEmailVerify     bool
@@ -62,10 +56,8 @@ func Load() Config {
 	return Config{
 		HTTPAddr:               getenv("HTTP_ADDR", ":8080"),
 		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db"),
-		MQTTBroker:             getenv("MQTT_BROKER", "tcp://192.168.1.100:1883"),
-		MQTTUsername:           getenv("MQTT_USERNAME", "crearts"),
-		MQTTPassword:           getenv("MQTT_PASSWORD", "crearts"),
-		MQTTClientID:           uniqueClientID(getenv("MQTT_CLIENT_ID", "crearts-platform")),
+		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
+		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ""),
 		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me"),
 		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
 		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
@@ -73,13 +65,15 @@ func Load() Config {
 		RulesBusEnabled:        getenvBool("RULES_BUS_ENABLED", true),
 		RulesBusPrefix:         strings.TrimRight(getenv("RULES_BUS_PREFIX", "platform/v1"), "/"),
 		NodeRedURL:             getenv("NODERED_URL", "http://localhost:1880"),
-		RabbitMQMgmtURL:        getenv("RABBITMQ_MGMT_URL", "http://192.168.1.100:15672"),
-		BrokerHostPublic:       getenv("BROKER_HOST_PUBLIC", "192.168.1.100"),
+		NodeRedMQTTUser:        getenv("NODERED_MQTT_USER", "nodered"),
+		NodeRedMQTTPassword:    getenv("NODERED_MQTT_PASSWORD", "nodered"),
+		BrokerHostPublic:       firstNonEmpty(os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
 		AdminEmail:             getenv("ADMIN_EMAIL", "admin@crearts.local"),
 		AdminPassword:          getenv("ADMIN_PASSWORD", "admin"),
 		AdminLogin:             getenv("ADMIN_LOGIN", "admin"),
 		PlatformName:           getenv("PLATFORM_NAME", "Crearts IoT"),
 		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080"), "/"),
+		OTADir:                 getenv("OTA_DIR", ""),
 		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true),
 		RegisterDefaultRole:    role,
 		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", true),
@@ -99,11 +93,56 @@ func (c Config) GoogleEnabled() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
 }
 
+func (c Config) MQTTPublicPort() int {
+	addr := strings.TrimSpace(c.MQTTAddr)
+	addr = strings.TrimPrefix(addr, "tcp://")
+	addr = strings.TrimPrefix(addr, "mqtt://")
+	if addr == "" {
+		return 1883
+	}
+	if !strings.Contains(addr, ":") {
+		n, err := strconv.Atoi(addr)
+		if err == nil && n > 0 {
+			return n
+		}
+		return 1883
+	}
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 1883
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || n <= 0 {
+		return 1883
+	}
+	return n
+}
+
+func (c Config) FirmwareDir() string {
+	if strings.TrimSpace(c.OTADir) != "" {
+		return c.OTADir
+	}
+	return filepath.Join(filepath.Dir(c.SQLitePath), "firmware")
+}
+
+func (c Config) FirmwarePublicURL(token string) string {
+	return strings.TrimRight(c.PublicBaseURL, "/") + "/ota/fw/" + token + ".bin"
+}
+
 func (c Config) GoogleCallbackURL() string {
 	if c.GoogleRedirectURL != "" {
 		return c.GoogleRedirectURL
 	}
 	return c.PublicBaseURL + "/api/v1/auth/google/callback"
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func getenv(k, def string) string {

@@ -1,9 +1,17 @@
 package services
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"crearts-iot-platform/internal/db"
@@ -212,8 +220,9 @@ func (p *Platform) HandleOTAVersion(d *models.Device, payload []byte) error {
 	}
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET fw_version=?, updated_at=? WHERE id=?`, v.Version, now, d.ID)
+	d.FwVersion = v.Version
 	_ = p.MergeReported(d, map[string]any{"firmwareVersion": v.Version, "otaModule": v.Module})
-	return nil
+	return p.maybeAutoOTA(d, v.Version, v.Module)
 }
 
 func (p *Platform) HandleOTAQuery(d *models.Device, payload []byte) error {
@@ -225,20 +234,15 @@ func (p *Platform) HandleOTAQuery(d *models.Device, payload []byte) error {
 	if q.Module == "" {
 		q.Module = "main"
 	}
-	var fw models.OTAFirmware
-	err := p.DB.QueryRow(`SELECT id, product_pk, module, version, size, sha256, sign_method, sign, url, created_at
-		FROM ota_firmwares WHERE product_pk=? AND module=? ORDER BY created_at DESC LIMIT 1`, d.ProductPK, q.Module).
-		Scan(&fw.ID, &fw.ProductPK, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	fw, err := p.latestFirmware(d.ProductPK, q.Module)
+	if err != nil || fw == nil {
 		return err
 	}
 	if fw.Version == q.Version {
 		return nil
 	}
-	return p.PushOTA(d, &fw, false)
+	_, err = p.StartOTAJob(d.ID, fw.ID, false)
+	return err
 }
 
 func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
@@ -267,6 +271,10 @@ func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
 	return nil
 }
 
+const MaxFirmwareBytes = 32 << 20
+
+var downloadTokenRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
 type FirmwareInput struct {
 	ProductID  string `json:"product_id"`
 	Module     string `json:"module"`
@@ -278,26 +286,230 @@ type FirmwareInput struct {
 	URL        string `json:"url"`
 }
 
+func newDownloadToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func (p *Platform) hydrateFirmware(fw *models.OTAFirmware) {
+	if fw == nil {
+		return
+	}
+	fw.DownloadToken = strings.TrimSpace(fw.DownloadToken)
+	if fw.DownloadToken != "" {
+		fw.Hosted = true
+		fw.URL = p.Cfg.FirmwarePublicURL(fw.DownloadToken)
+	}
+}
+
+func uniqueFirmwareErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "unique") {
+		return errors.New("firmware version already exists for this product/module")
+	}
+	return err
+}
+
+func (p *Platform) firmwareByVersion(productPK int64, module, version string) (*models.OTAFirmware, error) {
+	if module == "" {
+		module = "main"
+	}
+	var fw models.OTAFirmware
+	err := p.DB.QueryRow(`SELECT id, product_pk, module, version, size, sha256, sign_method, sign, url, COALESCE(download_token,''), created_at
+		FROM ota_firmwares WHERE product_pk=? AND module=? AND version=?`, productPK, module, version).
+		Scan(&fw.ID, &fw.ProductPK, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.DownloadToken, &fw.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.hydrateFirmware(&fw)
+	return &fw, nil
+}
+
+func (p *Platform) removeHostedFile(token string) {
+	token = strings.TrimSpace(token)
+	if !downloadTokenRe.MatchString(token) {
+		return
+	}
+	_ = os.Remove(filepath.Join(p.Cfg.FirmwareDir(), token+".bin"))
+}
+
 func (p *Platform) RegisterFirmware(in FirmwareInput) (*models.OTAFirmware, error) {
 	pr, err := p.GetProductBySlug(in.ProductID)
 	if err != nil {
 		return nil, err
 	}
+	in.Version = strings.TrimSpace(in.Version)
+	if in.Version == "" {
+		return nil, errors.New("version required")
+	}
+	in.URL = strings.TrimSpace(in.URL)
+	if in.URL == "" {
+		return nil, errors.New("url required (or upload a file)")
+	}
 	if in.Module == "" {
 		in.Module = "main"
 	}
 	now := db.NowMS()
+	if existing, err := p.firmwareByVersion(pr.ID, in.Module, in.Version); err != nil {
+		return nil, err
+	} else if existing != nil {
+		oldToken := existing.DownloadToken
+		if _, err := p.DB.Exec(`UPDATE ota_firmwares SET size=?, sha256=?, sign_method=?, sign=?, url=?, download_token='', created_at=? WHERE id=?`,
+			in.Size, in.SHA256, in.SignMethod, in.Sign, in.URL, now, existing.ID); err != nil {
+			return nil, uniqueFirmwareErr(err)
+		}
+		p.removeHostedFile(oldToken)
+		fw := *existing
+		fw.Size, fw.SHA256, fw.SignMethod, fw.Sign, fw.URL = in.Size, in.SHA256, in.SignMethod, in.Sign, in.URL
+		fw.DownloadToken, fw.Hosted, fw.CreatedAt = "", false, now
+		if pr.AutoOTA {
+			_, _ = p.NotifyFirmware(fw.ID, 0, false)
+		}
+		return &fw, nil
+	}
 	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, module, version, size, sha256, sign_method, sign, url, created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
 		pr.ID, in.Module, in.Version, in.Size, in.SHA256, in.SignMethod, in.Sign, in.URL, now)
 	if err != nil {
-		return nil, err
+		return nil, uniqueFirmwareErr(err)
 	}
 	id, _ := res.LastInsertId()
-	return &models.OTAFirmware{ID: id, ProductPK: pr.ID, ProductID: pr.ProductID, Module: in.Module, Version: in.Version, Size: in.Size, SHA256: in.SHA256, SignMethod: in.SignMethod, Sign: in.Sign, URL: in.URL, CreatedAt: now}, nil
+	fw := &models.OTAFirmware{ID: id, ProductPK: pr.ID, ProductID: pr.ProductID, Module: in.Module, Version: in.Version, Size: in.Size, SHA256: in.SHA256, SignMethod: in.SignMethod, Sign: in.Sign, URL: in.URL, CreatedAt: now}
+	if pr.AutoOTA {
+		_, _ = p.NotifyFirmware(fw.ID, 0, false)
+	}
+	return fw, nil
+}
+
+func (p *Platform) StoreFirmwareFile(in FirmwareInput, r io.Reader) (*models.OTAFirmware, error) {
+	pr, err := p.GetProductBySlug(in.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	in.Version = strings.TrimSpace(in.Version)
+	if in.Version == "" {
+		return nil, errors.New("version required")
+	}
+	if in.Module == "" {
+		in.Module = "main"
+	}
+	if strings.TrimSpace(in.SignMethod) == "" {
+		in.SignMethod = "sha256"
+	}
+	token, err := newDownloadToken()
+	if err != nil {
+		return nil, err
+	}
+	dir := p.Cfg.FirmwareDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	dest := filepath.Join(dir, token+".bin")
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	h := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(r, MaxFirmwareBytes+1))
+	closeErr := f.Close()
+	if copyErr != nil {
+		_ = os.Remove(dest)
+		return nil, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(dest)
+		return nil, closeErr
+	}
+	if n == 0 {
+		_ = os.Remove(dest)
+		return nil, errors.New("empty firmware file")
+	}
+	if n > MaxFirmwareBytes {
+		_ = os.Remove(dest)
+		return nil, errors.New("firmware larger than 32MB")
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	if in.SHA256 != "" && !strings.EqualFold(strings.TrimSpace(in.SHA256), sum) {
+		_ = os.Remove(dest)
+		return nil, errors.New("sha256 mismatch")
+	}
+	if in.Size > 0 && in.Size != n {
+		_ = os.Remove(dest)
+		return nil, errors.New("size mismatch")
+	}
+	url := p.Cfg.FirmwarePublicURL(token)
+	now := db.NowMS()
+	existing, err := p.firmwareByVersion(pr.ID, in.Module, in.Version)
+	if err != nil {
+		_ = os.Remove(dest)
+		return nil, err
+	}
+	if existing != nil {
+		oldToken := existing.DownloadToken
+		if _, err := p.DB.Exec(`UPDATE ota_firmwares SET size=?, sha256=?, sign_method=?, sign=?, url=?, download_token=?, created_at=? WHERE id=?`,
+			n, sum, in.SignMethod, in.Sign, url, token, now, existing.ID); err != nil {
+			_ = os.Remove(dest)
+			return nil, uniqueFirmwareErr(err)
+		}
+		if oldToken != "" && oldToken != token {
+			p.removeHostedFile(oldToken)
+		}
+		fw := *existing
+		fw.ProductID = pr.ProductID
+		fw.Size, fw.SHA256, fw.SignMethod, fw.Sign = n, sum, in.SignMethod, in.Sign
+		fw.URL, fw.DownloadToken, fw.Hosted, fw.CreatedAt = url, token, true, now
+		if pr.AutoOTA {
+			_, _ = p.NotifyFirmware(fw.ID, 0, false)
+		}
+		return &fw, nil
+	}
+	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, module, version, size, sha256, sign_method, sign, url, download_token, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		pr.ID, in.Module, in.Version, n, sum, in.SignMethod, in.Sign, url, token, now)
+	if err != nil {
+		_ = os.Remove(dest)
+		return nil, uniqueFirmwareErr(err)
+	}
+	id, _ := res.LastInsertId()
+	fw := &models.OTAFirmware{
+		ID: id, ProductPK: pr.ID, ProductID: pr.ProductID, Module: in.Module, Version: in.Version,
+		Size: n, SHA256: sum, SignMethod: in.SignMethod, Sign: in.Sign, URL: url,
+		DownloadToken: token, Hosted: true, CreatedAt: now,
+	}
+	if pr.AutoOTA {
+		_, _ = p.NotifyFirmware(fw.ID, 0, false)
+	}
+	return fw, nil
+}
+
+func (p *Platform) HostedFirmware(token string) (*models.OTAFirmware, string, error) {
+	token = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(token)), ".bin")
+	if !downloadTokenRe.MatchString(token) {
+		return nil, "", errors.New("firmware not found")
+	}
+	var fw models.OTAFirmware
+	err := p.DB.QueryRow(`SELECT f.id, f.product_pk, pr.product_id, f.module, f.version, f.size, f.sha256, f.sign_method, f.sign, f.url, COALESCE(f.download_token,''), f.created_at
+		FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk WHERE f.download_token=?`, token).
+		Scan(&fw.ID, &fw.ProductPK, &fw.ProductID, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.DownloadToken, &fw.CreatedAt)
+	if err != nil {
+		return nil, "", errors.New("firmware not found")
+	}
+	p.hydrateFirmware(&fw)
+	path := filepath.Join(p.Cfg.FirmwareDir(), token+".bin")
+	if _, err := os.Stat(path); err != nil {
+		return nil, "", errors.New("firmware file missing")
+	}
+	return &fw, path, nil
 }
 
 func (p *Platform) ListFirmware(productID string) ([]models.OTAFirmware, error) {
-	q := `SELECT f.id, f.product_pk, pr.product_id, f.module, f.version, f.size, f.sha256, f.sign_method, f.sign, f.url, f.created_at
+	q := `SELECT f.id, f.product_pk, pr.product_id, f.module, f.version, f.size, f.sha256, f.sign_method, f.sign, f.url, COALESCE(f.download_token,''), f.created_at
 		FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk`
 	args := []any{}
 	if productID != "" {
@@ -313,9 +525,10 @@ func (p *Platform) ListFirmware(productID string) ([]models.OTAFirmware, error) 
 	var out []models.OTAFirmware
 	for rows.Next() {
 		var f models.OTAFirmware
-		if err := rows.Scan(&f.ID, &f.ProductPK, &f.ProductID, &f.Module, &f.Version, &f.Size, &f.SHA256, &f.SignMethod, &f.Sign, &f.URL, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProductPK, &f.ProductID, &f.Module, &f.Version, &f.Size, &f.SHA256, &f.SignMethod, &f.Sign, &f.URL, &f.DownloadToken, &f.CreatedAt); err != nil {
 			return nil, err
 		}
+		p.hydrateFirmware(&f)
 		out = append(out, f)
 	}
 	if out == nil {
@@ -324,29 +537,199 @@ func (p *Platform) ListFirmware(productID string) ([]models.OTAFirmware, error) 
 	return out, nil
 }
 
-func (p *Platform) StartOTAJob(devicePK, firmwareID int64) (*models.OTAJob, error) {
+func (p *Platform) latestFirmware(productPK int64, module string) (*models.OTAFirmware, error) {
+	if module == "" {
+		module = "main"
+	}
+	var fw models.OTAFirmware
+	err := p.DB.QueryRow(`SELECT id, product_pk, module, version, size, sha256, sign_method, sign, url, COALESCE(download_token,''), created_at
+		FROM ota_firmwares WHERE product_pk=? AND module=? ORDER BY created_at DESC LIMIT 1`, productPK, module).
+		Scan(&fw.ID, &fw.ProductPK, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.DownloadToken, &fw.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.hydrateFirmware(&fw)
+	return &fw, nil
+}
+
+func (p *Platform) firmwareByID(id int64) (*models.OTAFirmware, error) {
+	var fw models.OTAFirmware
+	err := p.DB.QueryRow(`SELECT f.id, f.product_pk, pr.product_id, f.module, f.version, f.size, f.sha256, f.sign_method, f.sign, f.url, COALESCE(f.download_token,''), f.created_at
+		FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk WHERE f.id=?`, id).
+		Scan(&fw.ID, &fw.ProductPK, &fw.ProductID, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.DownloadToken, &fw.CreatedAt)
+	if err != nil {
+		return nil, errors.New("firmware not found")
+	}
+	p.hydrateFirmware(&fw)
+	return &fw, nil
+}
+
+func (p *Platform) DeleteFirmware(id int64) error {
+	fw, err := p.firmwareByID(id)
+	if err != nil {
+		return err
+	}
+	if _, err := p.DB.Exec(`DELETE FROM ota_jobs WHERE firmware_id=?`, id); err != nil {
+		return err
+	}
+	res, err := p.DB.Exec(`DELETE FROM ota_firmwares WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("firmware not found")
+	}
+	p.removeHostedFile(fw.DownloadToken)
+	return nil
+}
+
+func (p *Platform) otaAutoEnabled(d *models.Device) bool {
+	if d == nil || !d.Enabled || !d.AutoOTA {
+		return false
+	}
+	pr, err := p.GetProduct(d.ProductPK)
+	return err == nil && pr.AutoOTA
+}
+
+func (p *Platform) maybeAutoOTA(d *models.Device, currentVersion, module string) error {
+	if !p.otaAutoEnabled(d) {
+		return nil
+	}
+	fw, err := p.latestFirmware(d.ProductPK, module)
+	if err != nil || fw == nil {
+		return err
+	}
+	if currentVersion != "" && fw.Version == currentVersion {
+		return nil
+	}
+	_, err = p.StartOTAJob(d.ID, fw.ID, false)
+	return err
+}
+
+func (p *Platform) flushPendingOTA(d *models.Device) {
+	if d == nil || d.Status != "online" {
+		return
+	}
+	rows, err := p.DB.Query(`SELECT id, firmware_id FROM ota_jobs WHERE device_pk=? AND status='pending' ORDER BY id`, d.ID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	type pending struct {
+		id, fwID int64
+	}
+	var list []pending
+	for rows.Next() {
+		var it pending
+		if rows.Scan(&it.id, &it.fwID) == nil {
+			list = append(list, it)
+		}
+	}
+	for _, it := range list {
+		fw, err := p.firmwareByID(it.fwID)
+		if err != nil {
+			continue
+		}
+		if err := p.PushOTA(d, fw, false); err != nil {
+			continue
+		}
+		_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, db.NowMS(), it.id)
+	}
+}
+
+func (p *Platform) StartOTAJob(devicePK, firmwareID int64, force bool) (*models.OTAJob, error) {
 	d, err := p.GetDevice(devicePK)
 	if err != nil {
 		return nil, err
 	}
-	var fw models.OTAFirmware
-	err = p.DB.QueryRow(`SELECT id, product_pk, module, version, size, sha256, sign_method, sign, url, created_at FROM ota_firmwares WHERE id=?`, firmwareID).
-		Scan(&fw.ID, &fw.ProductPK, &fw.Module, &fw.Version, &fw.Size, &fw.SHA256, &fw.SignMethod, &fw.Sign, &fw.URL, &fw.CreatedAt)
+	fw, err := p.firmwareByID(firmwareID)
 	if err != nil {
-		return nil, errors.New("firmware not found")
+		return nil, err
 	}
+	if fw.ProductPK != d.ProductPK {
+		return nil, errors.New("firmware does not belong to this product")
+	}
+	if !force && d.FwVersion != "" && d.FwVersion == fw.Version {
+		return nil, errors.New("already on this version")
+	}
+	var existing int64
+	_ = p.DB.QueryRow(`SELECT id FROM ota_jobs WHERE device_pk=? AND firmware_id=? AND status IN ('pending','running') ORDER BY id DESC LIMIT 1`,
+		devicePK, firmwareID).Scan(&existing)
 	now := db.NowMS()
+	if existing > 0 {
+		job := &models.OTAJob{ID: existing, DevicePK: devicePK, ProductID: d.ProductID, DeviceID: d.DeviceID, FirmwareID: firmwareID, FirmwareVersion: fw.Version, Module: fw.Module, Status: "pending", CreatedAt: now, UpdatedAt: now}
+		if d.Status == "online" {
+			if err := p.PushOTA(d, fw, force); err != nil {
+				return nil, err
+			}
+			_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, now, existing)
+			job.Status = "running"
+			job.Desc = "notified"
+		}
+		return job, nil
+	}
 	res, err := p.DB.Exec(`INSERT INTO ota_jobs(device_pk, firmware_id, status, step, desc, created_at, updated_at) VALUES(?,?, 'pending', 0, 'queued', ?, ?)`,
 		devicePK, firmwareID, now, now)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	if err := p.PushOTA(d, &fw, false); err != nil {
+	job := &models.OTAJob{ID: id, DevicePK: devicePK, ProductID: d.ProductID, DeviceID: d.DeviceID, FirmwareID: firmwareID, FirmwareVersion: fw.Version, Module: fw.Module, Status: "pending", Step: 0, Desc: "queued", CreatedAt: now, UpdatedAt: now}
+	if d.Status != "online" {
+		return job, nil
+	}
+	if err := p.PushOTA(d, fw, force); err != nil {
 		return nil, err
 	}
-	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', updated_at=? WHERE id=?`, db.NowMS(), id)
-	return &models.OTAJob{ID: id, DevicePK: devicePK, FirmwareID: firmwareID, Status: "running", Step: 0, Desc: "notified", CreatedAt: now, UpdatedAt: now}, nil
+	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, db.NowMS(), id)
+	job.Status = "running"
+	job.Desc = "notified"
+	return job, nil
+}
+
+func (p *Platform) NotifyFirmware(firmwareID, devicePK int64, force bool) (*models.OTANotifyResult, error) {
+	fw, err := p.firmwareByID(firmwareID)
+	if err != nil {
+		return nil, err
+	}
+	out := &models.OTANotifyResult{FirmwareID: firmwareID, Jobs: []models.OTAJob{}}
+	targets := []models.Device{}
+	if devicePK > 0 {
+		d, err := p.GetDevice(devicePK)
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, *d)
+	} else {
+		list, err := p.ListDevices(fw.ProductID, "", "")
+		if err != nil {
+			return nil, err
+		}
+		targets = list
+	}
+	for _, d := range targets {
+		if !d.Enabled {
+			out.Skipped++
+			continue
+		}
+		job, err := p.StartOTAJob(d.ID, firmwareID, force)
+		if err != nil {
+			if strings.Contains(err.Error(), "already on this version") {
+				out.Skipped++
+				continue
+			}
+			out.Failed++
+			out.Errors = append(out.Errors, d.ProductID+"."+d.DeviceID+": "+err.Error())
+			continue
+		}
+		out.Started++
+		out.Jobs = append(out.Jobs, *job)
+	}
+	return out, nil
 }
 
 func (p *Platform) PushOTA(d *models.Device, fw *models.OTAFirmware, force bool) error {
@@ -377,13 +760,17 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 }
 
 func (p *Platform) ListOTAJobs(devicePK int64) ([]models.OTAJob, error) {
-	q := `SELECT id, device_pk, firmware_id, status, step, desc, created_at, updated_at FROM ota_jobs`
+	q := `SELECT j.id, j.device_pk, pr.product_id, d.device_id, j.firmware_id, f.version, f.module, j.status, j.step, j.desc, j.created_at, j.updated_at
+		FROM ota_jobs j
+		JOIN devices d ON d.id=j.device_pk
+		JOIN products pr ON pr.id=d.product_pk
+		JOIN ota_firmwares f ON f.id=j.firmware_id`
 	args := []any{}
 	if devicePK > 0 {
-		q += ` WHERE device_pk=?`
+		q += ` WHERE j.device_pk=?`
 		args = append(args, devicePK)
 	}
-	q += ` ORDER BY created_at DESC LIMIT 100`
+	q += ` ORDER BY j.created_at DESC LIMIT 100`
 	rows, err := p.DB.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -392,7 +779,7 @@ func (p *Platform) ListOTAJobs(devicePK int64) ([]models.OTAJob, error) {
 	var out []models.OTAJob
 	for rows.Next() {
 		var j models.OTAJob
-		if err := rows.Scan(&j.ID, &j.DevicePK, &j.FirmwareID, &j.Status, &j.Step, &j.Desc, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.DevicePK, &j.ProductID, &j.DeviceID, &j.FirmwareID, &j.FirmwareVersion, &j.Module, &j.Status, &j.Step, &j.Desc, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)

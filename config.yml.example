@@ -6,14 +6,12 @@ server:
 database:
   sqlite_path: "./data/platform.db"
 
-mqtt:
-  broker: "tcp://192.168.1.100:1883"
-  username: "crearts"
-  password: "crearts"
-  client_id: "crearts-platform"
+# Hosted OTA images (default: beside sqlite → ./data/firmware)
+ota_dir: "./data/firmware"
 
-rabbitmq:
-  mgmt_url: "http://192.168.1.100:15672"
+mqtt:
+  addr: ":1883"
+  # ws_addr: ":8083"
   broker_host_public: "192.168.1.100"
 
 auth:
@@ -42,6 +40,7 @@ google:
 
 nodered:
   url: "http://192.168.1.100:1880"
+  mqtt_user: "nodered"
   mqtt_password: "nodered"
 
 rules:

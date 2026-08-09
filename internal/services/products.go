@@ -12,13 +12,14 @@ import (
 )
 
 const productSelect = `SELECT id, product_id, name, description, topic_style_default,
-	COALESCE(methods_json,'[]'), COALESCE(metrics_json,'[]'), COALESCE(attributes_json,'[]'),
+	COALESCE(auto_ota,0), COALESCE(methods_json,'[]'), COALESCE(metrics_json,'[]'), COALESCE(attributes_json,'[]'),
 	created_at, updated_at FROM products`
 
 func scanProduct(row interface{ Scan(dest ...any) error }) (*models.Product, error) {
 	var pr models.Product
 	var methodsJSON, metricsJSON, attrsJSON string
-	err := row.Scan(&pr.ID, &pr.ProductID, &pr.Name, &pr.Description, &pr.TopicStyleDefault,
+	var autoOTA int
+	err := row.Scan(&pr.ID, &pr.ProductID, &pr.Name, &pr.Description, &pr.TopicStyleDefault, &autoOTA,
 		&methodsJSON, &metricsJSON, &attrsJSON, &pr.CreatedAt, &pr.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
@@ -26,6 +27,7 @@ func scanProduct(row interface{ Scan(dest ...any) error }) (*models.Product, err
 	if err != nil {
 		return nil, err
 	}
+	pr.AutoOTA = autoOTA == 1
 	pr.Methods = decodeMethods(methodsJSON)
 	pr.Metrics = decodeMetrics(metricsJSON)
 	pr.Attributes = decodeAttributes(attrsJSON)
@@ -106,9 +108,11 @@ type ProductInput struct {
 	Metrics           []models.ProductMetric    `json:"metrics"`
 	Attributes        []models.ProductAttribute `json:"attributes"`
 	// SetSchema true when methods/metrics/attributes provided (including empty arrays)
-	SetMethods    bool `json:"-"`
-	SetMetrics    bool `json:"-"`
-	SetAttributes bool `json:"-"`
+	AutoOTA       *bool `json:"auto_ota"`
+	SetMethods    bool  `json:"-"`
+	SetMetrics    bool  `json:"-"`
+	SetAttributes bool  `json:"-"`
+	SetAutoOTA    bool  `json:"-"`
 }
 
 func (p *Platform) CreateProduct(in ProductInput) (*models.Product, error) {
@@ -186,8 +190,15 @@ func (p *Platform) UpdateProduct(id int64, in ProductInput) (*models.Product, er
 			pr.Attributes = []models.ProductAttribute{}
 		}
 	}
-	_, err = p.DB.Exec(`UPDATE products SET name=?, description=?, topic_style_default=?, methods_json=?, metrics_json=?, attributes_json=?, updated_at=? WHERE id=?`,
-		pr.Name, pr.Description, pr.TopicStyleDefault,
+	if in.SetAutoOTA && in.AutoOTA != nil {
+		pr.AutoOTA = *in.AutoOTA
+	}
+	autoOTA := 0
+	if pr.AutoOTA {
+		autoOTA = 1
+	}
+	_, err = p.DB.Exec(`UPDATE products SET name=?, description=?, topic_style_default=?, auto_ota=?, methods_json=?, metrics_json=?, attributes_json=?, updated_at=? WHERE id=?`,
+		pr.Name, pr.Description, pr.TopicStyleDefault, autoOTA,
 		mustJSON(pr.Methods), mustJSON(pr.Metrics), mustJSON(pr.Attributes),
 		db.NowMS(), id)
 	if err != nil {
@@ -223,9 +234,10 @@ func (p *Platform) ApplyProductESPDefaults(id int64) (*models.Product, error) {
 	presetMetrics := PresetMetricKeys()
 	customMethods := make([]models.ProductMethod, 0)
 	for _, m := range pr.Methods {
-		if m.Name != "" && !presetMethods[m.Name] {
-			customMethods = append(customMethods, m)
+		if m.Name == "" || presetMethods[m.Name] || IsBuiltinRPCMethod(m.Name) {
+			continue
 		}
+		customMethods = append(customMethods, m)
 	}
 	customMetrics := make([]models.ProductMetric, 0)
 	for _, m := range pr.Metrics {
@@ -254,38 +266,12 @@ func mustJSON(v any) string {
 func DefaultESPMethods() []models.ProductMethod {
 	return []models.ProductMethod{
 		{
+			Name: "rpc-list", Label: "RPC list", Description: "Built-in firmware method catalog (alias rpc_list). Not user-registerable.",
+		},
+		{
 			Name: "reboot", Label: "Reboot", Description: "Restart the device",
 			Params: []models.ProductMethodParam{
 				{Name: "delayMs", Label: "Delay (ms)", Type: "number", Default: float64(500)},
-			},
-		},
-		{
-			Name: "led_attach", Label: "Attach LED strip", Description: "Bind a WS2812 strip to a GPIO",
-			Params: []models.ProductMethodParam{
-				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
-				{Name: "count", Label: "LED count", Type: "number", Default: float64(16), Required: true},
-				{Name: "brightness", Label: "Brightness", Type: "number", Default: float64(32)},
-			},
-		},
-		{
-			Name: "led_detach", Label: "Detach LED strip", Description: "Unbind strip from GPIO",
-			Params: []models.ProductMethodParam{
-				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
-			},
-		},
-		{
-			Name: "led_list", Label: "List LED strips", Description: "List attached strips (gpio, count, brightness)",
-		},
-		{
-			Name: "set_led", Label: "Set LED strip", Description: "Set a range on an attached strip",
-			Params: []models.ProductMethodParam{
-				{Name: "gpio", Label: "GPIO", Type: "number", Required: true},
-				{Name: "offset", Label: "Offset", Type: "number", Default: float64(0), Required: true},
-				{Name: "length", Label: "Length", Type: "number", Default: float64(1), Required: true},
-				{Name: "on", Label: "On", Type: "boolean", Default: true},
-				{Name: "r", Label: "Red", Type: "number", Default: float64(255)},
-				{Name: "g", Label: "Green", Type: "number", Default: float64(255)},
-				{Name: "b", Label: "Blue", Type: "number", Default: float64(255)},
 			},
 		},
 	}
@@ -312,8 +298,19 @@ func DefaultESPMetrics() []models.ProductMetric {
 	}
 }
 
+// IsBuiltinRPCMethod reports SDK-reserved names that firmware always provides
+// and that must not be registered on the product schema.
+func IsBuiltinRPCMethod(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "rpc-list", "rpc_list":
+		return true
+	default:
+		return false
+	}
+}
+
 // MergeProductPresets ensures built-in reboot method and ESP metrics always exist.
-// Product-defined entries with the same name/key win.
+// Product-defined entries with the same name/key win, except reserved rpc-list.
 func MergeProductPresets(pr *models.Product) {
 	if pr == nil {
 		return
@@ -335,6 +332,9 @@ func mergeMethods(presets, custom []models.ProductMethod) []models.ProductMethod
 	for _, m := range custom {
 		if m.Name == "" {
 			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(m.Name), "rpc_list") {
+			continue // alias of built-in rpc-list; not a separate method
 		}
 		if _, ok := byName[m.Name]; !ok {
 			order = append(order, m.Name)
@@ -376,6 +376,7 @@ func PresetMethodNames() map[string]bool {
 	for _, m := range DefaultESPMethods() {
 		out[m.Name] = true
 	}
+	out["rpc_list"] = true
 	return out
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { formatAge } from '../utils/format';
@@ -29,7 +30,9 @@ export function SettingsPage() {
         <div>Platform: {s.platform_name}</div>
         <div>Retention: {s.telemetry_retention_days} days</div>
         <div>RPC timeout: {s.rpc_default_timeout_ms} ms</div>
-        <div>Broker: {s.broker_host}:1883</div>
+        <div>
+          Broker: {s.broker_host}:1883 · <Link to="/mqtt">MQTT monitor</Link>
+        </div>
         <div>Rules bus: {String(s.rules_bus_enabled)}</div>
         <div>Node-RED: {s.nodered_url}</div>
         <div>Public URL: {s.public_base_url || '—'}</div>

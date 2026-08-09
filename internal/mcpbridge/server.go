@@ -21,7 +21,7 @@ func NewServer(backend Backend) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "overview",
-		Description: "Platform overview: online/offline device counts, MQTT status, recent event count.",
+		Description: "Platform overview: online/offline device counts, MQTT broker status and live MQTT client count, recent event count.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
 		out, err := backend.Overview(ctx)
 		if err != nil {
@@ -101,7 +101,7 @@ func NewServer(backend Backend) *mcp.Server {
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_device_methods",
-		Description: "List RPC methods available for a device (from its product schema). Use before invoke_rpc.",
+		Description: "List RPC methods from the product schema (always includes built-in rpc-list). For the live firmware catalog, invoke_rpc method=rpc-list (alias rpc_list). Use before invoke_rpc.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listMethodsIn) (*mcp.CallToolResult, any, error) {
 		id, err := resolveDeviceID(ctx, backend, in.ID, in.ProductID, in.DeviceID)
 		if err != nil {

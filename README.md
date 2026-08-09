@@ -5,28 +5,14 @@ Self-hosted IoT backend + ops dashboard for the Crearts device MQTT protocol (**
 | Layer | Stack |
 |-------|--------|
 | API / ingest | Go 1.22+, chi, SQLite |
-| Broker | RabbitMQ MQTT (+ management API for device users) |
+| Broker | Embedded MQTT ([mochi-mqtt](https://github.com/mochi-mqtt/server)) inside the platform process |
 | Automation | Node-RED (rules bus on `platform/v1/...`) |
 | UI | React + Bootstrap 5 (Vite), embedded in Go binary |
 | MCP | Embedded at `/mcp` (JWT) — LLM device tools |
 
 ## Quick start
 
-### 1. Broker + Node-RED
-
-```bash
-cd deploy
-cp .env.example .env
-docker compose up -d rabbitmq nodered
-```
-
-| Service | URL |
-|---------|-----|
-| RabbitMQ Management | http://localhost:15672 (`crearts` / `crearts`) |
-| MQTT | `mqtt://localhost:1883` |
-| Node-RED | http://localhost:1880 |
-
-### 2. Platform API
+### 1. Platform (HTTP + MQTT)
 
 ```bash
 # build dashboard then API (from repo root)
@@ -44,12 +30,30 @@ Or: `make build` / `make web`.
 
 Open http://localhost:8080 — default login `admin@crearts.local` / `admin`.
 
-Or run the full stack (includes platform image):
+MQTT listen: `mqtt://localhost:1883`.
+
+### 2. Node-RED (optional)
+
+```bash
+cd deploy
+cp .env.example .env
+docker compose up -d nodered
+```
+
+| Service | URL |
+|---------|-----|
+| Dashboard / API | http://localhost:8080 |
+| MQTT | `mqtt://localhost:1883` |
+| Node-RED | http://localhost:1880 |
+
+Full stack (platform image + Node-RED):
 
 ```bash
 cd deploy
 docker compose up -d --build
 ```
+
+If another broker (e.g. RabbitMQ MQTT) already owns `:1883`, stop it or set `MQTT_ADDR=:1884` and `BROKER_HOST_PUBLIC` accordingly.
 
 ### 3. Register a device
 
@@ -75,9 +79,10 @@ password  = <access_token>
 |-----|---------|-------------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `SQLITE_PATH` | `./data/platform.db` | SQLite file |
-| `MQTT_BROKER` | `tcp://localhost:1883` | MQTT broker for publish |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | `crearts` | Platform service account |
-| `RABBITMQ_MGMT_URL` | `http://localhost:15672` | User provisioning |
+| `OTA_DIR` | `{sqlite dir}/firmware` | Hosted OTA `.bin` storage |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Absolute URLs (email, Google, **OTA download**). Use a LAN IP devices can reach |
+| `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
+| `MQTT_WS_ADDR` | (off) | Optional MQTT-over-WebSocket listen |
 | `JWT_SECRET` | (dev default) | Dashboard JWT signing key |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Cleanup job |
 | `RPC_DEFAULT_TIMEOUT_MS` | `30000` | RPC wait |
@@ -85,23 +90,25 @@ password  = <access_token>
 | `RULES_BUS_ENABLED` | `true` | Node-RED event/command bus |
 | `RULES_BUS_PREFIX` | `platform/v1` | Bus topic prefix |
 | `NODERED_URL` | `http://localhost:1880` | Dashboard link |
+| `NODERED_MQTT_USER` / `NODERED_MQTT_PASSWORD` | `nodered` | Rules-bus MQTT account |
 | `BROKER_HOST_PUBLIC` | `localhost` | Host shown in device credentials |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@crearts.local` / `admin` | Bootstrap admin |
 
 ## Architecture
 
 ```
-ESP devices ──MQTT──► RabbitMQ ◄──AMQP/MQTT── platform-api (Go)
-                         │                         │
-                         │ platform/v1/events…     │ SQLite + REST/WS
-                         ▼                         │
-                      Node-RED ◄──── REST ─────────┘
+ESP devices ──MQTT──► platform-api (Go, embedded broker)
                          │
-Dashboard (SPA) ──HTTPS──┘
+                         ├── SQLite + REST/WS
+                         └── platform/v1/events…  ──► Node-RED
+                                      ▲
+                         platform/v1/commands… ◄──┘
+
+Dashboard (SPA) ──HTTPS──► platform-api
 ```
 
-- **Ingest**: AMQP queue on `amq.topic` (`iot.v1.*.*.up.#`, `v1.#`) so short-topic uplinks resolve via RabbitMQ `user_id` (= `{product}.{device}`).
-- **Downlink**: MQTT publish using the device’s `topic_style` (`short` or `full`).
+- **Ingest**: hook on device PUBLISH (`iot/v1/.../up/...`, `v1/#`); identity from MQTT username `{product}.{device}`.
+- **Downlink**: inline publish using the **detected** topic style (`v1/…` or `v1/me/…` → short; `iot/v1/…` → full).
 - **Rules bus**: normalized JSON on `platform/v1/events/...`; commands on `platform/v1/commands/...`.
 
 ## Documentation
@@ -122,7 +129,7 @@ Dashboard (SPA) ──HTTPS──┘
 - [ ] Desired attribute patch reaches device (`v1/a/upd` or full topic)
 - [ ] RPC round-trip with `id` in body
 - [ ] NTP request gets `serverRecvTime` / `serverSendTime`
-- [ ] Token shown once at create/rotate; rotate provisions new broker user
+- [ ] Token shown once at create/rotate; rotate drops the old MQTT session
 - [ ] Node-RED receives `platform/v1/events/.../telemetry`
 
 ## License

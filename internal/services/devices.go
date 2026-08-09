@@ -4,14 +4,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"unicode"
 
 	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/broker"
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
 )
+
+func DeviceMQTTUsername(productID, deviceID string) string {
+	return productID + "." + deviceID
+}
 
 func slugifyID(s string) string {
 	s = strings.TrimSpace(strings.ToLower(s))
@@ -48,14 +52,11 @@ type DeviceInput struct {
 	Description string   `json:"description"`
 	Tags        []string `json:"tags"`
 	TopicStyle  string   `json:"topic_style"`
+	AutoOTA     *bool    `json:"auto_ota"`
 }
 
 func (p *Platform) ListDevices(productID, status, q string) ([]models.Device, error) {
-	query := `
-		SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
-		       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-		       d.topic_style, d.enabled, d.created_at, d.updated_at
-		FROM devices d JOIN products pr ON pr.id = d.product_pk WHERE 1=1`
+	query := deviceSelect + ` WHERE 1=1`
 	args := []any{}
 	if productID != "" {
 		query += ` AND pr.product_id=?`
@@ -91,11 +92,7 @@ func (p *Platform) ListDevices(productID, status, q string) ([]models.Device, er
 }
 
 func (p *Platform) GetDevice(id int64) (*models.Device, error) {
-	row := p.DB.QueryRow(`
-		SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
-		       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-		       d.topic_style, d.enabled, d.created_at, d.updated_at
-		FROM devices d JOIN products pr ON pr.id = d.product_pk WHERE d.id=?`, id)
+	row := p.DB.QueryRow(deviceSelect+` WHERE d.id=?`, id)
 	d, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
@@ -104,12 +101,7 @@ func (p *Platform) GetDevice(id int64) (*models.Device, error) {
 }
 
 func (p *Platform) GetDeviceByIdentity(productID, deviceID string) (*models.Device, error) {
-	row := p.DB.QueryRow(`
-		SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
-		       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-		       d.topic_style, d.enabled, d.created_at, d.updated_at
-		FROM devices d JOIN products pr ON pr.id = d.product_pk
-		WHERE pr.product_id=? AND d.device_id=?`, productID, deviceID)
+	row := p.DB.QueryRow(deviceSelect+` WHERE pr.product_id=? AND d.device_id=?`, productID, deviceID)
 	d, err := scanDevice(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
@@ -128,13 +120,6 @@ func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceC
 	if err != nil {
 		return nil, nil, fmt.Errorf("product: %w", err)
 	}
-	style := in.TopicStyle
-	if style == "" {
-		style = pr.TopicStyleDefault
-	}
-	if style != "short" && style != "full" {
-		return nil, nil, errors.New("invalid topic_style")
-	}
 	if in.Name == "" {
 		in.Name = in.DeviceID
 	}
@@ -145,23 +130,11 @@ func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceC
 	hash := auth.HashToken(token)
 	prefix := auth.TokenPrefix(token)
 
-	// Provision broker user BEFORE inserting the device so we never hand out a dead token.
-	if p.Broker == nil {
-		return nil, nil, errors.New("broker manager not configured")
-	}
-	if err := p.Broker.Ping(); err != nil {
-		return nil, nil, fmt.Errorf("rabbitmq management: %w", err)
-	}
-	if err := p.Broker.UpsertDeviceUser(token, in.ProductID, in.DeviceID); err != nil {
-		return nil, nil, fmt.Errorf("rabbitmq provision failed: %w", err)
-	}
-
 	now := db.NowMS()
 	res, err := p.DB.Exec(`INSERT INTO devices(product_pk, device_id, name, description, tags, access_token_hash, token_prefix, status, topic_style, enabled, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`,
-		pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", style, now, now)
+		pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", "short", now, now)
 	if err != nil {
-		_ = p.Broker.DeleteUser(broker.DeviceMQTTUsername(in.ProductID, in.DeviceID))
 		return nil, nil, err
 	}
 	id, _ := res.LastInsertId()
@@ -172,8 +145,10 @@ func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceC
 	if err != nil {
 		return nil, nil, err
 	}
-	creds := deviceCreds(in.ProductID, in.DeviceID, token, p.Cfg.BrokerHostPublic, style)
-	p.Log.Info("device created with rabbitmq user", "product", in.ProductID, "device", in.DeviceID, "mqtt_user", creds.Username, "token_prefix", prefix)
+	creds := p.deviceCreds(in.ProductID, in.DeviceID, token, "auto")
+	if p.Log != nil {
+		p.Log.Info("device created", "product", in.ProductID, "device", in.DeviceID, "mqtt_user", creds.Username, "token_prefix", prefix)
+	}
 	return d, creds, nil
 }
 
@@ -186,15 +161,6 @@ func (p *Platform) RotateDeviceToken(id int64) (*models.DeviceCredentials, error
 	if err != nil {
 		return nil, err
 	}
-	if p.Broker == nil {
-		return nil, errors.New("broker manager not configured")
-	}
-	if err := p.Broker.Ping(); err != nil {
-		return nil, fmt.Errorf("rabbitmq management: %w", err)
-	}
-	if err := p.Broker.UpsertDeviceUser(token, d.ProductID, d.DeviceID); err != nil {
-		return nil, fmt.Errorf("rabbitmq provision failed: %w", err)
-	}
 	hash := auth.HashToken(token)
 	prefix := auth.TokenPrefix(token)
 	now := db.NowMS()
@@ -205,8 +171,14 @@ func (p *Platform) RotateDeviceToken(id int64) (*models.DeviceCredentials, error
 	}
 	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, token_hash, token_prefix, created_at) VALUES(?,?,?,?)`, id, hash, prefix, now)
 	_ = p.ReloadDeviceMaps()
-	p.Log.Info("device token rotated with rabbitmq user", "product", d.ProductID, "device", d.DeviceID, "mqtt_user", broker.DeviceMQTTUsername(d.ProductID, d.DeviceID), "token_prefix", prefix)
-	return deviceCreds(d.ProductID, d.DeviceID, token, p.Cfg.BrokerHostPublic, d.TopicStyle), nil
+	user := DeviceMQTTUsername(d.ProductID, d.DeviceID)
+	if p.MQTT != nil {
+		p.MQTT.DropUsername(user)
+	}
+	if p.Log != nil {
+		p.Log.Info("device token rotated", "product", d.ProductID, "device", d.DeviceID, "mqtt_user", user, "token_prefix", prefix)
+	}
+	return p.deviceCreds(d.ProductID, d.DeviceID, token, d.TopicStyle), nil
 }
 
 func (p *Platform) UpdateDevice(id int64, in DeviceInput) (*models.Device, error) {
@@ -221,11 +193,15 @@ func (p *Platform) UpdateDevice(id int64, in DeviceInput) (*models.Device, error
 	if in.Tags != nil {
 		d.Tags = in.Tags
 	}
-	if in.TopicStyle != "" {
-		d.TopicStyle = in.TopicStyle
+	if in.AutoOTA != nil {
+		d.AutoOTA = *in.AutoOTA
 	}
-	_, err = p.DB.Exec(`UPDATE devices SET name=?, description=?, tags=?, topic_style=?, updated_at=? WHERE id=?`,
-		d.Name, d.Description, tagsJSON(d.Tags), d.TopicStyle, db.NowMS(), id)
+	autoOTA := 0
+	if d.AutoOTA {
+		autoOTA = 1
+	}
+	_, err = p.DB.Exec(`UPDATE devices SET name=?, description=?, tags=?, auto_ota=?, updated_at=? WHERE id=?`,
+		d.Name, d.Description, tagsJSON(d.Tags), autoOTA, db.NowMS(), id)
 	if err != nil {
 		return nil, err
 	}
@@ -245,11 +221,10 @@ func (p *Platform) SetDeviceEnabled(id int64, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	if !enabled && p.Broker != nil {
-		// Keep MQTT user; device is rejected by platform maps when disabled.
-		_ = d
-	}
 	_ = p.ReloadDeviceMaps()
+	if !enabled && p.MQTT != nil {
+		p.MQTT.DropUsername(DeviceMQTTUsername(d.ProductID, d.DeviceID))
+	}
 	return nil
 }
 
@@ -258,8 +233,8 @@ func (p *Platform) DeleteDevice(id int64) error {
 	if err != nil {
 		return err
 	}
-	if p.Broker != nil {
-		_ = p.Broker.DeleteUser(broker.DeviceMQTTUsername(d.ProductID, d.DeviceID))
+	if p.MQTT != nil {
+		p.MQTT.DropUsername(DeviceMQTTUsername(d.ProductID, d.DeviceID))
 	}
 	res, err := p.DB.Exec(`DELETE FROM devices WHERE id=?`, id)
 	if err != nil {
@@ -273,8 +248,10 @@ func (p *Platform) DeleteDevice(id int64) error {
 	return nil
 }
 
-func deviceCreds(productID, deviceID, token, host, style string) *models.DeviceCredentials {
-	user := broker.DeviceMQTTUsername(productID, deviceID)
+func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models.DeviceCredentials {
+	user := DeviceMQTTUsername(productID, deviceID)
+	host := p.Cfg.BrokerHostPublic
+	port := p.Cfg.MQTTPublicPort()
 	return &models.DeviceCredentials{
 		ProductID:   productID,
 		DeviceID:    deviceID,
@@ -282,13 +259,28 @@ func deviceCreds(productID, deviceID, token, host, style string) *models.DeviceC
 		Username:    user,
 		ClientID:    user,
 		BrokerHost:  host,
-		BrokerPort:  1883,
+		BrokerPort:  port,
 		TopicStyle:  style,
 		Snippet:     snippet(productID, deviceID, host, token),
+		Provision: &models.DeviceProvision{
+			WiFi: models.DeviceProvisionWiFi{},
+			Crearts: models.DeviceProvisionCrearts{
+				Product:    productID,
+				Device:     deviceID,
+				Host:       host,
+				Port:       port,
+				Token:      token,
+				TLS:        false,
+				TopicShort: style != "full",
+			},
+		},
 	}
 }
 
 func (p *Platform) MarkOnline(d *models.Device) {
+	if d.Status == "online" {
+		return
+	}
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET status='online', last_seen_at=?, updated_at=? WHERE id=?`, now, now, d.ID)
 	d.Status = "online"
@@ -296,9 +288,14 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
 	p.publishRules(d.ProductID, d.DeviceID, "status", map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
 	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
+	p.flushPendingOTA(d)
+	_ = p.maybeAutoOTA(d, d.FwVersion, "main")
 }
 
 func (p *Platform) MarkOffline(d *models.Device, reason string) {
+	if d.Status == "offline" {
+		return
+	}
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET status='offline', updated_at=? WHERE id=?`, now, d.ID)
 	d.Status = "offline"
@@ -309,6 +306,40 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 		msg = "Device offline (" + reason + ")"
 	}
 	_ = p.RecordEvent(d, "", "status", "warning", "offline", msg, now, map[string]any{"reason": reason})
+}
+
+func (p *Platform) RememberMQTTPeer(d *models.Device, remote string) {
+	if d == nil || remote == "" {
+		return
+	}
+	host, _, err := net.SplitHostPort(remote)
+	if err == nil {
+		remote = host
+	}
+	d.LastIP = remote
+	now := db.NowMS()
+	_, _ = p.DB.Exec(`UPDATE devices SET last_ip=?, last_seen_at=?, updated_at=? WHERE id=?`, remote, now, now, d.ID)
+}
+
+func (p *Platform) MQTTStatus() models.MQTTStatus {
+	if p.MQTT == nil {
+		return models.MQTTStatus{Clients: []models.MQTTClient{}, Events: []models.MQTTEvent{}}
+	}
+	return p.MQTT.Status()
+}
+
+func (p *Platform) MQTTClientByUser(username string) *models.MQTTClient {
+	if username == "" {
+		return nil
+	}
+	st := p.MQTTStatus()
+	for i := range st.Clients {
+		if st.Clients[i].Username == username || st.Clients[i].ClientID == username {
+			c := st.Clients[i]
+			return &c
+		}
+	}
+	return nil
 }
 
 func (p *Platform) TouchSeen(d *models.Device) {
@@ -327,7 +358,11 @@ func (p *Platform) Overview() (models.Overview, error) {
 	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ?`, cutoff).Scan(&o.RecentEvents)
 	o.PlatformName = p.Cfg.PlatformName
 	o.NodeRedURL = p.Cfg.NodeRedURL
-	if p.Pub != nil {
+	if p.MQTT != nil {
+		st := p.MQTT.Status()
+		o.MQTTConnected = st.Listening
+		o.MQTTClients = st.ClientCount
+	} else if p.Pub != nil {
 		o.MQTTConnected = p.Pub.Connected()
 	}
 	return o, nil

@@ -9,7 +9,7 @@ import (
 )
 
 // LoadYAML reads a YAML config file and sets values as env vars (does not override existing).
-// Nested keys are joined with "_", e.g. mqtt.broker → MQTT_BROKER.
+// Nested keys are joined with "_", e.g. mqtt.addr → MQTT_ADDR.
 func LoadYAML(path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {

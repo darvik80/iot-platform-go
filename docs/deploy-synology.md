@@ -6,33 +6,37 @@ CI workflows live in `.gitea/workflows/` (same pattern as note-keeper).
 
 On push to `master`/`main`, the Gitea runner on the NAS:
 
-1. Builds `localhost/crearts-iot-platform:latest`
-2. Recreates container on port **9082**
+1. Builds `localhost/iot-platform-go:latest`
+2. Recreates container on HTTP **9083** and MQTT **1883**
 3. Mounts:
-   - `/volume1/docker/crearts-iot-platform/data` → `/data` (SQLite)
-   - env from `/volume1/docker/crearts-iot-platform/etc/.env`
+   - `/volume1/docker/iot-platform-go/data` → `/data` (SQLite)
+   - env from `/volume1/docker/iot-platform-go/etc/.env`
+
+Stop any other MQTT broker on `:1883` (e.g. RabbitMQ MQTT plugin) before deploy, or change `TARGET_MQTT_PORT` / `MQTT_ADDR`.
 
 ## One-time NAS setup
 
 ```bash
-mkdir -p /volume1/docker/crearts-iot-platform/{data,etc}
-cp .env.example /volume1/docker/crearts-iot-platform/etc/.env
-# edit .env — set MQTT/RabbitMQ to NAS LAN IP, PUBLIC_BASE_URL, JWT_SECRET, etc.
+mkdir -p /volume1/docker/iot-platform-go/{data,etc}
+cp .env.example /volume1/docker/iot-platform-go/etc/.env
+# edit .env — set BROKER_HOST_PUBLIC to NAS LAN IP, PUBLIC_BASE_URL, JWT_SECRET, etc.
 ```
 
-Example `.env` on NAS (RabbitMQ already on the same host):
+Example `.env` on NAS:
 
 ```env
-MQTT_BROKER=tcp://192.168.1.100:1883
-RABBITMQ_MGMT_URL=http://192.168.1.100:15672
+MQTT_ADDR=:1883
 BROKER_HOST_PUBLIC=192.168.1.100
-PUBLIC_BASE_URL=http://192.168.1.100:9082
+PUBLIC_BASE_URL=http://192.168.1.100:9083
+# ESP OTA: devices GET {PUBLIC_BASE_URL}/ota/fw/{token}.bin (no JWT)
 JWT_SECRET=change-me
 ADMIN_LOGIN=admin
 ADMIN_PASSWORD=...
+NODERED_MQTT_PASSWORD=...
 ```
 
-Dashboard: `http://<nas>:9082`
+Dashboard: `http://<nas>:9083`  
+Devices / Node-RED MQTT: `<nas>:1883`
 
 ## Build check (`build.yml_`)
 

@@ -8,6 +8,7 @@ import { EventsPage } from './pages/EventsPage';
 import { LoginPage } from './pages/LoginPage';
 import { LogsPage } from './pages/LogsPage';
 import { OtaPage } from './pages/OtaPage';
+import { MqttPage } from './pages/MqttPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { ProductsPage } from './pages/ProductsPage';
@@ -33,6 +34,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<OverviewPage />} />
+        <Route path="/mqtt" element={<MqttPage />} />
         <Route path="/devices" element={<DevicesPage />} />
         <Route path="/devices/:id" element={<DeviceDetailPage />} />
         <Route path="/products" element={<ProductsPage />} />

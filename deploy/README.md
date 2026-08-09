@@ -7,4 +7,6 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Services: RabbitMQ (MQTT/AMQP/management), Node-RED, platform API (`:8080`).
+Services: platform API + embedded MQTT (`:8080`, `:1883`), Node-RED (`:1880`).
+
+Set `PUBLIC_BASE_URL` to a host ESP devices can reach (LAN IP) so hosted OTA downloads work.

@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { SeverityBadge } from '../components/StatusBadge';
-import type { Device, EventRow, Overview } from '../types';
+import type { Device, EventRow, MQTTStatus, Overview } from '../types';
 
 export function OverviewPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
+  const [mqtt, setMqtt] = useState<MQTTStatus | null>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     try {
-      setOverview(await api<Overview>('/overview'));
-      setEvents(await api<EventRow[]>('/events?limit=15'));
+      const [ov, ev, mq] = await Promise.all([
+        api<Overview>('/overview'),
+        api<EventRow[]>('/events?limit=15'),
+        api<MQTTStatus>('/mqtt'),
+      ]);
+      setOverview(ov);
+      setEvents(ev);
+      setMqtt(mq);
       await api<Device[]>('/devices');
       setError('');
     } catch (e) {
@@ -23,7 +31,7 @@ export function OverviewPage() {
   useEffect(() => {
     void load();
     return platformWS.subscribe((msg) => {
-      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event') {
+      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event' || msg.event === 'mqtt') {
         void load();
       }
     });
@@ -41,7 +49,11 @@ export function OverviewPage() {
           ['Offline', o.offline_devices || 0, 'var(--crit)'],
           ['Total', o.total_devices || 0, undefined],
           ['Events 24h', o.recent_events_24h || 0, undefined],
-          ['MQTT', o.mqtt_connected ? 'connected' : 'down', undefined],
+          [
+            'MQTT',
+            o.mqtt_connected ? `${o.mqtt_clients ?? mqtt?.client_count ?? 0} clients` : 'down',
+            o.mqtt_connected ? 'var(--ok)' : 'var(--crit)',
+          ],
         ].map(([label, value, color]) => (
           <div className="col-6 col-md-4 col-xl" key={String(label)}>
             <div className="stat-card">
@@ -52,6 +64,46 @@ export function OverviewPage() {
             </div>
           </div>
         ))}
+      </div>
+      <div className="panel mb-4">
+        <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+          <h2 className="h6 text-uppercase muted mb-0">MQTT sessions</h2>
+          <Link className="small" to="/mqtt">
+            Open MQTT
+          </Link>
+        </div>
+        <div className="table-responsive">
+          <table className="table table-sm">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>User</th>
+                <th>Remote</th>
+                <th>Subscriptions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(mqtt?.clients || []).length ? (
+                mqtt!.clients.map((c) => (
+                  <tr key={c.client_id || c.username + c.remote}>
+                    <td className="mono small">{c.kind}</td>
+                    <td className="mono">
+                      {c.device_pk ? <Link to={`/devices/${c.device_pk}`}>{c.username}</Link> : c.username || '—'}
+                    </td>
+                    <td className="mono small">{c.remote || '—'}</td>
+                    <td className="mono small">{(c.subscriptions || []).join(', ') || '—'}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    No MQTT clients — {o.mqtt_connected ? 'broker is up, waiting for CONNECT' : 'broker down'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
       <div className="panel">
         <h2 className="h6 text-uppercase muted">Recent events</h2>

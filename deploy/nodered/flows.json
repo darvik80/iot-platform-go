@@ -9,8 +9,8 @@
   {
     "id": "mqtt-broker",
     "type": "mqtt-broker",
-    "name": "crearts-rabbitmq",
-    "broker": "rabbitmq",
+    "name": "crearts-mqtt",
+    "broker": "platform",
     "port": "1883",
     "clientid": "nodered-crearts",
     "autoConnect": true,

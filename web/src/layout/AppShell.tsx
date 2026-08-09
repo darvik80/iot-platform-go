@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 
 const NAV: [string, string][] = [
   ['/', 'Overview'],
+  ['/mqtt', 'MQTT'],
   ['/products', 'Products'],
   ['/devices', 'Devices'],
   ['/events', 'Events'],
@@ -55,6 +56,7 @@ export function AppShell() {
     <div className="app-shell d-flex">
       <aside className="sidebar d-none d-md-flex flex-column p-3">
         <div className="brand mb-3">
+          <img className="brand-mark" src="/favicon.svg" alt="" />
           Crearts <span>IoT</span>
         </div>
         <NavItems />
@@ -72,6 +74,7 @@ export function AppShell() {
             Menu
           </button>
           <div className="brand flex-grow-1">
+            <img className="brand-mark" src="/favicon.svg" alt="" />
             Crearts <span>IoT</span>
           </div>
         </header>
@@ -84,6 +87,7 @@ export function AppShell() {
       <div className="offcanvas offcanvas-start text-bg-dark" tabIndex={-1} id="mobileNav">
         <div className="offcanvas-header">
           <h5 className="offcanvas-title brand">
+            <img className="brand-mark" src="/favicon.svg" alt="" />
             Crearts <span>IoT</span>
           </h5>
           <button type="button" className="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close" />

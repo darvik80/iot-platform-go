@@ -79,9 +79,19 @@ body {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-family: "IBM Plex Mono", monospace;
   font-weight: 500;
   letter-spacing: 0.02em;
+}
+
+.brand-mark {
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  border-radius: 0.28rem;
 }
 
 .brand span {

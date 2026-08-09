@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/broker"
 	"crearts-iot-platform/internal/config"
 	"crearts-iot-platform/internal/db"
 	"crearts-iot-platform/internal/models"
@@ -28,17 +27,23 @@ type Publisher interface {
 	Connected() bool
 }
 
+// MQTTSession drops live broker sessions and exposes connection status.
+type MQTTSession interface {
+	DropUsername(username string)
+	Status() models.MQTTStatus
+}
+
 type Hub interface {
 	Broadcast(event string, data any)
 }
 
 type Platform struct {
-	DB     *sql.DB
-	Cfg    config.Config
-	Broker *broker.Manager
-	Pub    Publisher
-	Hub    Hub
-	Log    *slog.Logger
+	DB   *sql.DB
+	Cfg  config.Config
+	MQTT MQTTSession
+	Pub  Publisher
+	Hub  Hub
+	Log  *slog.Logger
 
 	mu         sync.RWMutex
 	byClientID map[string]*models.Device // product.device
@@ -47,11 +52,10 @@ type Platform struct {
 	rpcSeq     uint32
 }
 
-func New(database *sql.DB, cfg config.Config, br *broker.Manager, log *slog.Logger) *Platform {
+func New(database *sql.DB, cfg config.Config, log *slog.Logger) *Platform {
 	return &Platform{
 		DB:         database,
 		Cfg:        cfg,
-		Broker:     br,
 		Log:        log,
 		byClientID: map[string]*models.Device{},
 		byToken:    map[string]*models.Device{},
@@ -59,16 +63,17 @@ func New(database *sql.DB, cfg config.Config, br *broker.Manager, log *slog.Logg
 	}
 }
 
-func (p *Platform) SetPublisher(pub Publisher) { p.Pub = pub }
-func (p *Platform) SetHub(h Hub)               { p.Hub = h }
+func (p *Platform) SetPublisher(pub Publisher)   { p.Pub = pub }
+func (p *Platform) SetMQTTSession(s MQTTSession) { p.MQTT = s }
+func (p *Platform) SetHub(h Hub)                 { p.Hub = h }
+
+const deviceSelect = `SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
+	       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
+	       d.topic_style, COALESCE(d.auto_ota,1), d.enabled, d.created_at, d.updated_at
+	FROM devices d JOIN products pr ON pr.id = d.product_pk`
 
 func (p *Platform) ReloadDeviceMaps() error {
-	rows, err := p.DB.Query(`
-		SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
-		       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-		       d.topic_style, d.enabled, d.created_at, d.updated_at
-		FROM devices d JOIN products pr ON pr.id = d.product_pk
-		WHERE d.enabled = 1 AND d.access_token_hash IS NOT NULL`)
+	rows, err := p.DB.Query(deviceSelect + ` WHERE d.enabled = 1 AND d.access_token_hash IS NOT NULL`)
 	if err != nil {
 		return err
 	}
@@ -123,6 +128,25 @@ func (p *Platform) publishRules(productID, deviceID, kind string, payload any) {
 	_ = p.Pub.Publish(topic, 0, false, b)
 }
 
+// ObserveTopicStyle stores the MQTT dialect inferred from Will / subscribe / publish prefixes.
+func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
+	if d == nil || (style != "short" && style != "full") {
+		return
+	}
+	if d.TopicStyle == style {
+		return
+	}
+	now := db.NowMS()
+	_, _ = p.DB.Exec(`UPDATE devices SET topic_style=?, updated_at=? WHERE id=?`, style, now, d.ID)
+	d.TopicStyle = style
+	if p.Log != nil {
+		p.Log.Info("topic style detected", "product", d.ProductID, "device", d.DeviceID, "style", style)
+	}
+	p.emit("mqtt", map[string]any{
+		"product_id": d.ProductID, "device_id": d.DeviceID, "topic_style": style,
+	})
+}
+
 func (p *Platform) DownTopic(d *models.Device, capability, operation string) string {
 	if d.TopicStyle == "full" {
 		if operation == "" {
@@ -132,21 +156,21 @@ func (p *Platform) DownTopic(d *models.Device, capability, operation string) str
 	}
 	switch capability + "/" + operation {
 	case "attributes/response":
-		return "v1/a/res"
+		return "v1/me/a/res"
 	case "attributes/update":
-		return "v1/a/upd"
+		return "v1/me/a/upd"
 	case "rpc/request":
-		return "v1/r/req"
+		return "v1/me/r/req"
 	case "rpc/response":
-		return "v1/r/cres"
+		return "v1/me/r/cres"
 	case "ntp/response":
-		return "v1/n/res"
+		return "v1/me/n/res"
 	case "ota/update":
-		return "v1/o/upd"
+		return "v1/me/o/upd"
 	case "ota/cancel":
-		return "v1/o/can"
+		return "v1/me/o/can"
 	default:
-		return "v1/" + capability
+		return "v1/me/" + capability
 	}
 }
 
@@ -256,15 +280,16 @@ func scanDevice(row interface{ Scan(dest ...any) error }) (*models.Device, error
 	var tags string
 	var tokenHash sql.NullString
 	var lastSeen sql.NullInt64
-	var enabled int
+	var enabled, autoOTA int
 	err := row.Scan(&d.ID, &d.ProductPK, &d.ProductID, &d.DeviceID, &d.Name, &d.Description, &tags,
-		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &enabled, &d.CreatedAt, &d.UpdatedAt)
+		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &autoOTA, &enabled, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	d.Tags = parseTags(tags)
 	d.AccessTokenHash = tokenHash.String
 	d.LastSeenAt = nullInt64(lastSeen)
+	d.AutoOTA = autoOTA == 1
 	d.Enabled = enabled == 1
 	return &d, nil
 }

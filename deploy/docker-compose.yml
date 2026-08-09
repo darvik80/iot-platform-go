@@ -1,39 +1,16 @@
 services:
-  rabbitmq:
-    image: rabbitmq:4.0-management
-    container_name: crearts-rabbitmq
-    hostname: rabbitmq
-    restart: unless-stopped
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-      - "1883:1883"
-      - "15675:15675"
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-crearts}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-crearts}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-
   nodered:
     image: nodered/node-red:4.0
     container_name: crearts-nodered
     hostname: nodered
     restart: unless-stopped
     depends_on:
-      rabbitmq:
-        condition: service_healthy
+      platform:
+        condition: service_started
     ports:
       - "1880:1880"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-crearts-nodered-dev}
     volumes:
@@ -52,22 +29,18 @@ services:
     container_name: crearts-platform
     hostname: platform
     restart: unless-stopped
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     ports:
       - "8080:8080"
+      - "1883:1883"
     environment:
       HTTP_ADDR: ":8080"
       SQLITE_PATH: /data/platform.db
-      MQTT_BROKER: tcp://rabbitmq:1883
-      MQTT_USERNAME: ${RABBITMQ_USER:-crearts}
-      MQTT_PASSWORD: ${RABBITMQ_PASS:-crearts}
-      MQTT_CLIENT_ID: crearts-platform
-      RABBITMQ_MGMT_URL: http://rabbitmq:15672
+      MQTT_ADDR: ":1883"
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       BROKER_HOST_PUBLIC: ${BROKER_HOST_PUBLIC:-localhost}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       NODERED_URL: http://localhost:1880
+      NODERED_MQTT_USER: ${NODERED_MQTT_USER:-nodered}
       NODERED_MQTT_PASSWORD: ${NODERED_MQTT_PASSWORD:-nodered}
       RULES_BUS_ENABLED: "true"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crearts.local}
@@ -77,6 +50,5 @@ services:
       - ./config:/etc/iot-platform-go:ro
 
 volumes:
-  rabbitmq_data:
   nodered_data:
   platform_data:

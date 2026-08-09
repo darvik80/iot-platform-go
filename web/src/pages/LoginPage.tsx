@@ -51,6 +51,7 @@ export function LoginPage() {
     <div className="login-wrap">
       <div className="login-box">
         <h1 className="h3 brand">
+          <img className="brand-mark" src="/favicon.svg" alt="" />
           Crearts <span>IoT</span>
         </h1>
         <p className="muted">{mode === 'register' ? 'Create an account' : 'Ops console — sign in'}</p>

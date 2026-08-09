@@ -26,6 +26,7 @@ export interface ProductMethodParam {
   label?: string;
   type?: string;
   default?: unknown;
+  required?: boolean;
 }
 
 export interface ProductMethod {
@@ -61,6 +62,7 @@ export interface Product {
   name: string;
   description?: string;
   topic_style_default: string;
+  auto_ota?: boolean;
   methods?: ProductMethod[];
   metrics?: ProductMetric[];
   attributes?: ProductAttribute[];
@@ -75,8 +77,23 @@ export interface Device {
   status: string;
   token_prefix?: string;
   topic_style: string;
+  fw_version?: string;
+  auto_ota?: boolean;
   last_seen_at?: number | null;
   enabled?: boolean;
+}
+
+export interface DeviceProvision {
+  wifi: { ssid: string; password: string };
+  crearts: {
+    product: string;
+    device: string;
+    host: string;
+    port: number;
+    token: string;
+    tls: boolean;
+    topic_short: boolean;
+  };
 }
 
 export interface DeviceCredentials {
@@ -89,6 +106,7 @@ export interface DeviceCredentials {
   broker_port: number;
   topic_style: string;
   snippet?: string;
+  provision?: DeviceProvision;
 }
 
 export interface DeviceDetail {
@@ -106,6 +124,7 @@ export interface DeviceDetail {
     topic_style: string;
     token_prefix?: string;
     note?: string;
+    mqtt_session?: MQTTClient | null;
   };
 }
 
@@ -140,12 +159,75 @@ export interface LogRow {
 }
 
 export interface Firmware {
+  id: number;
   product_id: string;
   module: string;
   version: string;
   size: number;
   url: string;
   sha256?: string;
+  download_token?: string;
+  hosted?: boolean;
+  created_at?: number;
+}
+
+export interface OTAJob {
+  id: number;
+  device_pk: number;
+  product_id?: string;
+  device_id?: string;
+  firmware_id: number;
+  firmware_version?: string;
+  module?: string;
+  status: string;
+  step: number;
+  desc: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface OTANotifyResult {
+  firmware_id: number;
+  started: number;
+  skipped: number;
+  failed: number;
+  jobs: OTAJob[];
+  errors?: string[];
+}
+
+export interface MQTTClient {
+  client_id: string;
+  username: string;
+  remote: string;
+  listener?: string;
+  kind: string;
+  device_pk?: number;
+  protocol?: number;
+  clean?: boolean;
+  subscriptions?: string[];
+  connected_at?: number;
+  last_seen_at?: number;
+}
+
+export interface MQTTEvent {
+  ts: number;
+  level: string;
+  kind: string;
+  client_id?: string;
+  username?: string;
+  remote?: string;
+  topic?: string;
+  message?: string;
+  bytes?: number;
+}
+
+export interface MQTTStatus {
+  listening: boolean;
+  addr?: string;
+  ws_addr?: string;
+  client_count: number;
+  clients: MQTTClient[];
+  events: MQTTEvent[];
 }
 
 export interface Overview {
@@ -155,6 +237,7 @@ export interface Overview {
   total_devices: number;
   recent_events_24h: number;
   mqtt_connected: boolean;
+  mqtt_clients?: number;
   platform_name?: string;
   nodered_url?: string;
 }

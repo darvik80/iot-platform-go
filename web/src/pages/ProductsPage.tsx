@@ -54,7 +54,6 @@ export function ProductsPage() {
                 <th>Name</th>
                 <th>Methods</th>
                 <th>Metrics</th>
-                <th>Topic</th>
                 <th />
               </tr>
             </thead>
@@ -67,7 +66,6 @@ export function ProductsPage() {
                   <td>{p.name}</td>
                   <td>{(p.methods || []).length}</td>
                   <td>{(p.metrics || []).length}</td>
-                  <td>{p.topic_style_default}</td>
                   <td>
                     <button
                       type="button"
@@ -90,7 +88,7 @@ export function ProductsPage() {
               ))}
               {!products.length && (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={5} className="muted">
                     No products
                   </td>
                 </tr>

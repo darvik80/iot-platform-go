@@ -43,22 +43,22 @@ func (s *Server) Router() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	r.Get("/ota/fw/{token}", s.downloadFirmware)
+	r.Head("/ota/fw/{token}", s.downloadFirmware)
+
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		mqttOK := s.Plat.Pub != nil && s.Plat.Pub.Connected()
-		mgmtOK := false
-		var mgmtErr string
-		if s.Plat.Broker != nil {
-			if err := s.Plat.Broker.Ping(); err != nil {
-				mgmtErr = err.Error()
-			} else {
-				mgmtOK = true
-			}
-		}
 		status := http.StatusOK
-		if !mqttOK || !mgmtOK {
+		if !mqttOK {
 			status = http.StatusServiceUnavailable
 		}
-		writeJSON(w, status, map[string]any{"db": true, "mqtt": mqttOK, "rabbitmq_mgmt": mgmtOK, "rabbitmq_mgmt_error": mgmtErr})
+		st := s.Plat.MQTTStatus()
+		writeJSON(w, status, map[string]any{
+			"db":           true,
+			"mqtt":         mqttOK,
+			"mqtt_addr":    s.Plat.Cfg.MQTTAddr,
+			"mqtt_clients": st.ClientCount,
+		})
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
@@ -73,6 +73,7 @@ func (s *Server) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate)
 			r.Get("/overview", s.overview)
+			r.Get("/mqtt", s.mqttStatus)
 			r.Get("/me", s.me)
 			r.Get("/me/tokens", s.listAPITokens)
 			r.Post("/me/tokens", s.createAPIToken)
@@ -106,11 +107,14 @@ func (s *Server) Router() http.Handler {
 			r.Get("/devices/{id}/rpc", s.listRPC)
 			r.Post("/devices/{id}/ota", s.requireWrite(s.startOTA))
 			r.Post("/devices/{id}/ota/cancel", s.requireWrite(s.cancelOTA))
+			r.Post("/ota/firmwares/{id}/notify", s.requireWrite(s.notifyFirmware))
 
 			r.Get("/events", s.listEvents)
 			r.Get("/logs", s.listLogs)
 			r.Get("/ota/firmwares", s.listFirmware)
 			r.Post("/ota/firmwares", s.requireWrite(s.registerFirmware))
+			r.Post("/ota/firmwares/upload", s.requireWrite(s.uploadFirmware))
+			r.Delete("/ota/firmwares/{id}", s.requireWrite(s.deleteFirmware))
 			r.Get("/ota/jobs", s.listOTAJobs)
 
 			r.Get("/settings", s.getSettings)
@@ -196,6 +200,10 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, o)
 }
 
+func (s *Server) mqttStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.Plat.MQTTStatus())
+}
+
 func (s *Server) listProducts(w http.ResponseWriter, r *http.Request) {
 	list, err := s.Plat.ListProducts()
 	if err != nil {
@@ -250,6 +258,13 @@ func (s *Server) updateProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := raw["topic_style_default"]; ok {
 		_ = json.Unmarshal(v, &in.TopicStyleDefault)
+	}
+	if v, ok := raw["auto_ota"]; ok {
+		var b bool
+		if err := json.Unmarshal(v, &b); err == nil {
+			in.AutoOTA = &b
+			in.SetAutoOTA = true
+		}
 	}
 	if v, ok := raw["methods"]; ok {
 		in.SetMethods = true
@@ -335,16 +350,18 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	latest, _ := s.Plat.LatestTelemetry(id)
 	events, _ := s.Plat.ListEvents(id, "", 0, 0, 20)
 	product, _ := s.Plat.GetProduct(d.ProductPK)
+	username := d.ProductID + "." + d.DeviceID
 	writeJSON(w, http.StatusOK, map[string]any{
 		"device": d, "product": product, "reported": reported, "desired": desired, "latest_telemetry": latest, "recent_events": events,
 		"connection": map[string]any{
-			"client_id":    d.ProductID + "." + d.DeviceID,
-			"username":     d.ProductID + "." + d.DeviceID,
+			"client_id":    username,
+			"username":     username,
 			"broker_host":  s.Plat.Cfg.BrokerHostPublic,
-			"broker_port":  1883,
+			"broker_port":  s.Plat.Cfg.MQTTPublicPort(),
 			"topic_style":  d.TopicStyle,
 			"token_prefix": d.TokenPrefix,
 			"note":         "MQTT username = product.device; password = access token (shown only at create/rotate)",
+			"mqtt_session": s.Plat.MQTTClientByUser(username),
 		},
 	})
 }
@@ -498,17 +515,37 @@ func (s *Server) startOTA(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	var in struct {
 		FirmwareID int64 `json:"firmware_id"`
+		Force      bool  `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	job, err := s.Plat.StartOTAJob(id, in.FirmwareID)
+	job, err := s.Plat.StartOTAJob(id, in.FirmwareID, in.Force)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	uid := userFrom(r).ID
+	s.Plat.Audit(&uid, "ota", "device", strconv.FormatInt(id, 10), in)
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) notifyFirmware(w http.ResponseWriter, r *http.Request) {
+	fwID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var in struct {
+		DeviceID int64 `json:"device_id"`
+		Force    bool  `json:"force"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	out, err := s.Plat.NotifyFirmware(fwID, in.DeviceID, in.Force)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	uid := userFrom(r).ID
+	s.Plat.Audit(&uid, "ota_notify", "firmware", strconv.FormatInt(fwID, 10), in)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) cancelOTA(w http.ResponseWriter, r *http.Request) {
@@ -580,6 +617,59 @@ func (s *Server) registerFirmware(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, fw)
+}
+
+func (s *Server) deleteFirmware(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err := s.Plat.DeleteFirmware(id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) uploadFirmware(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, services.MaxFirmwareBytes+1<<20)
+	if err := r.ParseMultipartForm(services.MaxFirmwareBytes + 1<<20); err != nil {
+		writeErr(w, http.StatusBadRequest, "file too large or invalid multipart")
+		return
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "file required")
+		return
+	}
+	defer file.Close()
+	in := services.FirmwareInput{
+		ProductID:  r.FormValue("product_id"),
+		Module:     r.FormValue("module"),
+		Version:    r.FormValue("version"),
+		SHA256:     r.FormValue("sha256"),
+		SignMethod: r.FormValue("sign_method"),
+		Sign:       r.FormValue("sign"),
+	}
+	if sz := strings.TrimSpace(r.FormValue("size")); sz != "" {
+		in.Size, _ = strconv.ParseInt(sz, 10, 64)
+	}
+	fw, err := s.Plat.StoreFirmwareFile(in, file)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, fw)
+}
+
+func (s *Server) downloadFirmware(w http.ResponseWriter, r *http.Request) {
+	fw, path, err := s.Plat.HostedFirmware(chi.URLParam(r, "token"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.NewReplacer(`"`, "", `/`, "-", `\`, "-").Replace(fw.ProductID+"-"+fw.Module+"-"+fw.Version) + ".bin"
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeFile(w, r, path)
 }
 
 func (s *Server) listOTAJobs(w http.ResponseWriter, r *http.Request) {

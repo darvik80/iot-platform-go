@@ -54,7 +54,7 @@ Until email is verified (if `REQUIRE_EMAIL_VERIFY=true`), password login returns
 |-----|---------|-------|
 | `EMAIL_MODE` | `log` | `log` prints the link in server logs; `smtp` sends mail |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | | required for `smtp` |
-| `PUBLIC_BASE_URL` | `http://localhost:8080` | used in verification links |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | verification links, Google callback, OTA download URLs |
 | `REQUIRE_EMAIL_VERIFY` | `true` | |
 | `REGISTER_ENABLED` | `true` | |
 

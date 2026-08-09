@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { MethodEditor, PRESET_METHODS, PRESET_METRICS } from '../components/MethodEditor';
+import { MethodEditor, PRESET_METRICS, isReservedMethodName } from '../components/MethodEditor';
 import type { Product, ProductAttribute, ProductMethod, ProductMetric } from '../types';
 
 type Draft = {
   name: string;
   description: string;
-  style: string;
+  auto_ota: boolean;
   methods: ProductMethod[];
   metrics: ProductMetric[];
   attributes: ProductAttribute[];
@@ -36,7 +36,7 @@ export function ProductDetailPage() {
     const next: Draft = {
       name: pr.name,
       description: pr.description || '',
-      style: pr.topic_style_default || 'short',
+      auto_ota: !!pr.auto_ota,
       methods: pr.methods || [],
       metrics: pr.metrics || [],
       attributes: pr.attributes || [],
@@ -78,7 +78,7 @@ export function ProductDetailPage() {
           body: JSON.stringify({
             name: payload.name,
             description: payload.description,
-            topic_style_default: payload.style,
+            auto_ota: payload.auto_ota,
             methods: payload.methods,
             metrics: payload.metrics,
             attributes: payload.attributes,
@@ -100,7 +100,7 @@ export function ProductDetailPage() {
 
   if (!p || !draft) return <p className="muted">Loading…</p>;
 
-  const { name, description, style, methods, metrics, attributes } = draft;
+  const { name, description, auto_ota, methods, metrics, attributes } = draft;
 
   return (
     <div>
@@ -148,20 +148,27 @@ export function ProductDetailPage() {
 
       <div className="panel">
         <div className="row g-2">
-          <div className="col-md-3">
+          <div className="col-md-4">
             <label className="form-label small muted">Name</label>
             <input className="form-control" value={name} onChange={(e) => patchDraft({ name: e.target.value })} />
           </div>
-          <div className="col-md-2">
-            <label className="form-label small muted">Topic style</label>
-            <select className="form-select" value={style} onChange={(e) => patchDraft({ style: e.target.value })}>
-              <option value="short">short</option>
-              <option value="full">full</option>
-            </select>
-          </div>
-          <div className="col-md-7">
+          <div className="col-md-6">
             <label className="form-label small muted">Description</label>
             <input className="form-control" value={description} onChange={(e) => patchDraft({ description: e.target.value })} />
+          </div>
+          <div className="col-md-2 d-flex align-items-end">
+            <div className="form-check mb-2">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="auto-ota"
+                checked={auto_ota}
+                onChange={(e) => patchDraft({ auto_ota: e.target.checked })}
+              />
+              <label className="form-check-label small" htmlFor="auto-ota">
+                Auto-OTA
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -200,7 +207,7 @@ export function ProductDetailPage() {
                 onClick={() => {
                   const n = addMethod.name.trim();
                   if (!n) return alert('Method name required');
-                  if (PRESET_METHODS[n]) return alert(`"${n}" is a predefined method`);
+                  if (isReservedMethodName(n)) return alert(`"${n}" is a predefined method`);
                   if (methods.some((m) => m.name === n)) return alert('Method already exists');
                   const nextMethods = [
                     ...methods,

@@ -12,10 +12,9 @@ import (
 	"time"
 
 	"crearts-iot-platform/internal/api"
-	"crearts-iot-platform/internal/broker"
 	"crearts-iot-platform/internal/config"
 	"crearts-iot-platform/internal/db"
-	mqttclient "crearts-iot-platform/internal/mqtt"
+	mqttbroker "crearts-iot-platform/internal/mqtt"
 	"crearts-iot-platform/internal/services"
 	"crearts-iot-platform/internal/webui"
 	"crearts-iot-platform/internal/ws"
@@ -40,8 +39,7 @@ func main() {
 	}
 	defer database.Close()
 
-	br := broker.New(cfg.RabbitMQMgmtURL, cfg.MQTTUsername, cfg.MQTTPassword)
-	plat := services.New(database, cfg, br, log)
+	plat := services.New(database, cfg, log)
 	if err := plat.EnsureAdmin(); err != nil {
 		log.Error("ensure admin failed", "err", err)
 		os.Exit(1)
@@ -51,25 +49,14 @@ func main() {
 	hub := ws.NewHub()
 	plat.SetHub(hub)
 
-	mqtt := mqttclient.New(cfg, plat, log)
-	plat.SetPublisher(mqtt)
-	if err := mqtt.Start(); err != nil {
-		log.Warn("broker ingest not ready (will keep serving REST)", "err", err)
+	brk := mqttbroker.New(cfg, plat, log)
+	plat.SetPublisher(brk)
+	plat.SetMQTTSession(brk)
+	if err := brk.Start(); err != nil {
+		log.Error("mqtt broker failed", "addr", cfg.MQTTAddr, "err", err)
+		os.Exit(1)
 	}
-	defer mqtt.Close()
-
-	noderedPass := os.Getenv("NODERED_MQTT_PASSWORD")
-	if noderedPass == "" {
-		noderedPass = "nodered"
-	}
-	if err := br.Ping(); err != nil {
-		log.Warn("rabbitmq management not ready — device create will fail until it is", "url", cfg.RabbitMQMgmtURL, "err", err)
-	} else {
-		log.Info("rabbitmq management ok", "url", cfg.RabbitMQMgmtURL)
-		if err := br.EnsureNodeRedUser("nodered", noderedPass); err != nil {
-			log.Warn("nodered user provision skipped", "err", err)
-		}
-	}
+	defer brk.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,7 +75,7 @@ func main() {
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
 
 	go func() {
-		log.Info("platform listening", "addr", cfg.HTTPAddr, "name", cfg.PlatformName)
+		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "name", cfg.PlatformName)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("http server failed", "err", err)
 			os.Exit(1)

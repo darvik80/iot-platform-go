@@ -53,10 +53,11 @@ func (l *Local) GetDevice(_ context.Context, id int64) (any, error) {
 			"client_id":    d.ProductID + "." + d.DeviceID,
 			"username":     d.ProductID + "." + d.DeviceID,
 			"broker_host":  l.Plat.Cfg.BrokerHostPublic,
-			"broker_port":  1883,
+			"broker_port":  l.Plat.Cfg.MQTTPublicPort(),
 			"topic_style":  d.TopicStyle,
 			"token_prefix": d.TokenPrefix,
 			"note":         "MQTT username = product.device; password = access token (shown only at create/rotate)",
+			"mqtt_session": l.Plat.MQTTClientByUser(d.ProductID + "." + d.DeviceID),
 		},
 	}, nil
 }

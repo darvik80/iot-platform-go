@@ -25,7 +25,7 @@ export function setToken(token: string) {
 
 export async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers = new Headers(opts.headers || {});
-  if (!headers.has('Content-Type') && opts.body) {
+  if (!headers.has('Content-Type') && opts.body && !(opts.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
   const token = getToken();

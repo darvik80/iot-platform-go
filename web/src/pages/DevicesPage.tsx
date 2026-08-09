@@ -13,7 +13,7 @@ export function DevicesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ product_id: '', device_id: '', name: '', topic_style: 'short' });
+  const [form, setForm] = useState({ product_id: '', device_id: '', name: '' });
 
   const load = useCallback(async () => {
     try {
@@ -30,7 +30,7 @@ export function DevicesPage() {
   useEffect(() => {
     void load();
     return platformWS.subscribe((msg) => {
-      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event') void load();
+      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event' || msg.event === 'mqtt') void load();
     });
   }, [load]);
 
@@ -49,7 +49,11 @@ export function DevicesPage() {
     try {
       const res = await api<{ credentials: DeviceCredentials }>('/devices', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          product_id: form.product_id,
+          device_id: form.device_id,
+          name: form.name,
+        }),
       });
       setCreds(res.credentials);
       setShowAdd(false);
@@ -87,17 +91,11 @@ export function DevicesPage() {
                 ))}
               </select>
             </div>
-            <div className="col-md-2">
+            <div className="col-md-3">
               <input className="form-control" placeholder="device_id" value={form.device_id} onChange={(e) => setForm({ ...form, device_id: e.target.value })} />
             </div>
-            <div className="col-md-3">
+            <div className="col-md-4">
               <input className="form-control" placeholder="Display name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div className="col-md-2">
-              <select className="form-select" value={form.topic_style} onChange={(e) => setForm({ ...form, topic_style: e.target.value })}>
-                <option value="short">short topics</option>
-                <option value="full">full topics</option>
-              </select>
             </div>
             <div className="col-md-2">
               <button type="button" className="btn btn-primary w-100" onClick={create}>
@@ -116,6 +114,7 @@ export function DevicesPage() {
                 <th>Product</th>
                 <th>Device</th>
                 <th>Name</th>
+                <th>FW</th>
                 <th>Status</th>
                 <th>Last seen</th>
               </tr>
@@ -128,6 +127,7 @@ export function DevicesPage() {
                     <Link to={`/devices/${d.id}`}>{d.device_id}</Link>
                   </td>
                   <td>{d.name}</td>
+                  <td className="mono small">{d.fw_version || '—'}</td>
                   <td>
                     <StatusBadge status={d.status} />
                   </td>
@@ -136,7 +136,7 @@ export function DevicesPage() {
               ))}
               {!filtered.length && (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={6} className="muted">
                     No devices
                   </td>
                 </tr>

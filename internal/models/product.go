@@ -22,8 +22,8 @@ type ProductMetric struct {
 	Key         string `json:"key"`
 	Label       string `json:"label,omitempty"`
 	Description string `json:"description,omitempty"`
-	Group       string `json:"group,omitempty"` // System|Network|Memory|Storage|Sensors|Other
-	Unit        string `json:"unit,omitempty"`  // %, °C, dBm, bytes, seconds, …
+	Group       string `json:"group,omitempty"`  // System|Network|Memory|Storage|Sensors|Other
+	Unit        string `json:"unit,omitempty"`   // %, °C, dBm, bytes, seconds, …
 	Format      string `json:"format,omitempty"` // bytes|percent|duration|bool|number|text|rssi
 	Precision   *int   `json:"precision,omitempty"`
 }
@@ -46,6 +46,7 @@ type Product struct {
 	Name              string             `json:"name"`
 	Description       string             `json:"description"`
 	TopicStyleDefault string             `json:"topic_style_default"`
+	AutoOTA           bool               `json:"auto_ota"`
 	Methods           []ProductMethod    `json:"methods"`
 	Metrics           []ProductMetric    `json:"metrics"`
 	Attributes        []ProductAttribute `json:"attributes"`

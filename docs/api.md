@@ -33,8 +33,9 @@ Current user.
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/healthz` | liveness (no auth) |
-| GET | `/readyz` | DB + MQTT/AMQP ready (no auth) |
-| GET | `/overview` | online/offline counts, MQTT flag |
+| GET | `/readyz` | DB + embedded MQTT ready (no auth); includes `mqtt_clients` |
+| GET | `/overview` | online/offline counts, MQTT flag + client count |
+| GET | `/mqtt` | live MQTT sessions + recent broker events |
 | GET | `/settings` | retention, broker host, Node-RED URL |
 
 ## Products
@@ -51,8 +52,7 @@ Current user.
 {
   "product_id": "esp32-cam",
   "name": "ESP32-CAM",
-  "description": "",
-  "topic_style_default": "short"
+  "description": ""
 }
 ```
 
@@ -61,7 +61,7 @@ Current user.
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/devices?product_id=&status=&q=` | list |
-| POST | `/devices` | returns `credentials` **once** |
+| POST | `/devices` | returns `credentials` **once**. Topic style is detected from MQTT (`v1/…` / `v1/me/…` → short, `iot/v1/…` → full). |
 | GET | `/devices/{id}` | detail + attrs + latest telemetry |
 | PUT | `/devices/{id}` | metadata |
 | DELETE | `/devices/{id}` | |
@@ -82,10 +82,24 @@ Current user.
     "client_id": "esp32-cam.cam-001",
     "broker_host": "localhost",
     "broker_port": 1883,
-    "topic_style": "short",
-    "snippet": "CreartsCredentials::createAccessToken(...);"
+    "topic_style": "auto",
+    "snippet": "CreartsCredentials::createAccessToken(...);",
+    "provision": {
+      "wifi": { "ssid": "", "password": "" },
+      "crearts": {
+        "product": "esp32-cam",
+        "device": "cam-001",
+        "host": "192.168.1.100",
+        "port": 1883,
+        "token": "...",
+        "tls": false,
+        "topic_short": true
+      }
+    }
   }
 }
+
+Dashboard create/rotate modal can fill `wifi` and **Copy JSON** / download `{product}-{device}.json` for firmware provisioning. Wi‑Fi is not stored on the platform.
 ```
 
 ## Telemetry & attributes
@@ -116,10 +130,17 @@ Desired body is a flat JSON object; platform persists and publishes `attributes/
 | GET | `/events?device_id=&severity=&from=&to=&limit=` |
 | GET | `/logs?device_id=&level=&from=&to=&limit=` |
 | GET | `/ota/firmwares?product_id=` |
-| POST | `/ota/firmwares` |
-| POST | `/devices/{id}/ota` | `{ "firmware_id": 1 }` |
+| POST | `/ota/firmwares` | register an **external** URL `{ product_id, version, url, sha256?, size?, module? }` |
+| POST | `/ota/firmwares/upload` | multipart: `file` + `product_id` + `version` + optional `module` / `sha256` / `sign` — stores the image and returns a public download URL. Same product+module+version **replaces** the previous image |
+| DELETE | `/ota/firmwares/{id}` | remove image, hosted file, and OTA jobs for that firmware |
+| POST | `/ota/firmwares/{id}/notify` | `{ "device_id"?: pk, "force"?: bool }` — omit `device_id` to notify the whole product |
+| POST | `/devices/{id}/ota` | `{ "firmware_id": 1, "force"?: false }` |
 | POST | `/devices/{id}/ota/cancel` |
 | GET | `/ota/jobs?device_id=` |
+
+Public (no JWT — ESP HTTP GET): `GET /ota/fw/{token}.bin` — hosted firmware download. URL is `{PUBLIC_BASE_URL}/ota/fw/{token}.bin` and is what MQTT `v1/o/upd` sends as `url`. Set `PUBLIC_BASE_URL` to a host the device can reach (LAN IP, not `localhost`). Images live under `OTA_DIR` or `{sqlite dir}/firmware`. Max upload 32MB.
+
+Product `auto_ota` + device `auto_ota` (default on): when a device comes online or reports `ota/version`, platform pushes the latest firmware if versions differ. Device `ota/query` always gets an update if a newer image exists (pull). Offline notify creates a **pending** job; it is pushed on reconnect.
 
 ## Roles
 

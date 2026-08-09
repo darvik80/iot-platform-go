@@ -51,12 +51,14 @@ Alternatively call REST `POST /api/v1/devices/{id}/rpc` with a Bearer token.
 
 ## MQTT user
 
-Platform provisions RabbitMQ user `nodered` (password from `NODERED_MQTT_PASSWORD`, default `nodered`) with ACL on `platform.v1.events.#` / `platform.v1.commands.#`.
+Connect Node-RED to the **platform** MQTT port (`MQTT_ADDR`, default `:1883`), not a separate broker.
+
+User `nodered` (password from `NODERED_MQTT_PASSWORD`, default `nodered`) may subscribe to `platform/v1/events/#` and publish to `platform/v1/commands/#`.
 
 **Never** put device access tokens into Node-RED flows.
 
 ## Example flow
 
-`deploy/nodered/flows.json` ships a temperature-threshold → desired-attribute example and an offline status debug node.
+`deploy/nodered/flows.json` ships a temperature-threshold → desired-attribute example and an offline status debug node. In compose the MQTT broker host is `platform`.
 
 Dashboard → **Automation** shows the editor inline (and “Open in new tab”). `NODERED_URL` must be reachable **from the browser**, not the Docker hostname `nodered`.

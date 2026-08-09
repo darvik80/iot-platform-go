@@ -7,7 +7,8 @@ import { CredsModal } from '../components/CredsModal';
 import { MetricCards } from '../components/MetricCards';
 import { RpcConsole } from '../components/RpcConsole';
 import { SeverityBadge, StatusBadge } from '../components/StatusBadge';
-import type { DeviceCredentials, DeviceDetail } from '../types';
+import { formatOtaProgress } from '../utils/format';
+import type { DeviceCredentials, DeviceDetail, Firmware, OTAJob } from '../types';
 
 export function DeviceDetailPage() {
   const { id } = useParams();
@@ -15,12 +16,28 @@ export function DeviceDetailPage() {
   const [detail, setDetail] = useState<DeviceDetail | null>(null);
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
+  const [firmwares, setFirmwares] = useState<Firmware[]>([]);
+  const [otaJobs, setOtaJobs] = useState<OTAJob[]>([]);
+  const [otaFw, setOtaFw] = useState('');
+  const [otaBusy, setOtaBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      setDetail(await api<DeviceDetail>(`/devices/${id}`));
+      const detail = await api<DeviceDetail>(`/devices/${id}`);
+      setDetail(detail);
       setError('');
+      try {
+        const [fws, jobs] = await Promise.all([
+          api<Firmware[]>(`/ota/firmwares?product_id=${encodeURIComponent(detail.device.product_id)}`),
+          api<OTAJob[]>(`/ota/jobs?device_id=${id}`),
+        ]);
+        setFirmwares(fws);
+        setOtaJobs(jobs);
+        setOtaFw((prev) => prev || (fws[0] ? String(fws[0].id) : ''));
+      } catch {
+        /* OTA panel is optional */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -29,7 +46,7 @@ export function DeviceDetailPage() {
   useEffect(() => {
     void load();
     return platformWS.subscribe((msg) => {
-      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event') void load();
+      if (msg.event === 'device.status' || msg.event === 'telemetry' || msg.event === 'event' || msg.event === 'mqtt' || msg.event === 'ota.progress') void load();
     });
   }, [load]);
 
@@ -66,8 +83,19 @@ export function DeviceDetailPage() {
               <div>
                 broker: {c.broker_host}:{c.broker_port}
               </div>
-              <div>topic_style: {c.topic_style}</div>
+              <div>topics: {c.topic_style || 'auto'} (detected from MQTT prefix)</div>
               <div>token_prefix: {c.token_prefix}…</div>
+              <div>
+                mqtt session:{' '}
+                {c.mqtt_session ? (
+                  <span style={{ color: 'var(--ok)' }}>
+                    connected from {c.mqtt_session.remote || '?'}
+                    {c.mqtt_session.subscriptions?.length ? ` · ${c.mqtt_session.subscriptions.join(', ')}` : ''}
+                  </span>
+                ) : (
+                  <span className="muted">not connected</span>
+                )}
+              </div>
               <div className="muted">{c.note}</div>
             </div>
             <div className="d-flex flex-wrap gap-2 mt-3">
@@ -122,8 +150,114 @@ export function DeviceDetailPage() {
       />
 
       <div className="panel">
+        <h2 className="h6 text-uppercase muted">OTA</h2>
+        <div className="d-flex flex-wrap align-items-center gap-3 mb-2">
+          <div className="small">
+            firmware: <span className="mono">{d.fw_version || '—'}</span>
+          </div>
+          <div className="form-check mb-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id="dev-auto-ota"
+              checked={d.auto_ota !== false}
+              onChange={async (e) => {
+                try {
+                  await api(`/devices/${d.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name: d.name, description: d.description || '', auto_ota: e.target.checked }),
+                  });
+                  await load();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : String(err));
+                }
+              }}
+            />
+            <label className="form-check-label small" htmlFor="dev-auto-ota">
+              Auto-OTA (device)
+            </label>
+          </div>
+        </div>
+        <div className="row g-2 align-items-end mb-2">
+          <div className="col-md-6">
+            <label className="form-label small muted mb-0">Firmware</label>
+            <select className="form-select form-select-sm" value={otaFw} onChange={(e) => setOtaFw(e.target.value)}>
+              {firmwares.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.module}:{f.version}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="col-md-6 d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={otaBusy || !otaFw || d.status !== 'online'}
+              onClick={async () => {
+                setOtaBusy(true);
+                try {
+                  await api(`/devices/${d.id}/ota`, { method: 'POST', body: JSON.stringify({ firmware_id: Number(otaFw) }) });
+                  await load();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setOtaBusy(false);
+                }
+              }}
+            >
+              Notify this device
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              disabled={otaBusy}
+              onClick={async () => {
+                setOtaBusy(true);
+                try {
+                  await api(`/devices/${d.id}/ota/cancel`, { method: 'POST', body: JSON.stringify({ reason: 'cancelled from device page' }) });
+                  await load();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : String(err));
+                } finally {
+                  setOtaBusy(false);
+                }
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+        {d.status !== 'online' && <p className="small muted mb-2">Device offline — job will stay pending until it reconnects.</p>}
+        {!!otaJobs.length && (
+          <div className="table-responsive">
+            <table className="table table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                </tr>
+              </thead>
+              <tbody>
+                {otaJobs.slice(0, 8).map((j) => (
+                  <tr key={j.id}>
+                    <td className="mono small">{new Date(j.created_at).toLocaleString()}</td>
+                    <td className="mono">{j.firmware_version}</td>
+                    <td>{j.status}</td>
+                    <td className="small">{formatOtaProgress(j)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
         <h2 className="h6 text-uppercase muted">RPC</h2>
-        <RpcConsole product={detail.product} deviceId={d.id} />
+        <RpcConsole product={detail.product} deviceId={d.id} online={d.status === 'online'} />
       </div>
 
       <div className="panel">
