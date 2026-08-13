@@ -17,6 +17,7 @@ package plugins
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 )
 
@@ -38,6 +39,7 @@ type Event struct {
 
 type Runtime interface {
 	InvokeRPC(method string, params map[string]any) error
+	Log() *slog.Logger
 }
 
 type Instance interface {

@@ -191,6 +191,32 @@ export interface PluginInfo {
   form?: PluginFormField[];
 }
 
+export interface ExternalPlugin {
+  id: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  mode: string; // webhook | polling
+  status: string; // online | offline | unknown
+  mqtt_user: string;
+  auto: boolean;
+  interval_ms: number;
+  last_heartbeat_at?: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ExternalPluginRegistration {
+  ok: boolean;
+  id: string;
+  token: string;
+  mqtt_user: string;
+  mqtt_pass: string;
+  mqtt_host: string;
+  mqtt_port: number;
+  rules_bus: string;
+}
+
 export interface DevicePluginBinding {
   id: number;
   device_pk: number;
@@ -297,6 +323,8 @@ export interface Settings {
   broker_host: string;
   rules_bus_enabled: boolean;
   nodered_url: string;
+  nodered_mqtt_user?: string;
+  nodered_mqtt_pass?: string;
   public_base_url?: string;
   timezone?: string;
   register_enabled?: boolean;

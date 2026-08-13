@@ -234,6 +234,10 @@ func effectNeedsTick(effect string) bool {
 }
 
 func (g *LEDGarland) OnEvent(rt Runtime, ev Event) error {
+	log := rt.Log()
+	if log != nil {
+		log.Info("ledgarland.OnEvent", "kind", ev.Kind, "online", ev.Online, "device", ev.DevicePK)
+	}
 	switch ev.Kind {
 	case EventStatus:
 		if !ev.Online {
@@ -241,21 +245,34 @@ func (g *LEDGarland) OnEvent(rt Runtime, ev Event) error {
 			g.attached = false
 			g.lastSent = ""
 			g.mu.Unlock()
+			if log != nil {
+				log.Debug("ledgarland: device offline, detached")
+			}
 			return nil
-		}
-		if err := g.attach(rt, true); err != nil {
-			return err
+		} else {
+			if err := g.attach(rt, true); err != nil {
+				if log != nil {
+					log.Warn("ledgarland: attach failed", "err", err)
+				}
+				return err
+			}
 		}
 		return g.paint(rt, false)
 	case EventApply:
 		if err := g.attach(rt, true); err != nil {
+			if log != nil {
+				log.Warn("ledgarland: attach failed", "err", err)
+			}
 			return err
 		}
 		return g.paint(rt, false)
 	case EventTick:
-		if err := g.attach(rt, false); err != nil {
-			return err
-		}
+		//if err := g.attach(rt, false); err != nil {
+		//	if log != nil {
+		//		log.Warn("ledgarland: attach failed", "err", err)
+		//	}
+		//	return err
+		//}
 		return g.paint(rt, true)
 	default:
 		return nil

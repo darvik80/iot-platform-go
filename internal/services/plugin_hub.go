@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,10 @@ func (r pluginRuntime) InvokeRPC(method string, params map[string]any) error {
 		CorrelationID: "plugin",
 	}, false)
 	return err
+}
+
+func (r pluginRuntime) Log() *slog.Logger {
+	return r.plat.Log
 }
 
 func newPluginHub(p *Platform) *PluginHub {
@@ -131,6 +136,29 @@ func (h *PluginHub) forward(d *models.Device, kind string, payload any) {
 	ev := plugins.Event{Kind: kind, Online: online, Payload: payload, DevicePK: d.ID}
 	for _, it := range insts {
 		_ = it.inst.OnEvent(rt, ev)
+	}
+
+	// Dispatch to external plugins — query all bindings for this device
+	if h.plat.ExternalPlugins != nil {
+		bindings, err := h.plat.ListDevicePlugins(d.ID)
+		if err != nil {
+			return
+		}
+		for _, b := range bindings {
+			if !b.Enabled {
+				continue
+			}
+			if _, ok := h.plat.ExternalPlugins.GetPlugin(b.PluginID); ok {
+				params := map[string]any{
+					"binding_id": b.ID,
+					"device_pk":  d.ID,
+					"kind":       kind,
+					"online":     online,
+					"payload":    payload,
+				}
+				h.plat.ExternalPlugins.Dispatch(b.ID, "plugin.on_event", params)
+			}
+		}
 	}
 }
 
@@ -262,6 +290,10 @@ func (p *Platform) StartPlugins(ctx context.Context) {
 		p.Plugins = newPluginHub(p)
 	}
 	p.Plugins.Start(ctx)
+	if p.ExternalPlugins == nil {
+		p.ExternalPlugins = newExternalPluginHub(p)
+	}
+	p.ExternalPlugins.Start(ctx)
 }
 
 func (p *Platform) ListPluginCatalog() []models.PluginInfo {
@@ -273,6 +305,16 @@ func (p *Platform) ListPluginCatalog() []models.PluginInfo {
 			DefaultConfig: d.DefaultConfig, Effects: d.Effects,
 			Form: plugins.FormJSON(d.Form),
 		})
+	}
+	// Merge external plugins into catalog
+	if p.ExternalPlugins != nil {
+		for _, ep := range p.ExternalPlugins.ListAll() {
+			out = append(out, models.PluginInfo{
+				ID: ep.ID, Name: ep.Name, Description: ep.Description,
+				DefaultConfig: ep.DefaultConfig, Effects: ep.Effects,
+				Form: ep.Form,
+			})
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
@@ -317,9 +359,16 @@ func (p *Platform) GetPluginBinding(id int64) (*models.DevicePluginBinding, erro
 }
 
 func (p *Platform) decorateBinding(b *models.DevicePluginBinding) {
+	// Try internal plugin first
 	if d, _, ok := plugins.Lookup(b.PluginID); ok {
 		b.Name, b.Description, b.Effects = d.Name, d.Description, d.Effects
 		b.Form = plugins.FormJSON(d.Form)
+	} else if p.ExternalPlugins != nil {
+		// Try external plugin
+		if ep, ok := p.ExternalPlugins.GetPlugin(b.PluginID); ok {
+			b.Name, b.Description, b.Effects = ep.Name, ep.Description, ep.Effects
+			b.Form = ep.Form
+		}
 	}
 	if p.Plugins != nil {
 		b.Running, b.LastError = p.Plugins.Running(b.ID)
@@ -337,16 +386,31 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 		return nil, err
 	}
 	in.PluginID = strings.TrimSpace(in.PluginID)
-	desc, fac, ok := plugins.Lookup(in.PluginID)
-	if !ok {
+
+	// Check internal plugin first
+	desc, fac, isInternal := plugins.Lookup(in.PluginID)
+	var isExternal bool
+	var extPlugin *models.ExternalPlugin
+	if !isInternal && p.ExternalPlugins != nil {
+		extPlugin, isExternal = p.ExternalPlugins.GetPlugin(in.PluginID)
+	}
+	if !isInternal && !isExternal {
 		return nil, errors.New("unknown plugin")
 	}
+
 	cfg := in.Config
 	if len(cfg) == 0 || string(cfg) == "null" {
-		cfg = desc.DefaultConfig
+		if isInternal {
+			cfg = desc.DefaultConfig
+		} else {
+			cfg = extPlugin.DefaultConfig
+		}
 	}
-	if err := fac().ApplyConfig(cfg); err != nil {
-		return nil, err
+	// Validate config for internal plugins
+	if isInternal && fac != nil {
+		if err := fac().ApplyConfig(cfg); err != nil {
+			return nil, err
+		}
 	}
 	enabled := 1
 	if in.Enabled != nil && !*in.Enabled {
@@ -366,14 +430,24 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 	if err != nil {
 		return nil, err
 	}
-	if p.Plugins != nil {
+	// Start internal plugin runner if applicable
+	if isInternal && p.Plugins != nil {
 		p.Plugins.syncRunner(*b)
 		if enabled == 1 {
 			_ = p.Plugins.Apply(b.ID)
 		}
-		if fresh, err := p.GetPluginBinding(id); err == nil {
-			b = fresh
+	}
+	// Send apply_config to external plugin
+	if isExternal && p.ExternalPlugins != nil && enabled == 1 {
+		params := map[string]any{
+			"binding_id": b.ID,
+			"device_pk":  devicePK,
+			"config":     json.RawMessage(cfg),
 		}
+		p.ExternalPlugins.Dispatch(b.ID, "plugin.apply_config", params)
+	}
+	if fresh, err := p.GetPluginBinding(id); err == nil {
+		b = fresh
 	}
 	return b, nil
 }
@@ -384,13 +458,16 @@ func (p *Platform) UpdatePluginBinding(id int64, in PluginBindingInput) (*models
 		return nil, err
 	}
 	cfg := b.Config
+	_, fac, isInternal := plugins.Lookup(b.PluginID)
+	var isExternal bool
+	if !isInternal && p.ExternalPlugins != nil {
+		_, isExternal = p.ExternalPlugins.GetPlugin(b.PluginID)
+	}
 	if len(in.Config) > 0 && string(in.Config) != "null" {
-		_, fac, ok := plugins.Lookup(b.PluginID)
-		if !ok {
-			return nil, errors.New("unknown plugin")
-		}
-		if err := fac().ApplyConfig(in.Config); err != nil {
-			return nil, err
+		if isInternal && fac != nil {
+			if err := fac().ApplyConfig(in.Config); err != nil {
+				return nil, err
+			}
 		}
 		cfg = in.Config
 	}
@@ -410,14 +487,24 @@ func (p *Platform) UpdatePluginBinding(id int64, in PluginBindingInput) (*models
 	if err != nil {
 		return nil, err
 	}
-	if p.Plugins != nil {
+	// Internal plugin: sync runner
+	if isInternal && p.Plugins != nil {
 		p.Plugins.syncRunner(*b)
 		if b.Enabled {
 			_ = p.Plugins.Apply(b.ID)
 		}
-		if fresh, err := p.GetPluginBinding(id); err == nil {
-			b = fresh
+	}
+	// External plugin: send apply_config
+	if isExternal && p.ExternalPlugins != nil && b.Enabled {
+		params := map[string]any{
+			"binding_id": b.ID,
+			"device_pk":  b.DevicePK,
+			"config":     json.RawMessage(cfg),
 		}
+		p.ExternalPlugins.Dispatch(b.ID, "plugin.apply_config", params)
+	}
+	if fresh, err := p.GetPluginBinding(id); err == nil {
+		b = fresh
 	}
 	return b, nil
 }
@@ -426,6 +513,13 @@ func (p *Platform) DeletePluginBinding(id int64) error {
 	b, err := p.GetPluginBinding(id)
 	if err != nil {
 		return err
+	}
+	// Notify external plugin before deleting
+	if p.ExternalPlugins != nil {
+		if _, ok := p.ExternalPlugins.GetPlugin(b.PluginID); ok {
+			params := map[string]any{"binding_id": b.ID}
+			p.ExternalPlugins.Dispatch(b.ID, "plugin.detach", params)
+		}
 	}
 	if _, err := p.DB.Exec(`DELETE FROM device_plugin_bindings WHERE id=?`, id); err != nil {
 		return err

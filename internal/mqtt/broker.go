@@ -107,9 +107,9 @@ func (b *Broker) Publish(topic string, qos byte, retained bool, payload []byte) 
 		b.note("error", "publish", "inline", "", "", topic, err.Error(), len(payload))
 		return err
 	}
-	level := "debug"
+	level := "info"
 	if !strings.Contains(topic, "/"+protocol.SegEvents+"/") {
-		level = "debug"
+		level = "info"
 	}
 	b.note(level, "publish", "inline", "", "", topic, "", len(payload))
 	return nil

@@ -57,13 +57,28 @@ func (h *platHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 		h.b.note("warn", "auth_fail", clientID, user, remote, "", "missing username or password", 0)
 		return false
 	}
-	if user == h.b.cfg.NodeRedMQTTUser {
-		want := h.b.cfg.NodeRedMQTTPassword
-		if want == "" || subtle.ConstantTimeCompare([]byte(pass), []byte(want)) != 1 {
+	// Node-RED user — check dynamic creds first, fallback to config
+	if h.isNodeRedUser(user) {
+		wantUser, wantPass := h.b.plat.GetNodeRedMQTTCreds()
+		if user != wantUser {
+			// Fallback to config
+			wantUser = h.b.cfg.NodeRedMQTTUser
+			wantPass = h.b.cfg.NodeRedMQTTPassword
+		}
+		if wantPass == "" || subtle.ConstantTimeCompare([]byte(pass), []byte(wantPass)) != 1 {
 			h.b.note("warn", "auth_fail", clientID, user, remote, "", "nodered bad password", 0)
 			return false
 		}
 		return true
+	}
+	// External plugin MQTT auth
+	if strings.HasPrefix(user, "extplg_") && h.b.plat.ExternalPlugins != nil {
+		if _, ok := h.b.plat.ExternalPlugins.ValidateMQTTCreds(user, pass); ok {
+			h.b.note("info", "auth_ok", clientID, user, remote, "", "external plugin", 0)
+			return true
+		}
+		h.b.note("warn", "auth_fail", clientID, user, remote, "", "external plugin bad password", 0)
+		return false
 	}
 	d := h.deviceFor(user)
 	if d == nil {
@@ -109,7 +124,16 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if user == "" || strings.HasPrefix(topic, "$") {
 		return false
 	}
-	if user == h.b.cfg.NodeRedMQTTUser {
+	// Node-RED user ACL (dynamic or config)
+	if h.isNodeRedUser(user) {
+		prefix := strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")
+		if write {
+			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
+		}
+		return topicUnder(topic, protocol.RulesEventsRoot(prefix))
+	}
+	// External plugin ACL — same as Node-RED (read events, write commands)
+	if strings.HasPrefix(user, "extplg_") {
 		prefix := strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")
 		if write {
 			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
@@ -136,7 +160,7 @@ func (h *platHook) OnSessionEstablished(cl *mochi.Client, _ packets.Packet) {
 	remote := cl.Net.Remote
 	h.b.touchSession(cl.ID)
 	h.b.note("info", "connect", cl.ID, user, remote, "", h.b.clientKind(user), 0)
-	if user == "" || user == h.b.cfg.NodeRedMQTTUser {
+	if user == "" || h.isNodeRedUser(user) || strings.HasPrefix(user, "extplg_") {
 		return
 	}
 	d := h.deviceFor(user)
@@ -160,7 +184,7 @@ func (h *platHook) OnDisconnect(cl *mochi.Client, err error, _ bool) {
 	}
 	h.b.note("info", "disconnect", cl.ID, user, cl.Net.Remote, "", reason, 0)
 	h.b.forgetSession(cl.ID)
-	if user == "" || user == h.b.cfg.NodeRedMQTTUser {
+	if user == "" || h.isNodeRedUser(user) || strings.HasPrefix(user, "extplg_") {
 		return
 	}
 	d := h.deviceFor(user)
@@ -181,7 +205,7 @@ func (h *platHook) OnSubscribed(cl *mochi.Client, pk packets.Packet, _ []byte) {
 	h.b.bumpSession(cl.ID)
 	user := string(cl.Properties.Username)
 	h.b.note("info", "subscribe", cl.ID, user, cl.Net.Remote, strings.Join(filters, ","), "", 0)
-	if user == "" || user == h.b.cfg.NodeRedMQTTUser {
+	if user == "" || h.isNodeRedUser(user) || strings.HasPrefix(user, "extplg_") {
 		return
 	}
 	for _, f := range filters {
@@ -213,6 +237,15 @@ func (h *platHook) deviceFor(username string) *models.Device {
 		return d
 	}
 	return h.b.plat.ResolveByToken(username)
+}
+
+// isNodeRedUser checks if username matches Node-RED (dynamic or config).
+func (h *platHook) isNodeRedUser(user string) bool {
+	if user == h.b.cfg.NodeRedMQTTUser {
+		return true
+	}
+	dynUser, _ := h.b.plat.GetNodeRedMQTTCreds()
+	return user == dynUser
 }
 
 // topicUnder reports whether topicOrFilter is inside root (MQTT filter #/+ allowed).

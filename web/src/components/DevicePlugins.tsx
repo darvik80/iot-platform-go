@@ -167,11 +167,6 @@ function BindingCard({
     }
   };
 
-  const [jsonText, setJsonText] = useState(() => JSON.stringify(binding.config || {}, null, 2));
-  useEffect(() => {
-    setJsonText(JSON.stringify(binding.config || {}, null, 2));
-  }, [binding.id, binding.updated_at]);
-
   return (
     <div className="border border-secondary rounded p-2 mb-2">
       <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -189,7 +184,7 @@ function BindingCard({
       {form.length ? (
         <PluginForm fields={form} value={cfg} onChange={setCfg} root={cfg} effects={binding.effects} platformTz={platformTz} idPrefix={key} />
       ) : (
-        <textarea className="form-control form-control-sm mono mb-2" rows={8} value={jsonText} onChange={(e) => setJsonText(e.target.value)} />
+        <div className="small muted mb-2">No configuration required.</div>
       )}
 
       <div className="d-flex flex-wrap gap-2 mt-2">
@@ -198,15 +193,7 @@ function BindingCard({
           className="btn btn-primary btn-sm"
           disabled={!!busy}
           onClick={() => {
-            if (form.length) {
-              void save(cfg);
-              return;
-            }
-            try {
-              void save(asConfig(JSON.parse(jsonText)));
-            } catch {
-              alert('Invalid JSON');
-            }
+            void save(cfg);
           }}
         >
           Save

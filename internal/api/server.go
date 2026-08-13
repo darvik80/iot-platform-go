@@ -125,6 +125,13 @@ func (s *Server) Router() http.Handler {
 			r.Get("/ota/jobs", s.listOTAJobs)
 
 			r.Get("/settings", s.getSettings)
+
+			// External plugins management (admin only)
+			r.Get("/plugins/external", s.listExternalPlugins)
+			r.Post("/plugins/external", s.requireAdmin(s.registerExternalPlugin))
+			r.Delete("/plugins/external/{id}", s.requireAdmin(s.deleteExternalPlugin))
+			r.Post("/plugins/external/{id}/regenerate-mqtt", s.requireAdmin(s.regenerateExternalPluginMQTT))
+
 			r.Get("/ws", s.Hub.ServeWS)
 		})
 	})
@@ -143,6 +150,9 @@ func (s *Server) Router() http.Handler {
 		r.Handle("/mcp", mcpHandler)
 		r.Handle("/mcp/*", mcpHandler)
 	})
+
+	// External plugin RPC endpoint (plugin token auth, not JWT)
+	r.Post("/api/plugins/external/rpc", s.externalPluginRPC)
 
 	if s.SpaFS != nil {
 		r.Handle("/*", spaHandler(s.SpaFS))
@@ -690,11 +700,14 @@ func (s *Server) listOTAJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	nrUser, nrPass := s.Plat.GetNodeRedMQTTCreds()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"platform_name":            s.Plat.Cfg.PlatformName,
 		"telemetry_retention_days": s.Plat.Cfg.TelemetryRetentionDays,
 		"rpc_default_timeout_ms":   int(s.Plat.Cfg.RPCDefaultTimeout / time.Millisecond),
 		"nodered_url":              s.Plat.Cfg.NodeRedURL,
+		"nodered_mqtt_user":        nrUser,
+		"nodered_mqtt_pass":        nrPass,
 		"rules_bus_enabled":        s.Plat.Cfg.RulesBusEnabled,
 		"broker_host":              s.Plat.Cfg.BrokerHostPublic,
 		"register_enabled":         s.Plat.Cfg.RegisterEnabled,

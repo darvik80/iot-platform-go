@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"sort"
+	"strings"
 
 	mochi "github.com/mochi-mqtt/server/v2"
 
@@ -126,6 +127,9 @@ func (b *Broker) clientKind(username string) string {
 	}
 	if username == b.cfg.NodeRedMQTTUser {
 		return "nodered"
+	}
+	if strings.HasPrefix(username, "extplg_") {
+		return "plugin"
 	}
 	if b.plat == nil {
 		return "other"
