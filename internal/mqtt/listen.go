@@ -12,6 +12,11 @@ func normalizeMQTTAddr(addr string) string {
 	addr = strings.TrimSpace(addr)
 	addr = strings.TrimPrefix(addr, "tcp://")
 	addr = strings.TrimPrefix(addr, "mqtt://")
+	addr = strings.TrimPrefix(addr, "ws://")
+	addr = strings.TrimPrefix(addr, "wss://")
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		addr = addr[:i]
+	}
 	if addr == "" {
 		addr = ":1883"
 	}

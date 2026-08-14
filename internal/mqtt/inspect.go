@@ -161,9 +161,14 @@ func (b *Broker) Status() models.MQTTStatus {
 	st := models.MQTTStatus{
 		Listening: b.ok.Load(),
 		Addr:      addr,
-		WSAddr:    b.cfg.MQTTWSAddr,
 		Clients:   []models.MQTTClient{},
 		Events:    []models.MQTTEvent{},
+	}
+	if b.cfg.MQTTWSEnabled() {
+		st.WSAddr = b.cfg.MQTTWSPublicURL()
+		if st.WSAddr == "" {
+			st.WSAddr = b.cfg.MQTTWSAddr
+		}
 	}
 	if b.server != nil {
 		for _, cl := range b.server.Clients.GetAll() {

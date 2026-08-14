@@ -66,11 +66,13 @@ func (b *Broker) Start() error {
 		_ = ln.Close()
 		return fmt.Errorf("mqtt listener: %w", err)
 	}
-	if ws := b.cfg.MQTTWSAddr; ws != "" {
+	if b.cfg.MQTTWSEnabled() {
+		ws := normalizeMQTTAddr(b.cfg.MQTTWSAddr)
 		if err := s.AddListener(listeners.NewWebsocket(listeners.Config{ID: "ws", Address: ws})); err != nil {
 			_ = ln.Close()
 			return fmt.Errorf("mqtt ws listen %s: %w", ws, err)
 		}
+		b.log.Info("mqtt websocket listening", "addr", ws, "url", b.cfg.MQTTWSPublicURL())
 	}
 	b.server = s
 	errCh := make(chan error, 1)

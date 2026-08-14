@@ -5,17 +5,18 @@
  * and logs all telemetry/status/events to console.
  *
  * Usage:
- *   java -cp target/classes MqttTelemetryLogger --platform http://localhost:8080 --token <admin-jwt>
+ *   # With admin JWT (registers plugin, gets credentials)
+ *   java -jar target/mqtt-telemetry-logger-1.0.0.jar --platform http://localhost:8080 --token <admin-jwt>
+ *
+ *   # With existing credentials
+ *   java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_logger --mqtt-pass <password>
+ *
+ *   # With environment variables
+ *   MQTT_USER=extplg_logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
  *
  * Dependencies (Maven):
  *   - org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5
  *   - com.google.code.gson:gson:2.10.1
- *
- * The plugin:
- * 1. Registers with the platform using admin JWT (gets API token + MQTT credentials)
- * 2. Connects to MQTT broker using the provided credentials
- * 3. Subscribes to platform/v1/events/# (all device events)
- * 4. Logs everything to console
  */
 
 import com.google.gson.Gson;
@@ -31,8 +32,6 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.Map;
 
 public class MqttTelemetryLogger {
 
@@ -42,6 +41,16 @@ public class MqttTelemetryLogger {
     private static final String PLUGIN_NAME = "MQTT Telemetry Logger";
     private static final String PLUGIN_DESC = "Subscribes to rules bus via MQTT and logs all device telemetry";
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    // ─── Config ──────────────────────────────────────────────────────────────
+
+    static class PluginConfig {
+        String mqttUser;
+        String mqttPass;
+        String mqttHost;
+        int mqttPort;
+        String rulesBus;
+    }
 
     // ─── Registration ────────────────────────────────────────────────────────
 
@@ -56,7 +65,7 @@ public class MqttTelemetryLogger {
         String rules_bus;
     }
 
-    static RegistrationResponse register(String platformUrl, String jwtToken) throws Exception {
+    static PluginConfig register(String platformUrl, String jwtToken) throws Exception {
         JsonObject payload = new JsonObject();
         payload.addProperty("id", PLUGIN_ID);
         payload.addProperty("name", PLUGIN_NAME);
@@ -83,29 +92,36 @@ public class MqttTelemetryLogger {
         RegistrationResponse resp = new Gson().fromJson(body, RegistrationResponse.class);
         System.out.printf("[%s] Registered: id=%s mqtt_user=%s%n",
                 LocalTime.now().format(TIME_FMT), resp.id, resp.mqtt_user);
-        return resp;
+
+        PluginConfig cfg = new PluginConfig();
+        cfg.mqttUser = resp.mqtt_user;
+        cfg.mqttPass = resp.mqtt_pass;
+        cfg.mqttHost = resp.mqtt_host;
+        cfg.mqttPort = resp.mqtt_port;
+        cfg.rulesBus = resp.rules_bus;
+        return cfg;
     }
 
     // ─── MQTT Client ─────────────────────────────────────────────────────────
 
     static class MQTTLoggerPlugin {
-        private final RegistrationResponse config;
+        private final PluginConfig config;
         private MqttClient client;
         private final Gson gson = new Gson();
 
-        MQTTLoggerPlugin(RegistrationResponse config) {
+        MQTTLoggerPlugin(PluginConfig config) {
             this.config = config;
         }
 
         void connect() throws Exception {
             String clientId = "extplg_" + PLUGIN_ID;
-            String broker = String.format("tcp://%s:%d", config.mqtt_host, config.mqtt_port);
+            String broker = String.format("tcp://%s:%d", config.mqttHost, config.mqttPort);
 
             client = new MqttClient(broker, clientId, new MemoryPersistence());
 
             MqttConnectOptions opts = new MqttConnectOptions();
-            opts.setUserName(config.mqtt_user);
-            opts.setPassword(config.mqtt_pass.toCharArray());
+            opts.setUserName(config.mqttUser);
+            opts.setPassword(config.mqttPass.toCharArray());
             opts.setKeepAliveInterval(60);
             opts.setCleanSession(true);
             opts.setAutomaticReconnect(true);
@@ -117,7 +133,7 @@ public class MqttTelemetryLogger {
                     System.out.printf("[%s] MQTT connected%s%n",
                             LocalTime.now().format(TIME_FMT), reconnect ? " (reconnect)" : "");
 
-                    String topic = config.rules_bus + "/events/#";
+                    String topic = config.rulesBus + "/events/#";
                     try {
                         client.subscribe(topic, 0);
                         System.out.printf("[%s] Subscribed to %s%n",
@@ -145,12 +161,11 @@ public class MqttTelemetryLogger {
             });
 
             System.out.printf("[%s] Connecting to MQTT broker %s as %s%n",
-                    LocalTime.now().format(TIME_FMT), broker, config.mqtt_user);
+                    LocalTime.now().format(TIME_FMT), broker, config.mqttUser);
             client.connect(opts);
         }
 
         void handleMessage(String topic, String payload) {
-            // Parse topic: platform/v1/events/{product}/{device}/{kind}
             String[] parts = topic.split("/");
             String kind = parts.length > 3 ? parts[parts.length - 1] : "unknown";
             String device = parts.length > 3 ? parts[parts.length - 2] : (parts.length > 0 ? parts[parts.length - 1] : "unknown");
@@ -222,6 +237,11 @@ public class MqttTelemetryLogger {
     public static void main(String[] args) throws Exception {
         String platformUrl = "http://localhost:8080";
         String token = null;
+        String mqttUser = null;
+        String mqttPass = null;
+        String mqttHost = "localhost";
+        int mqttPort = 1883;
+        String rulesBus = "platform/v1";
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -231,30 +251,63 @@ public class MqttTelemetryLogger {
                 case "--token":
                     token = args[++i];
                     break;
+                case "--mqtt-user":
+                    mqttUser = args[++i];
+                    break;
+                case "--mqtt-pass":
+                    mqttPass = args[++i];
+                    break;
+                case "--mqtt-host":
+                    mqttHost = args[++i];
+                    break;
+                case "--mqtt-port":
+                    mqttPort = Integer.parseInt(args[++i]);
+                    break;
+                case "--rules-bus":
+                    rulesBus = args[++i];
+                    break;
             }
         }
 
-        if (token == null) {
-            System.err.println("--token is required (admin JWT)");
+        PluginConfig config;
+
+        if (token != null) {
+            // Registration mode
+            config = register(platformUrl, token);
+        } else if (mqttUser != null && mqttPass != null) {
+            // Direct credentials from args
+            config = new PluginConfig();
+            config.mqttUser = mqttUser;
+            config.mqttPass = mqttPass;
+            config.mqttHost = mqttHost;
+            config.mqttPort = mqttPort;
+            config.rulesBus = rulesBus;
+            System.out.printf("[%s] Using direct credentials for %s%n",
+                    LocalTime.now().format(TIME_FMT), mqttUser);
+        } else if (System.getenv("MQTT_USER") != null && System.getenv("MQTT_PASS") != null) {
+            // Direct credentials from env
+            config = new PluginConfig();
+            config.mqttUser = System.getenv("MQTT_USER");
+            config.mqttPass = System.getenv("MQTT_PASS");
+            config.mqttHost = System.getenv("MQTT_HOST") != null ? System.getenv("MQTT_HOST") : mqttHost;
+            config.mqttPort = System.getenv("MQTT_PORT") != null ? Integer.parseInt(System.getenv("MQTT_PORT")) : mqttPort;
+            config.rulesBus = System.getenv("RULES_BUS") != null ? System.getenv("RULES_BUS") : rulesBus;
+            System.out.printf("[%s] Using credentials from environment for %s%n",
+                    LocalTime.now().format(TIME_FMT), config.mqttUser);
+        } else {
+            System.err.println("Either --token or --mqtt-user/--mqtt-pass (or env vars) required");
             System.exit(1);
+            return;
         }
 
-        // Register
-        RegistrationResponse config = register(platformUrl, token);
-
-        // Create plugin
         MQTTLoggerPlugin plugin = new MQTTLoggerPlugin(config);
 
-        // Graceful shutdown
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Shutting down...");
             plugin.stop();
         }));
 
-        // Connect and wait
         plugin.connect();
-
-        // Keep main thread alive
         Thread.currentThread().join();
     }
 }

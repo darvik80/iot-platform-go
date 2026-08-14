@@ -42,7 +42,8 @@ export function SettingsPage() {
         <div>Retention: {s.telemetry_retention_days} days</div>
         <div>RPC timeout: {s.rpc_default_timeout_ms} ms</div>
         <div>
-          Broker: {s.broker_host}:1883 · <Link to="/mqtt">MQTT monitor</Link>
+          Broker: {s.broker_host}:{s.mqtt_port || 1883}
+          {s.mqtt_ws_url ? <> · WS {s.mqtt_ws_url}</> : null} · <Link to="/mqtt">MQTT monitor</Link>
         </div>
         <div>Rules bus: {String(s.rules_bus_enabled)}</div>
         <div>Node-RED: {s.nodered_url}</div>

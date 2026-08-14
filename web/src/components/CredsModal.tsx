@@ -36,6 +36,8 @@ export function CredsModal({
         device: base?.device || creds.device_id,
         host: base?.host || creds.broker_host,
         port: base?.port ?? creds.broker_port ?? 0,
+        ws_url: base?.ws_url || creds.broker_ws_url || undefined,
+        ws_port: base?.ws_port ?? creds.broker_ws_port ?? undefined,
         token: base?.token || creds.access_token,
         tls: base?.tls ?? false,
         topic_short: base?.topic_short ?? creds.topic_style !== 'full',
@@ -123,6 +125,7 @@ export function CredsModal({
               <details>
                 <summary className="small muted">MQTT / snippet</summary>
                 <pre className="bg-dark border border-secondary rounded p-2 small mono mt-2 mb-0">{`broker:      mqtt://${creds.broker_host}:${creds.broker_port}
+websocket:  ${creds.broker_ws_url || '(off)'}
 client_id:   ${creds.client_id}
 username:    ${user}
 password:    ${creds.access_token}

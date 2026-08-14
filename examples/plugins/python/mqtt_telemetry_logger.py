@@ -6,19 +6,23 @@ Connects to the platform MQTT broker directly, subscribes to rules bus events,
 and logs all telemetry/status/events to console.
 
 Usage:
+    # With admin JWT (registers plugin, gets credentials)
     pip install paho-mqtt requests
     python mqtt_telemetry_logger.py --platform http://localhost:8080 --token <admin-jwt>
 
-The plugin:
-1. Registers with the platform using admin JWT (gets API token + MQTT credentials)
-2. Connects to MQTT broker using the provided credentials
-3. Subscribes to platform/v1/events/# (all device events)
-4. Logs everything to console
+    # With existing credentials
+    python mqtt_telemetry_logger.py --mqtt-user extplg_logger --mqtt-pass <password>
+
+    # With environment variables
+    export MQTT_USER=extplg_logger
+    export MQTT_PASS=<password>
+    python mqtt_telemetry_logger.py
 """
 
 import argparse
 import json
 import logging
+import os
 import signal
 import sys
 from datetime import datetime
@@ -42,18 +46,18 @@ PLUGIN_DESC = "Subscribes to rules bus via MQTT and logs all device telemetry"
 
 # ─── Registration ────────────────────────────────────────────────────────────
 
-def register(platform_url: str, jwt_token: str = None) -> dict:
+def register(platform_url: str, jwt_token: str) -> dict:
     """Register plugin with platform, get MQTT credentials."""
     url = f"{platform_url}/api/v1/plugins/external"
     payload = {
         "id": PLUGIN_ID,
         "name": PLUGIN_NAME,
         "description": PLUGIN_DESC,
-        # No endpoint = polling mode, but we use MQTT directly
     }
-    headers = {"Content-Type": "application/json"}
-    if jwt_token:
-        headers["Authorization"] = f"Bearer {jwt_token}"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {jwt_token}",
+    }
     log.info("Registering plugin with platform: %s", url)
     resp = requests.post(url, json=payload, headers=headers, timeout=10)
     resp.raise_for_status()
@@ -95,7 +99,6 @@ class MQTTLoggerPlugin:
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0 or (hasattr(rc, 'value') and rc.value == 0):
             log.info("MQTT connected")
-            # Subscribe to all rules bus events
             topic = f"{self.rules_bus}/events/#"
             client.subscribe(topic, qos=0)
             log.info("Subscribed to %s", topic)
@@ -149,14 +152,54 @@ class MQTTLoggerPlugin:
 
 def main():
     parser = argparse.ArgumentParser(description="MQTT Telemetry Logger Plugin")
+    
+    # Registration mode
     parser.add_argument("--platform", default="http://localhost:8080",
                         help="Platform URL (default: http://localhost:8080)")
-    parser.add_argument("--token", required=True,
+    parser.add_argument("--token",
                         help="Admin JWT token for registration")
+    
+    # Direct credentials mode
+    parser.add_argument("--mqtt-user",
+                        help="MQTT username (or use MQTT_USER env)")
+    parser.add_argument("--mqtt-pass",
+                        help="MQTT password (or use MQTT_PASS env)")
+    parser.add_argument("--mqtt-host", default="localhost",
+                        help="MQTT broker host (default: localhost)")
+    parser.add_argument("--mqtt-port", type=int, default=1883,
+                        help="MQTT broker port (default: 1883)")
+    parser.add_argument("--rules-bus", default="platform/v1",
+                        help="Rules bus prefix (default: platform/v1)")
+    
     args = parser.parse_args()
 
-    # Register
-    config = register(args.platform, args.token)
+    # Determine mode: registration or direct credentials
+    if args.token:
+        # Registration mode
+        config = register(args.platform, args.token)
+    elif args.mqtt_user and args.mqtt_pass:
+        # Direct credentials from args
+        config = {
+            "mqtt_user": args.mqtt_user,
+            "mqtt_pass": args.mqtt_pass,
+            "mqtt_host": args.mqtt_host,
+            "mqtt_port": args.mqtt_port,
+            "rules_bus": args.rules_bus,
+        }
+        log.info("Using direct credentials for %s", args.mqtt_user)
+    elif os.environ.get("MQTT_USER") and os.environ.get("MQTT_PASS"):
+        # Direct credentials from env
+        config = {
+            "mqtt_user": os.environ["MQTT_USER"],
+            "mqtt_pass": os.environ["MQTT_PASS"],
+            "mqtt_host": os.environ.get("MQTT_HOST", args.mqtt_host),
+            "mqtt_port": int(os.environ.get("MQTT_PORT", args.mqtt_port)),
+            "rules_bus": os.environ.get("RULES_BUS", args.rules_bus),
+        }
+        log.info("Using credentials from environment for %s", config["mqtt_user"])
+    else:
+        parser.error("Either --token or --mqtt-user/--mqtt-pass (or env vars) required")
+        return
 
     # Create plugin
     plugin = MQTTLoggerPlugin(config)

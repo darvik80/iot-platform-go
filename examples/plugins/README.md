@@ -114,37 +114,60 @@ cmake --build build --target telemetry_logger
 
 ### MQTT плагины
 
+Все MQTT примеры поддерживают **два режима запуска**:
+
+1. **Регистрация** — `--token <admin-jwt>` — плагин регистрируется, получает credentials
+2. **Готовые credentials** — `--mqtt-user` / `--mqtt-pass` или env vars — без регистрации
+
 #### Python (MQTT)
 
 ```bash
 # Установить зависимости
 pip install requests paho-mqtt
-
-# Запустить плагин
 cd examples/plugins/python
+
+# Режим 1: Регистрация (нужен admin JWT)
 python mqtt_telemetry_logger.py --platform http://localhost:8080 --token $TOKEN
+
+# Режим 2: Готовые credentials
+python mqtt_telemetry_logger.py --mqtt-user extplg_logger --mqtt-pass <password>
+
+# Режим 3: Environment variables
+export MQTT_USER=extplg_logger
+export MQTT_PASS=<password>
+python mqtt_telemetry_logger.py
 ```
 
 #### Go (MQTT)
 
 ```bash
-# Установить зависимости
 cd examples/plugins/go
 go mod tidy
 
-# Запустить плагин
+# Режим 1: Регистрация
 go run mqtt_telemetry_logger.go --platform http://localhost:8080 --token $TOKEN
+
+# Режим 2: Готовые credentials
+go run mqtt_telemetry_logger.go --mqtt-user extplg_logger --mqtt-pass <password>
+
+# Режим 3: Environment variables
+MQTT_USER=extplg_logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
 ```
 
 #### Java (MQTT)
 
 ```bash
-# Собрать проект
 cd examples/plugins/java
 mvn clean package
 
-# Запустить плагин
+# Режим 1: Регистрация
 java -jar target/mqtt-telemetry-logger-1.0.0.jar --platform http://localhost:8080 --token $TOKEN
+
+# Режим 2: Готовые credentials
+java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_logger --mqtt-pass <password>
+
+# Режим 3: Environment variables
+MQTT_USER=extplg_logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
 ```
 
 #### C++ (MQTT)
@@ -153,13 +176,18 @@ java -jar target/mqtt-telemetry-logger-1.0.0.jar --platform http://localhost:808
 # Установить зависимости (Ubuntu/Debian)
 sudo apt install libpaho-mqttpp3-dev nlohmann-json3-dev libcurl4-openssl-dev
 
-# Собрать проект
 cd examples/plugins/cpp
 cmake -B build -S .
 cmake --build build --target mqtt_telemetry_logger
 
-# Запустить плагин
+# Режим 1: Регистрация
 ./build/mqtt_telemetry_logger --platform http://localhost:8080 --token $TOKEN
+
+# Режим 2: Готовые credentials
+./build/mqtt_telemetry_logger --mqtt-user extplg_logger --mqtt-pass <password>
+
+# Режим 3: Environment variables
+MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 ```
 
 ### gRPC плагины

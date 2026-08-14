@@ -64,12 +64,21 @@ export function MqttPage() {
           <div className="col-6 col-md-3">
             <div className="stat-card">
               <div className="label">MQTT WS</div>
-              <div className="value mono" style={{ fontSize: '1.1rem' }}>
+              <div className="value mono" style={{ fontSize: '0.95rem' }}>
                 {s.ws_addr}
               </div>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="col-6 col-md-3">
+            <div className="stat-card">
+              <div className="label">MQTT WS</div>
+              <div className="value muted" style={{ fontSize: '1.1rem' }}>
+                off
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="panel mb-4">

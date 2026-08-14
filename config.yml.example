@@ -17,7 +17,7 @@ ota_dir: "./data/firmware"
 
 mqtt:
   addr: ":1883"
-  # ws_addr: ":8083"
+  ws_addr: ":8083"                          # MQTT over WebSocket → ws://host:8083/  (off to disable)
   broker_host_public: "192.168.1.22"
 
 auth:

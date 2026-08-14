@@ -84,12 +84,17 @@ export interface Device {
 }
 
 export interface DeviceProvision {
-  wifi: { ssid: string; password: string };
+  wifi: {
+    ssid: string;
+    password: string;
+  };
   crearts: {
     product: string;
     device: string;
     host: string;
     port: number;
+    ws_url?: string;
+    ws_port?: number;
     token: string;
     tls: boolean;
     topic_short: boolean;
@@ -104,6 +109,8 @@ export interface DeviceCredentials {
   client_id: string;
   broker_host: string;
   broker_port: number;
+  broker_ws_url?: string;
+  broker_ws_port?: number;
   topic_style: string;
   snippet?: string;
   provision?: DeviceProvision;
@@ -121,6 +128,8 @@ export interface DeviceDetail {
     username?: string;
     broker_host: string;
     broker_port: number;
+    broker_ws_url?: string;
+    broker_ws_port?: number;
     topic_style: string;
     token_prefix?: string;
     note?: string;
@@ -321,6 +330,9 @@ export interface Settings {
   telemetry_retention_days: number;
   rpc_default_timeout_ms: number;
   broker_host: string;
+  mqtt_port?: number;
+  mqtt_ws_url?: string;
+  mqtt_ws_port?: number;
   rules_bus_enabled: boolean;
   nodered_url: string;
   nodered_mqtt_user?: string;

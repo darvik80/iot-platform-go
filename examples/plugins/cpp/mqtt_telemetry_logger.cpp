@@ -5,7 +5,14 @@
  * and logs all telemetry/status/events to console.
  *
  * Usage:
+ *   # With admin JWT (registers plugin, gets credentials)
  *   ./mqtt_telemetry_logger --platform http://localhost:8080 --token <admin-jwt>
+ *
+ *   # With existing credentials
+ *   ./mqtt_telemetry_logger --mqtt-user extplg_logger --mqtt-pass <password>
+ *
+ *   # With environment variables
+ *   MQTT_USER=extplg_logger MQTT_PASS=<password> ./mqtt_telemetry_logger
  *
  * Dependencies:
  *   - Eclipse Paho MQTT C++ (https://github.com/eclipse/paho.mqtt.cpp)
@@ -15,12 +22,6 @@
  * Build (CMake):
  *   cmake -B build -S .
  *   cmake --build build
- *
- * The plugin:
- * 1. Registers with the platform using admin JWT (gets API token + MQTT credentials)
- * 2. Connects to MQTT broker using the provided credentials
- * 3. Subscribes to platform/v1/events/# (all device events)
- * 4. Logs everything to console
  */
 
 #include <iostream>
@@ -31,6 +32,7 @@
 #include <atomic>
 #include <sstream>
 #include <iomanip>
+#include <cstdlib>
 
 #include <mqtt/client.h>
 #include <nlohmann/json.hpp>
@@ -47,7 +49,6 @@ const std::string PLUGIN_DESC = "Subscribes to rules bus via MQTT and logs all d
 // ─── Globals ─────────────────────────────────────────────────────────────────
 
 std::atomic<bool> g_running{true};
-std::string g_rules_bus;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -60,12 +61,14 @@ std::string get_timestamp() {
     return oss.str();
 }
 
-// ─── Registration ────────────────────────────────────────────────────────────
+std::string get_env(const std::string& key, const std::string& def = "") {
+    const char* val = std::getenv(key.c_str());
+    return val ? std::string(val) : def;
+}
 
-struct RegistrationResponse {
-    bool ok;
-    std::string id;
-    std::string token;
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+struct PluginConfig {
     std::string mqtt_user;
     std::string mqtt_pass;
     std::string mqtt_host;
@@ -73,13 +76,15 @@ struct RegistrationResponse {
     std::string rules_bus;
 };
 
+// ─── Registration ────────────────────────────────────────────────────────────
+
 static size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t total = size * nmemb;
     static_cast<std::string*>(userp)->append(static_cast<char*>(contents), total);
     return total;
 }
 
-RegistrationResponse register_plugin(const std::string& platform_url, const std::string& jwt_token) {
+PluginConfig register_plugin(const std::string& platform_url, const std::string& jwt_token) {
     json payload = {
         {"id", PLUGIN_ID},
         {"name", PLUGIN_NAME},
@@ -123,20 +128,16 @@ RegistrationResponse register_plugin(const std::string& platform_url, const std:
     }
 
     json resp = json::parse(response_body);
-    RegistrationResponse result;
-    result.ok = resp.value("ok", false);
-    result.id = resp.value("id", "");
-    result.token = resp.value("token", "");
-    result.mqtt_user = resp.value("mqtt_user", "");
-    result.mqtt_pass = resp.value("mqtt_pass", "");
-    result.mqtt_host = resp.value("mqtt_host", "");
-    result.mqtt_port = resp.value("mqtt_port", 1883);
-    result.rules_bus = resp.value("rules_bus", "platform/v1");
+    PluginConfig cfg;
+    cfg.mqtt_user = resp.value("mqtt_user", "");
+    cfg.mqtt_pass = resp.value("mqtt_pass", "");
+    cfg.mqtt_host = resp.value("mqtt_host", "localhost");
+    cfg.mqtt_port = resp.value("mqtt_port", 1883);
+    cfg.rules_bus = resp.value("rules_bus", "platform/v1");
 
-    std::cout << "[" << get_timestamp() << "] Registered: id=" << result.id
-              << " mqtt_user=" << result.mqtt_user << std::endl;
+    std::cout << "[" << get_timestamp() << "] Registered: mqtt_user=" << cfg.mqtt_user << std::endl;
 
-    return result;
+    return cfg;
 }
 
 // ─── MQTT Client ─────────────────────────────────────────────────────────────
@@ -144,16 +145,14 @@ RegistrationResponse register_plugin(const std::string& platform_url, const std:
 class MQTTLoggerPlugin : public virtual mqtt::callback {
 private:
     mqtt::async_client client_;
-    RegistrationResponse config_;
-    std::string rules_bus_;
+    PluginConfig config_;
 
 public:
-    MQTTLoggerPlugin(const RegistrationResponse& config)
+    MQTTLoggerPlugin(const PluginConfig& config)
         : client_("tcp://" + config.mqtt_host + ":" + std::to_string(config.mqtt_port),
                   "extplg_" + PLUGIN_ID,
                   mqtt::create_options_ptr(mqtt::CREATE_OPTIONS_VERSION))
         , config_(config)
-        , rules_bus_(config.rules_bus)
     {
         client_.set_callback(*this);
     }
@@ -177,8 +176,7 @@ public:
     void connected(const std::string& cause) override {
         std::cout << "[" << get_timestamp() << "] MQTT connected" << std::endl;
 
-        // Subscribe to all rules bus events
-        std::string topic = rules_bus_ + "/events/#";
+        std::string topic = config_.rules_bus + "/events/#";
         client_.subscribe(topic, 0)->wait();
         std::cout << "[" << get_timestamp() << "] Subscribed to " << topic << std::endl;
     }
@@ -191,7 +189,6 @@ public:
         std::string topic = msg->get_topic();
         std::string payload = msg->to_string();
 
-        // Parse topic: platform/v1/events/{product}/{device}/{kind}
         std::vector<std::string> parts;
         std::istringstream iss(topic);
         std::string part;
@@ -210,7 +207,6 @@ public:
 
         std::string ts = get_timestamp();
 
-        // Try to parse payload as JSON
         json payload_obj;
         try {
             payload_obj = json::parse(payload);
@@ -246,9 +242,7 @@ public:
         }
     }
 
-    void delivery_complete(mqtt::delivery_token_ptr tok) override {
-        // Not used for subscriptions
-    }
+    void delivery_complete(mqtt::delivery_token_ptr tok) override {}
 
     void stop() {
         if (client_.is_connected()) {
@@ -269,6 +263,11 @@ void signal_handler(int) {
 int main(int argc, char* argv[]) {
     std::string platform_url = "http://localhost:8080";
     std::string token;
+    std::string mqtt_user;
+    std::string mqtt_pass;
+    std::string mqtt_host = "localhost";
+    int mqtt_port = 1883;
+    std::string rules_bus = "platform/v1";
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -276,32 +275,59 @@ int main(int argc, char* argv[]) {
             platform_url = argv[++i];
         } else if (arg == "--token" && i + 1 < argc) {
             token = argv[++i];
+        } else if (arg == "--mqtt-user" && i + 1 < argc) {
+            mqtt_user = argv[++i];
+        } else if (arg == "--mqtt-pass" && i + 1 < argc) {
+            mqtt_pass = argv[++i];
+        } else if (arg == "--mqtt-host" && i + 1 < argc) {
+            mqtt_host = argv[++i];
+        } else if (arg == "--mqtt-port" && i + 1 < argc) {
+            mqtt_port = std::stoi(argv[++i]);
+        } else if (arg == "--rules-bus" && i + 1 < argc) {
+            rules_bus = argv[++i];
         }
     }
 
-    if (token.empty()) {
-        std::cerr << "--token is required (admin JWT)" << std::endl;
-        return 1;
+    PluginConfig config;
+
+    if (!token.empty()) {
+        // Registration mode
+        config = register_plugin(platform_url, token);
+    } else if (!mqtt_user.empty() && !mqtt_pass.empty()) {
+        // Direct credentials from args
+        config.mqtt_user = mqtt_user;
+        config.mqtt_pass = mqtt_pass;
+        config.mqtt_host = mqtt_host;
+        config.mqtt_port = mqtt_port;
+        config.rules_bus = rules_bus;
+        std::cout << "[" << get_timestamp() << "] Using direct credentials for " << mqtt_user << std::endl;
+    } else {
+        // Try environment variables
+        std::string env_user = get_env("MQTT_USER");
+        std::string env_pass = get_env("MQTT_PASS");
+        if (!env_user.empty() && !env_pass.empty()) {
+            config.mqtt_user = env_user;
+            config.mqtt_pass = env_pass;
+            config.mqtt_host = get_env("MQTT_HOST", mqtt_host);
+            std::string port_str = get_env("MQTT_PORT");
+            config.mqtt_port = port_str.empty() ? mqtt_port : std::stoi(port_str);
+            config.rules_bus = get_env("RULES_BUS", rules_bus);
+            std::cout << "[" << get_timestamp() << "] Using credentials from environment for " << env_user << std::endl;
+        } else {
+            std::cerr << "Either --token or --mqtt-user/--mqtt-pass (or env vars) required" << std::endl;
+            return 1;
+        }
     }
 
-    // Setup signal handlers
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
     try {
-        // Initialize curl
         curl_global_init(CURL_GLOBAL_DEFAULT);
 
-        // Register
-        RegistrationResponse config = register_plugin(platform_url, token);
-
-        // Create plugin
         MQTTLoggerPlugin plugin(config);
-
-        // Connect
         plugin.connect();
 
-        // Wait for signal
         while (g_running) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

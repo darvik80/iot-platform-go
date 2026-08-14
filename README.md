@@ -110,6 +110,7 @@ docker compose up -d --build
 |---------|-----|
 | Dashboard / API | http://localhost:8080 |
 | MQTT broker | `mqtt://localhost:1883` |
+| MQTT WebSocket | `ws://localhost:8083/` (subprotocol `mqtt`) |
 | Node-RED (optional) | http://localhost:1880 |
 
 **Default login**: `admin@crearts.local` / `admin`
@@ -466,6 +467,7 @@ Configuration priority (first non-empty wins): **OS env → `.env` → `./config
 |-----|---------|-------------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
+| `MQTT_WS_ADDR` | `:8083` | MQTT over WebSocket (`ws://host:port/`, subprotocol `mqtt`). `off` to disable |
 | `SQLITE_PATH` | `./data/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth. **Must be device-reachable** |
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
@@ -500,6 +502,7 @@ Configuration priority (first non-empty wins): **OS env → `.env` → `./config
 HTTP_ADDR=:8080
 PUBLIC_BASE_URL=http://192.168.1.22:8080
 MQTT_ADDR=:1883
+MQTT_WS_ADDR=:8083
 BROKER_HOST_PUBLIC=192.168.1.22
 TIMEZONE=Asia/Bangkok
 JWT_SECRET=change-me-in-production
@@ -537,19 +540,24 @@ make build          # builds web UI + Go binary
 ./bin/platform.exe  # run
 ```
 
-### Synology NAS
+### Cogitor VPS (`iot.cogitor.dev`)
 
-The platform deploys via Gitea CI to a Synology NAS:
+Production target is a **systemd** service (no Docker on the VPS). Infra: ansible in `devops/cogitor` (`iot.yml`). CI: [docs/deploy-vds.md](docs/deploy-vds.md) / `.gitea/workflows/deploy-vds.yml`.
 
 ```bash
-# One-time setup
-mkdir -p /volume1/docker/iot-platform-go/{data,etc}
-cp .env.example /volume1/docker/iot-platform-go/etc/.env
-# Edit .env — set BROKER_HOST_PUBLIC to NAS LAN IP
+# on VPS (once)
+ansible-playbook -i inventory/hosts.yml iot.yml
+
+# from this repo (or Gitea on push)
+make build-linux
+# scp + systemctl restart iot-platform
 ```
 
-Dashboard: `http://<nas-ip>:9083`  
-MQTT: `<nas-ip>:1883`
+Dashboard: `https://iot.cogitor.dev` · MQTT: `iot.cogitor.dev:1883` · MQTT WS: `wss://iot.cogitor.dev/mqtt`
+
+### Docker (Synology / compose)
+
+See [docs/deploy-docker.md](docs/deploy-docker.md) / `.gitea/workflows/deploy-docker.yml`.
 
 ### Health Checks
 
@@ -562,7 +570,7 @@ MQTT: `<nas-ip>:1883`
 
 ## MQTT Protocol
 
-The platform process **is** the MQTT broker. Devices and Node-RED connect to `MQTT_ADDR` (default `:1883`).
+The platform process **is** the MQTT broker. Devices and Node-RED connect to `MQTT_ADDR` (default `:1883`) or MQTT-over-WebSocket on `MQTT_WS_ADDR` (default `:8083`).
 
 ### Topic Styles
 
@@ -622,7 +630,8 @@ The **MQTT** page shows:
 | [Product Schema](docs/product-schema.md) | Methods, metrics, attributes definition |
 | [MCP (LLM Tools)](docs/mcp.md) | AI integration endpoint setup and tools |
 | [Operations](docs/operations.md) | Config files, logging, OTA workflow, production notes |
-| [Synology Deploy](docs/deploy-synology.md) | NAS deployment, CI/CD via Gitea |
+| [Deploy VDS](docs/deploy-vds.md) | `iot.cogitor.dev` systemd + `deploy-vds.yml` |
+| [Deploy Docker](docs/deploy-docker.md) | Synology / compose + `deploy-docker.yml` |
 
 ---
 

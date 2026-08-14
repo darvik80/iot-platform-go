@@ -44,6 +44,8 @@ type DeviceProvisionCrearts struct {
 	Device     string `json:"device"`
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
+	WSURL      string `json:"ws_url,omitempty"`
+	WSPort     int    `json:"ws_port,omitempty"`
 	Token      string `json:"token"`
 	TLS        bool   `json:"tls"`
 	TopicShort bool   `json:"topic_short"`
@@ -55,16 +57,18 @@ type DeviceProvision struct {
 }
 
 type DeviceCredentials struct {
-	ProductID   string           `json:"product_id"`
-	DeviceID    string           `json:"device_id"`
-	AccessToken string           `json:"access_token"`
-	Username    string           `json:"username"` // MQTT user = {product}.{device}
-	ClientID    string           `json:"client_id"`
-	BrokerHost  string           `json:"broker_host"`
-	BrokerPort  int              `json:"broker_port"`
-	TopicStyle  string           `json:"topic_style"`
-	Snippet     string           `json:"snippet"`
-	Provision   *DeviceProvision `json:"provision,omitempty"`
+	ProductID    string           `json:"product_id"`
+	DeviceID     string           `json:"device_id"`
+	AccessToken  string           `json:"access_token"`
+	Username     string           `json:"username"` // MQTT user = {product}.{device}
+	ClientID     string           `json:"client_id"`
+	BrokerHost   string           `json:"broker_host"`
+	BrokerPort   int              `json:"broker_port"`
+	BrokerWSURL  string           `json:"broker_ws_url,omitempty"`
+	BrokerWSPort int              `json:"broker_ws_port,omitempty"`
+	TopicStyle   string           `json:"topic_style"`
+	Snippet      string           `json:"snippet"`
+	Provision    *DeviceProvision `json:"provision,omitempty"`
 }
 
 type TelemetrySample struct {

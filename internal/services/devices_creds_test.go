@@ -20,6 +20,7 @@ func TestDeviceProvisionJSON(t *testing.T) {
 		SQLitePath:       filepath.Join(dir, "test.db"),
 		BrokerHostPublic: "192.168.1.100",
 		MQTTAddr:         ":1883",
+		MQTTWSAddr:       ":8083",
 	}, nil)
 	if _, err := p.CreateProduct(ProductInput{ProductID: "home", Name: "Home"}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)
@@ -34,6 +35,9 @@ func TestDeviceProvisionJSON(t *testing.T) {
 	c := creds.Provision.Crearts
 	if c.Product != "home" || c.Device != "esp32-s3" || c.Host != "192.168.1.100" || c.Port != 1883 {
 		t.Fatalf("crearts=%+v", c)
+	}
+	if c.WSURL != "ws://192.168.1.100:8083/" || c.WSPort != 8083 {
+		t.Fatalf("ws=%+v", c)
 	}
 	if c.Token == "" || c.TLS || !c.TopicShort {
 		t.Fatalf("token/tls/topic_short=%+v", c)

@@ -1,0 +1,72 @@
+name: Deploy VDS
+
+# Static Linux binary → systemd on Cogitor VPS (iot.cogitor.dev).
+# Infra: devops/cogitor ansible (`iot.yml`). Docs: docs/deploy-vds.md
+
+on:
+  push:
+    branches: ["vds"]
+  workflow_dispatch:
+
+env:
+  DEPLOY_PATH: /opt/iot-platform-go
+  SERVICE_NAME: iot-platform
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build dashboard
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+
+      - name: Build platform binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -ldflags="-s -w" -o bin/platform ./cmd/platform
+          chmod +x bin/platform
+
+      - name: Install SSH key
+        env:
+          SSH_KEY: ${{ secrets.IOT_DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY" || { echo "missing secret IOT_DEPLOY_SSH_KEY"; exit 1; }
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.IOT_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Upload binary and restart service
+        env:
+          HOST: ${{ secrets.IOT_DEPLOY_HOST }}
+          USER: ${{ secrets.IOT_DEPLOY_USER }}
+        run: |
+          test -n "$HOST" && test -n "$USER" || { echo "missing IOT_DEPLOY_HOST / IOT_DEPLOY_USER"; exit 1; }
+          scp -o IdentitiesOnly=yes bin/platform "$USER@$HOST:/tmp/iot-platform.new"
+          ssh -o IdentitiesOnly=yes "$USER@$HOST" bash -s <<EOF
+          set -euo pipefail
+          sudo install -o iot -g iot -m 0755 /tmp/iot-platform.new $DEPLOY_PATH/bin/platform
+          rm -f /tmp/iot-platform.new
+          sudo systemctl restart $SERVICE_NAME
+          sleep 2
+          systemctl is-active --quiet $SERVICE_NAME
+          curl -fsS --max-time 5 http://127.0.0.1:8080/healthz >/dev/null
+          echo "deploy ok"
+          EOF

@@ -253,16 +253,20 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 	user := DeviceMQTTUsername(productID, deviceID)
 	host := p.Cfg.BrokerHostPublic
 	port := p.Cfg.MQTTPublicPort()
+	wsURL := p.Cfg.MQTTWSPublicURL()
+	wsPort := p.Cfg.MQTTWSPublicPort()
 	return &models.DeviceCredentials{
-		ProductID:   productID,
-		DeviceID:    deviceID,
-		AccessToken: token,
-		Username:    user,
-		ClientID:    user,
-		BrokerHost:  host,
-		BrokerPort:  port,
-		TopicStyle:  style,
-		Snippet:     snippet(productID, deviceID, host, token),
+		ProductID:    productID,
+		DeviceID:     deviceID,
+		AccessToken:  token,
+		Username:     user,
+		ClientID:     user,
+		BrokerHost:   host,
+		BrokerPort:   port,
+		BrokerWSURL:  wsURL,
+		BrokerWSPort: wsPort,
+		TopicStyle:   style,
+		Snippet:      snippet(productID, deviceID, host, token),
 		Provision: &models.DeviceProvision{
 			WiFi: models.DeviceProvisionWiFi{},
 			Crearts: models.DeviceProvisionCrearts{
@@ -270,6 +274,8 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 				Device:     deviceID,
 				Host:       host,
 				Port:       port,
+				WSURL:      wsURL,
+				WSPort:     wsPort,
 				Token:      token,
 				TLS:        false,
 				TopicShort: style != protocol.StyleFull,

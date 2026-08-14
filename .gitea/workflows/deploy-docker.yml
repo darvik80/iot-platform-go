@@ -1,12 +1,17 @@
-name: Synology
+name: Deploy Docker
+
+# Synology / Docker host runner. Docs: docs/deploy-docker.md
+# VPS production uses deploy-vds.yml (systemd) instead.
 
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: ["master"]
+  workflow_dispatch:
 
 env:
   TARGET_PORT: 9083
   TARGET_MQTT_PORT: 1883
+  TARGET_MQTT_WS_PORT: 8083
   CONTAINER_NAME: iot-platform-go
 
 jobs:
@@ -34,8 +39,10 @@ jobs:
             -d \
             -p $TARGET_PORT:8080 \
             -p $TARGET_MQTT_PORT:1883 \
+            -p $TARGET_MQTT_WS_PORT:8083 \
             --restart unless-stopped \
             --name $CONTAINER_NAME \
             -v /volume1/docker/$CONTAINER_NAME/data:/data \
-            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/$CONTAINER_NAME:ro \
+            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform-go:ro \
+            --env-file /volume1/docker/$CONTAINER_NAME/etc/.env \
             localhost/$CONTAINER_NAME:latest

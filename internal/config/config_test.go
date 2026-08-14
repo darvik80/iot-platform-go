@@ -40,3 +40,17 @@ func TestMQTTPublicPort(t *testing.T) {
 		}
 	}
 }
+
+func TestMQTTWSPublicURL(t *testing.T) {
+	c := Config{MQTTWSAddr: ":8083", BrokerHostPublic: "192.168.1.22"}
+	if !c.MQTTWSEnabled() || c.MQTTWSPublicPort() != 8083 {
+		t.Fatalf("enabled/port %+v", c)
+	}
+	if got := c.MQTTWSPublicURL(); got != "ws://192.168.1.22:8083/" {
+		t.Fatalf("url=%q", got)
+	}
+	off := Config{MQTTWSAddr: "off", BrokerHostPublic: "x"}
+	if off.MQTTWSEnabled() || off.MQTTWSPublicURL() != "" {
+		t.Fatal("off should disable")
+	}
+}

@@ -5,17 +5,18 @@
 //
 // Usage:
 //
+//	# With admin JWT (registers plugin, gets credentials)
 //	go run mqtt_telemetry_logger.go --platform http://localhost:8080 --token <admin-jwt>
+//
+//	# With existing credentials
+//	go run mqtt_telemetry_logger.go --mqtt-user extplg_logger --mqtt-pass <password>
+//
+//	# With environment variables
+//	MQTT_USER=extplg_logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
 //
 // Dependencies:
 //
 //	go get github.com/eclipse/paho.mqtt.golang
-//
-// The plugin:
-// 1. Registers with the platform using admin JWT (gets API token + MQTT credentials)
-// 2. Connects to MQTT broker using the provided credentials
-// 3. Subscribes to platform/v1/events/# (all device events)
-// 4. Logs everything to console
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,6 +43,16 @@ const (
 	pluginDesc = "Subscribes to rules bus via MQTT and logs all device telemetry"
 )
 
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+type PluginConfig struct {
+	MQTTUser string
+	MQTTPass string
+	MQTTHost string
+	MQTTPort int
+	RulesBus string
+}
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 type RegistrationResponse struct {
@@ -54,7 +66,7 @@ type RegistrationResponse struct {
 	RulesBus string `json:"rules_bus"`
 }
 
-func register(platformURL, jwtToken string) (*RegistrationResponse, error) {
+func register(platformURL, jwtToken string) (*PluginConfig, error) {
 	payload := map[string]string{
 		"id":          pluginID,
 		"name":        pluginName,
@@ -85,18 +97,24 @@ func register(platformURL, jwtToken string) (*RegistrationResponse, error) {
 	}
 
 	log.Printf("Registered: id=%s mqtt_user=%s", result.ID, result.MQTTUser)
-	return &result, nil
+	return &PluginConfig{
+		MQTTUser: result.MQTTUser,
+		MQTTPass: result.MQTTPass,
+		MQTTHost: result.MQTTHost,
+		MQTTPort: result.MQTTPort,
+		RulesBus: result.RulesBus,
+	}, nil
 }
 
 // ─── MQTT Client ─────────────────────────────────────────────────────────────
 
 type MQTTLoggerPlugin struct {
-	config   *RegistrationResponse
+	config   *PluginConfig
 	client   mqtt.Client
 	rulesBus string
 }
 
-func NewMQTTLoggerPlugin(config *RegistrationResponse) *MQTTLoggerPlugin {
+func NewMQTTLoggerPlugin(config *PluginConfig) *MQTTLoggerPlugin {
 	return &MQTTLoggerPlugin{
 		config:   config,
 		rulesBus: config.RulesBus,
@@ -130,7 +148,6 @@ func (p *MQTTLoggerPlugin) Connect() error {
 func (p *MQTTLoggerPlugin) onConnect(client mqtt.Client) {
 	log.Println("MQTT connected")
 
-	// Subscribe to all rules bus events
 	topic := p.rulesBus + "/events/#"
 	if token := client.Subscribe(topic, 0, p.onMessage); token.Wait() && token.Error() != nil {
 		log.Printf("Subscribe failed: %v", token.Error())
@@ -147,7 +164,6 @@ func (p *MQTTLoggerPlugin) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	topic := msg.Topic()
 	payload := msg.Payload()
 
-	// Parse topic: platform/v1/events/{product}/{device}/{kind}
 	parts := strings.Split(topic, "/")
 	kind := "unknown"
 	device := "unknown"
@@ -160,7 +176,6 @@ func (p *MQTTLoggerPlugin) onMessage(_ mqtt.Client, msg mqtt.Message) {
 
 	ts := time.Now().Format("15:04:05")
 
-	// Try to parse payload as JSON
 	var payloadObj any
 	if err := json.Unmarshal(payload, &payloadObj); err != nil {
 		payloadObj = string(payload)
@@ -213,33 +228,78 @@ func (p *MQTTLoggerPlugin) Stop() {
 
 func main() {
 	platformURL := flag.String("platform", "http://localhost:8080", "Platform URL")
-	token := flag.String("token", "", "Admin JWT token for registration (required)")
+	token := flag.String("token", "", "Admin JWT token for registration")
+	mqttUser := flag.String("mqtt-user", "", "MQTT username (or MQTT_USER env)")
+	mqttPass := flag.String("mqtt-pass", "", "MQTT password (or MQTT_PASS env)")
+	mqttHost := flag.String("mqtt-host", "localhost", "MQTT broker host")
+	mqttPort := flag.Int("mqtt-port", 1883, "MQTT broker port")
+	rulesBus := flag.String("rules-bus", "platform/v1", "Rules bus prefix")
 	flag.Parse()
 
-	if *token == "" {
-		log.Fatal("--token is required (admin JWT)")
+	var config *PluginConfig
+	var err error
+
+	switch {
+	case *token != "":
+		// Registration mode
+		config, err = register(*platformURL, *token)
+		if err != nil {
+			log.Fatalf("Registration failed: %v", err)
+		}
+
+	case *mqttUser != "" && *mqttPass != "":
+		// Direct credentials from args
+		config = &PluginConfig{
+			MQTTUser: *mqttUser,
+			MQTTPass: *mqttPass,
+			MQTTHost: *mqttHost,
+			MQTTPort: *mqttPort,
+			RulesBus: *rulesBus,
+		}
+		log.Printf("Using direct credentials for %s", *mqttUser)
+
+	case os.Getenv("MQTT_USER") != "" && os.Getenv("MQTT_PASS") != "":
+		// Direct credentials from env
+		port := *mqttPort
+		if p := os.Getenv("MQTT_PORT"); p != "" {
+			if v, err := strconv.Atoi(p); err == nil {
+				port = v
+			}
+		}
+		rules := *rulesBus
+		if r := os.Getenv("RULES_BUS"); r != "" {
+			rules = r
+		}
+		config = &PluginConfig{
+			MQTTUser: os.Getenv("MQTT_USER"),
+			MQTTPass: os.Getenv("MQTT_PASS"),
+			MQTTHost: getEnvOrDefault("MQTT_HOST", *mqttHost),
+			MQTTPort: port,
+			RulesBus: rules,
+		}
+		log.Printf("Using credentials from environment for %s", config.MQTTUser)
+
+	default:
+		log.Fatal("Either --token or --mqtt-user/--mqtt-pass (or env vars) required")
 	}
 
-	// Register
-	config, err := register(*platformURL, *token)
-	if err != nil {
-		log.Fatalf("Registration failed: %v", err)
-	}
-
-	// Create plugin
 	plugin := NewMQTTLoggerPlugin(config)
 
-	// Graceful shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Connect
 	if err := plugin.Connect(); err != nil {
 		log.Fatalf("MQTT connect failed: %v", err)
 	}
 
-	// Wait for signal
 	<-sigCh
 	log.Println("Shutting down...")
 	plugin.Stop()
+}
+
+func getEnvOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

@@ -84,6 +84,11 @@ export function DeviceDetailPage() {
               <div>
                 broker: {c.broker_host}:{c.broker_port}
               </div>
+              {c.broker_ws_url ? (
+                <div>
+                  websocket: {c.broker_ws_url}
+                </div>
+              ) : null}
               <div>topics: {c.topic_style || 'auto'} (detected from MQTT prefix)</div>
               <div>token_prefix: {c.token_prefix}…</div>
               <div>

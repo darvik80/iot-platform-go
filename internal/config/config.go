@@ -60,7 +60,7 @@ func Load() Config {
 		HTTPAddr:               getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
 		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH"),
 		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
-		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ""),
+		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ":8083"),
 		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
 		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
 		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
@@ -124,26 +124,62 @@ func (c Config) TimezoneOrUTC() string {
 }
 
 func (c Config) MQTTPublicPort() int {
-	addr := strings.TrimSpace(c.MQTTAddr)
+	return parseListenPort(c.MQTTAddr, 1883)
+}
+
+// MQTTWSEnabled reports whether MQTT-over-WebSocket listener is configured.
+func (c Config) MQTTWSEnabled() bool {
+	ws := strings.TrimSpace(c.MQTTWSAddr)
+	return ws != "" && !strings.EqualFold(ws, "off") && ws != "-"
+}
+
+// MQTTWSPublicPort is the advertised MQTT WebSocket port (0 if disabled).
+func (c Config) MQTTWSPublicPort() int {
+	if !c.MQTTWSEnabled() {
+		return 0
+	}
+	return parseListenPort(c.MQTTWSAddr, 8083)
+}
+
+// MQTTWSPublicURL is ws://{BROKER_HOST_PUBLIC}:{MQTT_WS_PORT}/ (empty if WS off).
+func (c Config) MQTTWSPublicURL() string {
+	port := c.MQTTWSPublicPort()
+	if port <= 0 {
+		return ""
+	}
+	host := strings.TrimSpace(c.BrokerHostPublic)
+	if host == "" {
+		host = "localhost"
+	}
+	return "ws://" + host + ":" + strconv.Itoa(port) + "/"
+}
+
+func parseListenPort(addr string, def int) int {
+	addr = strings.TrimSpace(addr)
 	addr = strings.TrimPrefix(addr, "tcp://")
 	addr = strings.TrimPrefix(addr, "mqtt://")
+	addr = strings.TrimPrefix(addr, "ws://")
+	addr = strings.TrimPrefix(addr, "wss://")
+	if i := strings.IndexByte(addr, '/'); i >= 0 {
+		addr = addr[:i]
+	}
 	if addr == "" {
-		return 1883
+		return def
 	}
 	if !strings.Contains(addr, ":") {
 		n, err := strconv.Atoi(addr)
 		if err == nil && n > 0 {
 			return n
 		}
-		return 1883
+		return def
 	}
 	_, p, err := net.SplitHostPort(addr)
 	if err != nil {
-		return 1883
+		return def
 	}
 	n, err := strconv.Atoi(p)
 	if err != nil || n <= 0 {
-		return 1883
+		return def
 	}
 	return n
 }

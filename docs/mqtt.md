@@ -3,7 +3,7 @@
 Canonical device contract: **protocol v1** (see embed-framework `docs/iot-platform-mqtt-spec.md`).  
 Go names: [`internal/protocol`](../internal/protocol/topics.go) (`UpTelemetry` / `ShortTelemetry`, downlinks, rules bus).
 
-The platform process **is** the MQTT broker ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Devices and Node-RED connect to `MQTT_ADDR` (default `:1883`). There is no external RabbitMQ.
+The platform process **is** the MQTT broker ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Devices and Node-RED connect to `MQTT_ADDR` (default `:1883`). Optional MQTT-over-WebSocket on `MQTT_WS_ADDR` (default `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, subprotocol `mqtt`). Set `MQTT_WS_ADDR=off` to disable. There is no external RabbitMQ.
 
 ## Topic styles
 
