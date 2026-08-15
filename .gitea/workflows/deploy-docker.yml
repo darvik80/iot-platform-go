@@ -44,5 +44,4 @@ jobs:
             --name $CONTAINER_NAME \
             -v /volume1/docker/$CONTAINER_NAME/data:/data \
             -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform-go:ro \
-            --env-file /volume1/docker/$CONTAINER_NAME/etc/.env \
-            localhost/$CONTAINER_NAME:latest
+              localhost/$CONTAINER_NAME:latest
