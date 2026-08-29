@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/models"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

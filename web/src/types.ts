@@ -88,7 +88,7 @@ export interface DeviceProvision {
     ssid: string;
     password: string;
   };
-  crearts: {
+  cogitor: {
     product: string;
     device: string;
     host: string;

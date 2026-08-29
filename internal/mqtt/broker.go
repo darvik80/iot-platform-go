@@ -1,7 +1,7 @@
 package mqtt
 
 import (
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/protocol"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,9 +13,9 @@ import (
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
 
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/services"
 )
 
 // Broker is an in-process MQTT server (mochi). Devices and Node-RED connect here;

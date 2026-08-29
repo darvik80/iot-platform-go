@@ -57,7 +57,7 @@ Backup: stop writes or use `sqlite3 .backup` against a checkpointed copy.
 
 ## Logging
 
-Structured logs to **stdout** (`slog`). Docker: `docker compose logs -f platform` / `docker logs -f crearts-platform` (stdout+stderr). HTTP access log (chi) goes to stderr — same `docker logs`.
+Structured logs to **stdout** (`slog`). Docker: `docker compose logs -f platform` / `docker logs -f cogitor-platform` (stdout+stderr). HTTP access log (chi) goes to stderr — same `docker logs`.
 
 `LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`). MQTT telemetry ingest is **debug**. Connect / ACL / RPC / OTA stay info.
 

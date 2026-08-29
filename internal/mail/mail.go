@@ -6,7 +6,7 @@ import (
 	"net/smtp"
 	"strings"
 
-	"crearts-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/config"
 )
 
 type Sender struct {
@@ -17,7 +17,7 @@ type Sender struct {
 func (s *Sender) Send(to, subject, body string) error {
 	from := s.Cfg.SMTPFrom
 	if from == "" {
-		from = "noreply@crearts.local"
+		from = "noreply@cogitor.local"
 	}
 	msg := strings.Join([]string{
 		"From: " + from,
@@ -48,8 +48,8 @@ func (s *Sender) Send(to, subject, body string) error {
 
 func (s *Sender) SendVerification(to, login, verifyURL string) error {
 	body := fmt.Sprintf(
-		"Hello %s,\n\nConfirm your Crearts IoT account by opening this link:\n%s\n\nIf you did not register, ignore this email.\n",
+		"Hello %s,\n\nConfirm your Cogitor IoT account by opening this link:\n%s\n\nIf you did not register, ignore this email.\n",
 		login, verifyURL,
 	)
-	return s.Send(to, "Confirm your Crearts IoT account", body)
+	return s.Send(to, "Confirm your Cogitor IoT account", body)
 }

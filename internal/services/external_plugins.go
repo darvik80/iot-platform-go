@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
 )
 
 // ExternalPluginHub manages out-of-process plugins.

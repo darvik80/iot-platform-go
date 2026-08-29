@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
-	"crearts-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/services"
 )
 
 func (b *Broker) handle(topic string, payload []byte, userID string) {

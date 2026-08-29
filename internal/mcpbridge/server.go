@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/models"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// NewServer builds an MCP server exposing Crearts IoT device tools.
+// NewServer builds an MCP server exposing Cogitor IoT device tools.
 func NewServer(backend Backend) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
-		Name:    "crearts-iot",
+		Name:    "cogitor-iot",
 		Version: "1.0.0",
 	}, nil)
 

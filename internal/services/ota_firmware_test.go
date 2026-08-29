@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
 )
 
 func TestStoreFirmwareFile(t *testing.T) {

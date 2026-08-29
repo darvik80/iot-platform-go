@@ -19,7 +19,7 @@ Public flags: `register_enabled`, `require_email_verify`, `google_enabled`.
 ### `POST /auth/login`
 
 ```json
-{ "email": "admin@crearts.local", "password": "admin" }
+{ "email": "admin@cogitor.local", "password": "admin" }
 ```
 
 `email` accepts login **or** email. See [auth.md](auth.md) for Google OAuth and verification.
@@ -89,10 +89,10 @@ Current user.
     "broker_host": "localhost",
     "broker_port": 1883,
     "topic_style": "auto",
-    "snippet": "CreartsCredentials::createAccessToken(...);",
+    "snippet": "CogitorCredentials::createAccessToken(...);",
     "provision": {
       "wifi": { "ssid": "", "password": "" },
-      "crearts": {
+      "cogitor": {
         "product": "esp32-cam",
         "device": "cam-001",
         "host": "192.168.1.100",

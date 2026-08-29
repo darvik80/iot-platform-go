@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/models"
 )
 
 type Config struct {
@@ -71,10 +71,10 @@ func Load() Config {
 		NodeRedMQTTUser:        getenv("NODERED_MQTT_USER", "nodered"),
 		NodeRedMQTTPassword:    getenv("NODERED_MQTT_PASSWORD", "nodered"),
 		BrokerHostPublic:       firstNonEmpty(os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
-		AdminEmail:             getenv("ADMIN_EMAIL", "admin@crearts.local"),
+		AdminEmail:             getenv("ADMIN_EMAIL", "admin@cogitor.local"),
 		AdminPassword:          getenv("ADMIN_PASSWORD", "admin"),
 		AdminLogin:             getenv("ADMIN_LOGIN", "admin"),
-		PlatformName:           getenv("PLATFORM_NAME", "Crearts IoT", "SERVER_PLATFORM_NAME"),
+		PlatformName:           getenv("PLATFORM_NAME", "Cogitor IoT", "SERVER_PLATFORM_NAME"),
 		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL"), "/"),
 		Timezone:               strings.TrimSpace(getenv("TIMEZONE", "UTC")),
 		LogLevel:               strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
@@ -86,7 +86,7 @@ func Load() Config {
 		SMTPPort:               getenvInt("SMTP_PORT", 587, "EMAIL_SMTP_PORT"),
 		SMTPUser:               getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),
 		SMTPPass:               getenv("SMTP_PASS", "", "EMAIL_SMTP_PASS"),
-		SMTPFrom:               getenv("SMTP_FROM", "noreply@crearts.local", "EMAIL_SMTP_FROM"),
+		SMTPFrom:               getenv("SMTP_FROM", "noreply@cogitor.local", "EMAIL_SMTP_FROM"),
 		EmailMode:              strings.ToLower(getenv("EMAIL_MODE", "log")),
 		GoogleClientID:         getenv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:     getenv("GOOGLE_CLIENT_SECRET", ""),

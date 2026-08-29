@@ -35,7 +35,7 @@ Prefer a long-lived **API token** (Settings → API tokens), not a login JWT.
 ```json
 {
   "mcpServers": {
-    "crearts-iot": {
+    "cogitor-iot": {
       "url": "http://192.168.1.100:9082/mcp",
       "headers": {
         "Authorization": "Bearer cip_…"
@@ -108,7 +108,7 @@ Equivalent — tool `invoke_rpc`:
 
 LLM prompt example:
 
-> Reboot device `esp32-cam` / `cam-001` with 500ms delay using the Crearts IoT MCP tools.
+> Reboot device `esp32-cam` / `cam-001` with 500ms delay using the Cogitor IoT MCP tools.
 
 Platform publishes MQTT down RPC; device should ACK and restart.
 

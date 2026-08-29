@@ -8,9 +8,9 @@ import (
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 type platHook struct {
@@ -18,7 +18,7 @@ type platHook struct {
 	b *Broker
 }
 
-func (h *platHook) ID() string { return "crearts-auth" }
+func (h *platHook) ID() string { return "cogitor-auth" }
 
 func (h *platHook) Provides(b byte) bool {
 	switch b {

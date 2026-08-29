@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DeviceCredentials } from '../types';
 
-const WIFI_KEY = 'crearts.wifi';
+const WIFI_KEY = 'cogitor.wifi';
 
 function loadWifi() {
   try {
@@ -28,10 +28,10 @@ export function CredsModal({
   }, [wifi]);
 
   const provision = useMemo(() => {
-    const base = creds.provision?.crearts;
+    const base = creds.provision?.cogitor;
     return {
       wifi: { ssid: wifi.ssid, password: wifi.password },
-      crearts: {
+      cogitor: {
         product: base?.product || creds.product_id,
         device: base?.device || creds.device_id,
         host: base?.host || creds.broker_host,

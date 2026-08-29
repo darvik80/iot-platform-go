@@ -4,6 +4,8 @@ Per-device automations that live **in the platform process** (not Node-RED). Nod
 
 ## Architecture
 
+> **Diagram**: [Internal Plugin Architecture](diagrams.md#internal-plugin-architecture)
+
 ```mermaid
 flowchart LR
   Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
@@ -33,6 +35,8 @@ flowchart LR
 Hub does **not** speak MQTT. Ingest already parsed the envelope; `publishRules` fans out to plugins **and** (if enabled) to Node-RED.
 
 ### Lifecycle
+
+> **Diagram**: [Internal Plugin Lifecycle](diagrams.md#internal-plugin-lifecycle)
 
 ```mermaid
 sequenceDiagram

@@ -21,43 +21,71 @@
 
 ## 2. Архитектура
 
+> **Diagram**: [External Plugin Architecture](diagrams.md#external-plugin-architecture)
+
 ```mermaid
 graph TB
     subgraph Platform["IoT Platform (Go)"]
-        Bus["Шина устройств<br/>(MQTT ingest)"]
-        Hub["PluginHub<br/>(ticker, dispatch)"]
-        Reg["External Plugin<br/>Registry"]
-        Queue["Event Queue<br/>(для polling)"]
+        subgraph Ingest[" "]
+            Bus["Шина устройств<br/>(MQTT ingest)"]
+            Hub["PluginHub<br/>(ticker, dispatch)"]
+        end
+
+        subgraph Support[" "]
+            Reg["External Plugin<br/>Registry"]
+            Queue["Event Queue<br/>(для polling)"]
+            HB["Heartbeat<br/>Monitor"]
+        end
+
         HTTP["HTTP / gRPC клиент"]
-        HB["Heartbeat<br/>Monitor"]
     end
 
     subgraph Plugin["Внешний плагин (любой язык)"]
-        EP["HTTP endpoint<br/>(webhook режим)"]
-        Poll["Poller<br/>(polling режим)"]
+        subgraph Receivers[" "]
+            EP["HTTP endpoint<br/>(webhook)"]
+            Poll["Poller<br/>(polling)"]
+            HBClient["Heartbeat Client"]
+        end
+
         Logic["Бизнес-логика плагина"]
-        HBClient["Heartbeat<br/>Client"]
     end
 
+    %% Ingest pipeline
     Bus -->|"MQTT события / tick"| Hub
+
+    %% Platform → Plugin (webhook)
     Hub -->|"webhook: POST"| HTTP
     HTTP -->|"plugin.on_event"| EP
+
+    %% Polling
     Hub -->|"polling: queue"| Queue
-    Poll -->|"platform.poll_events"| HTTP
+    Poll -->|"poll_events"| HTTP
+
+    %% Plugin internal
     EP --> Logic
     Poll --> Logic
-    Logic -->|"platform.invoke_rpc"| HTTP
+
+    %% Plugin → Platform (RPC)
+    Logic -->|"invoke_rpc"| HTTP
+
+    %% Registry
     Reg -.->|"endpoint URL"| HTTP
-    
-    HBClient -->|"platform.heartbeat<br/>(каждые 30 сек)"| HTTP
+
+    %% Heartbeat
+    HBClient -->|"heartbeat"| HTTP
     HTTP --> HB
-    HB -.->|"status: online/offline"| Reg
+    HB -.->|"online/offline"| Reg
 
     style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
+    style Ingest fill:#0f3460,stroke:#16213e,color:#eee
+    style Support fill:#16213e,stroke:#1a1a2e,color:#eee
     style Plugin fill:#0f3460,stroke:#16213e,color:#eee
+    style Receivers fill:#1a1a2e,stroke:#0f3460,color:#eee
 ```
 
 ### Поток событий
+
+> **Diagram**: [External Plugin Event Flow](diagrams.md#external-plugin-event-flow)
 
 ```mermaid
 sequenceDiagram
@@ -78,6 +106,8 @@ sequenceDiagram
 Плагины с `auto: true` и `interval_ms > 0` получают периодические `tick`
 события — точно так же, как внутренние. Платформа владеет таймером,
 плагин только реагирует.
+
+> **Diagram**: [External Plugin Tick Flow](diagrams.md#external-plugin-tick-flow)
 
 ```mermaid
 sequenceDiagram
@@ -290,6 +320,8 @@ Content-Type: application/json
 - Интервал: каждые 30 секунд (настраивается)
 - Таймаут: если нет heartbeat 90 секунд → плагин помечается `offline`
 - UI показывает статус плагина: `online` / `offline` / `unknown`
+
+> **Diagram**: [External Plugin Heartbeat](diagrams.md#external-plugin-heartbeat)
 
 ```mermaid
 sequenceDiagram
@@ -766,6 +798,8 @@ if __name__ == "__main__":
 
 ### End-to-end поток
 
+> **Diagram**: [External Plugin End-to-End Flow](diagrams.md#external-plugin-end-to-end-flow)
+
 ```mermaid
 sequenceDiagram
     participant Pl as Плагин (Python)
@@ -814,6 +848,8 @@ CREATE TABLE IF NOT EXISTS external_plugins (
 ---
 
 ## 9. Жизненный цикл
+
+> **Diagram**: [External Plugin Lifecycle](diagrams.md#external-plugin-lifecycle)
 
 ```mermaid
 sequenceDiagram

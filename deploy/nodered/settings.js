@@ -5,7 +5,7 @@ module.exports = {
   debugMaxLength: 1000,
   functionGlobalContext: {},
   exportGlobalContextKeys: false,
-  credentialSecret: process.env.NODERED_CREDENTIAL_SECRET || "crearts-nodered-dev",
+  credentialSecret: process.env.NODERED_CREDENTIAL_SECRET || "cogitor-nodered-dev",
   logging: {
     console: {
       level: "info",
@@ -14,8 +14,8 @@ module.exports = {
     },
   },
   editorTheme: {
-    page: { title: "Crearts IoT — Node-RED" },
-    header: { title: "Crearts Automation" },
+    page: { title: "Cogitor IoT — Node-RED" },
+    header: { title: "Cogitor Automation" },
   },
   // Allow dashboard iframe (platform UI on another port).
   httpAdminMiddleware: function (req, res, next) {

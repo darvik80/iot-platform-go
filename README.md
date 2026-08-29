@@ -1,4 +1,4 @@
-# Crearts IoT Platform
+# Cogitor IoT Platform
 
 **Self-hosted IoT backend and operations dashboard for ESP32-class devices.**
 
@@ -31,7 +31,7 @@ One Go binary. Embedded MQTT broker. SQLite database. React dashboard. Zero clou
 
 ## What Is This?
 
-Crearts IoT Platform is a **single-process IoT backend** that runs on your NAS, Raspberry Pi, or any Linux/Windows machine. It replaces the typical multi-component stack (MQTT broker + backend + database + dashboard) with one binary you can build and run in minutes.
+Cogitor IoT Platform is a **single-process IoT backend** that runs on your NAS, Raspberry Pi, or any Linux/Windows machine. It replaces the typical multi-component stack (MQTT broker + backend + database + dashboard) with one binary you can build and run in minutes.
 
 | Layer | Stack |
 |-------|--------|
@@ -113,7 +113,7 @@ docker compose up -d --build
 | MQTT WebSocket | `ws://localhost:8083/` (subprotocol `mqtt`) |
 | Node-RED (optional) | http://localhost:1880 |
 
-**Default login**: `admin@crearts.local` / `admin`
+**Default login**: `admin@cogitor.local` / `admin`
 
 > **Tip**: For development with hot-reload UI, run `cd web && npm run dev` in a separate terminal (API must be running on `:8080`).
 
@@ -175,7 +175,7 @@ The credentials modal shows:
 - `product_id`, `device_id`, `access_token`
 - `username` / `client_id` (format: `{product_id}.{device_id}`)
 - `broker_host` / `broker_port`
-- Arduino snippet: `CreartsCredentials::createAccessToken(...)`
+- Arduino snippet: `CogitorCredentials::createAccessToken(...)`
 - **Copy JSON** / download `{product}-{device}.json` for firmware provisioning
 
 ### Step 3 — Flash Firmware
@@ -183,7 +183,7 @@ The credentials modal shows:
 Embed the credentials in your ESP32 firmware:
 
 ```cpp
-CreartsCredentials::createAccessToken("esp32-cam", "cam-001", "192.168.1.22", "<token>");
+CogitorCredentials::createAccessToken("esp32-cam", "cam-001", "192.168.1.22", "<token>");
 ```
 
 MQTT CONNECT parameters:
@@ -391,7 +391,7 @@ The platform exposes an **MCP (Model Context Protocol)** endpoint at `/mcp`. Any
 ```json
 {
   "mcpServers": {
-    "crearts-iot": {
+    "cogitor-iot": {
       "url": "http://192.168.1.22:8080/mcp",
       "headers": {
         "Authorization": "Bearer cip_…"
@@ -473,7 +473,7 @@ Configuration priority (first non-empty wins): **OS env → `.env` → `./config
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `JWT_SECRET` | (dev default) | JWT signing key — **change in production** |
-| `ADMIN_EMAIL` | `admin@crearts.local` | Bootstrap admin email |
+| `ADMIN_EMAIL` | `admin@cogitor.local` | Bootstrap admin email |
 | `ADMIN_PASSWORD` | `admin` | Bootstrap admin password |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Telemetry cleanup period |
 | `RPC_DEFAULT_TIMEOUT_MS` | `30000` | RPC response wait timeout |
@@ -494,7 +494,7 @@ Configuration priority (first non-empty wins): **OS env → `.env` → `./config
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_USER` | | SMTP authentication user |
 | `SMTP_PASS` | | SMTP authentication password |
-| `SMTP_FROM` | `noreply@crearts.local` | Sender address |
+| `SMTP_FROM` | `noreply@cogitor.local` | Sender address |
 
 ### Example `.env`
 
@@ -507,7 +507,7 @@ BROKER_HOST_PUBLIC=192.168.1.22
 TIMEZONE=Asia/Bangkok
 JWT_SECRET=change-me-in-production
 ADMIN_LOGIN=admin
-ADMIN_EMAIL=admin@crearts.local
+ADMIN_EMAIL=admin@cogitor.local
 ADMIN_PASSWORD=strong-password-here
 NODERED_MQTT_PASSWORD=change-me
 ```
@@ -652,4 +652,4 @@ Verify your deployment is working:
 
 ## License
 
-Proprietary — Crearts.
+Proprietary — Cogitor.

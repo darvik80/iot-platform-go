@@ -57,7 +57,7 @@ export function AppShell() {
       <aside className="sidebar d-none d-md-flex flex-column p-3">
         <div className="brand mb-3">
           <img className="brand-mark" src="/favicon.svg" alt="" />
-          Crearts <span>IoT</span>
+          Cogitor <span>IoT</span>
         </div>
         <NavItems />
       </aside>
@@ -75,7 +75,7 @@ export function AppShell() {
           </button>
           <div className="brand flex-grow-1">
             <img className="brand-mark" src="/favicon.svg" alt="" />
-            Crearts <span>IoT</span>
+            Cogitor <span>IoT</span>
           </div>
         </header>
 
@@ -88,7 +88,7 @@ export function AppShell() {
         <div className="offcanvas-header">
           <h5 className="offcanvas-title brand">
             <img className="brand-mark" src="/favicon.svg" alt="" />
-            Crearts <span>IoT</span>
+            Cogitor <span>IoT</span>
           </h5>
           <button type="button" className="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close" />
         </div>

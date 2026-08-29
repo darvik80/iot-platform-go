@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
 )
 
 func TestUpdateProductMethods(t *testing.T) {

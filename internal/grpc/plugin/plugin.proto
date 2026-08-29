@@ -7,7 +7,7 @@ syntax = "proto3";
 
 package plugin;
 
-option go_package = "crearts-iot-platform/internal/grpc/plugin";
+option go_package = "cogitor-iot-platform/internal/grpc/plugin";
 
 // PluginService is implemented by the plugin.
 // The platform connects as a gRPC client and calls these methods.

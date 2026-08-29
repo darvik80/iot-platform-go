@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/plugins"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/plugins"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 type PluginHub struct {

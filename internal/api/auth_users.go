@@ -8,8 +8,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/services"
 )
 
 func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {

@@ -1,4 +1,4 @@
-# Crearts IoT — deploy stack
+# Cogitor IoT — deploy stack
 
 See root [README](../README.md) for full platform docs.
 

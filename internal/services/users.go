@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/mail"
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/mail"
+	"cogitor-iot-platform/internal/models"
 )
 
 var loginRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`)

@@ -1,4 +1,4 @@
-module crearts-iot-platform
+module cogitor-iot-platform
 
 go 1.25.0
 

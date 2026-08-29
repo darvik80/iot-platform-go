@@ -10,7 +10,7 @@ syntax = "proto3";
 
 package plugin;
 
-option go_package = "crearts-iot-platform/proto/plugin";
+option go_package = "cogitor-iot-platform/proto/plugin";
 
 // PluginService is implemented by the plugin.
 // The platform calls these methods to notify the plugin about events.

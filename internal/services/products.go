@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 const productSelect = `SELECT id, product_id, name, description, topic_style_default,

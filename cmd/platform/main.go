@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"crearts-iot-platform/internal/api"
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
-	mqttbroker "crearts-iot-platform/internal/mqtt"
-	"crearts-iot-platform/internal/services"
-	"crearts-iot-platform/internal/webui"
-	"crearts-iot-platform/internal/ws"
+	"cogitor-iot-platform/internal/api"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
+	mqttbroker "cogitor-iot-platform/internal/mqtt"
+	"cogitor-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/webui"
+	"cogitor-iot-platform/internal/ws"
 )
 
 func main() {

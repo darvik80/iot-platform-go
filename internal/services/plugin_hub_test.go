@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/plugins"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/plugins"
 )
 
 func TestBindLEDGarlandPlugin(t *testing.T) {

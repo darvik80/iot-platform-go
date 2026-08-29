@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {

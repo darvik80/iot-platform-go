@@ -8,10 +8,10 @@ import (
 	"strings"
 	"unicode"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 func DeviceMQTTUsername(productID, deviceID string) string {
@@ -269,7 +269,7 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 		Snippet:      snippet(productID, deviceID, host, token),
 		Provision: &models.DeviceProvision{
 			WiFi: models.DeviceProvisionWiFi{},
-			Crearts: models.DeviceProvisionCrearts{
+			Cogitor: models.DeviceProvisionCogitor{
 				Product:    productID,
 				Device:     deviceID,
 				Host:       host,

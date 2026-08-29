@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/plugins"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/plugins"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 var idRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$`)
@@ -233,7 +233,7 @@ func (p *Platform) runRetention() {
 }
 
 func snippet(product, device, host, token string) string {
-	return fmt.Sprintf(`CreartsCredentials::createAccessToken("%s", "%s", "%s", "%s");`, product, device, host, token)
+	return fmt.Sprintf(`CogitorCredentials::createAccessToken("%s", "%s", "%s", "%s");`, product, device, host, token)
 }
 
 func nullInt64(n sql.NullInt64) *int64 {

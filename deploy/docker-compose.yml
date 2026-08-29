@@ -1,7 +1,7 @@
 services:
   nodered:
     image: nodered/node-red:4.0
-    container_name: crearts-nodered
+    container_name: cogitor-nodered
     hostname: nodered
     restart: unless-stopped
     depends_on:
@@ -12,7 +12,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-crearts-nodered-dev}
+      NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-cogitor-nodered-dev}
     volumes:
       - nodered_data:/data
       - ./nodered/settings.js:/data/settings.js:ro
@@ -26,7 +26,7 @@ services:
 
   platform:
     build: ..
-    container_name: crearts-platform
+    container_name: cogitor-platform
     hostname: platform
     restart: unless-stopped
     ports:
@@ -47,7 +47,7 @@ services:
       NODERED_MQTT_USER: ${NODERED_MQTT_USER:-nodered}
       NODERED_MQTT_PASSWORD: ${NODERED_MQTT_PASSWORD:-nodered}
       RULES_BUS_ENABLED: "true"
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@crearts.local}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cogitor.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     volumes:
       - platform_data:/data

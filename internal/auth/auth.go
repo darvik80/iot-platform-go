@@ -14,7 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/models"
 )
 
 type Claims struct {

@@ -39,7 +39,7 @@ type DeviceProvisionWiFi struct {
 	Password string `json:"password"`
 }
 
-type DeviceProvisionCrearts struct {
+type DeviceProvisionCogitor struct {
 	Product    string `json:"product"`
 	Device     string `json:"device"`
 	Host       string `json:"host"`
@@ -53,7 +53,7 @@ type DeviceProvisionCrearts struct {
 
 type DeviceProvision struct {
 	WiFi    DeviceProvisionWiFi    `json:"wifi"`
-	Crearts DeviceProvisionCrearts `json:"crearts"`
+	Cogitor DeviceProvisionCogitor `json:"cogitor"`
 }
 
 type DeviceCredentials struct {

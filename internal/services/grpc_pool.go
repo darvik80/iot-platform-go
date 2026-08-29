@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "crearts-iot-platform/internal/grpc/plugin"
+	pb "cogitor-iot-platform/internal/grpc/plugin"
 )
 
 // grpcClient wraps a gRPC connection to an external plugin.

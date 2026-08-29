@@ -12,11 +12,11 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/mcpbridge"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/services"
-	"crearts-iot-platform/internal/ws"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/mcpbridge"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/ws"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

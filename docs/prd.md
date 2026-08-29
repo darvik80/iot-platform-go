@@ -1,4 +1,4 @@
-# Crearts IoT Platform — Product Requirements Document
+# Cogitor IoT Platform — Product Requirements Document
 
 > **Version**: 1.0  
 > **Status**: Active  
@@ -8,7 +8,7 @@
 
 ## 1. Vision
 
-Crearts IoT Platform is a **self-hosted, single-binary IoT backend and operations dashboard** for managing ESP32-class devices over MQTT. It provides everything a small-to-medium deployment needs — device provisioning, telemetry ingestion, remote procedure calls, OTA firmware updates, automation, and an LLM integration surface — without depending on cloud services or third-party platforms.
+Cogitor IoT Platform is a **self-hosted, single-binary IoT backend and operations dashboard** for managing ESP32-class devices over MQTT. It provides everything a small-to-medium deployment needs — device provisioning, telemetry ingestion, remote procedure calls, OTA firmware updates, automation, and an LLM integration surface — without depending on cloud services or third-party platforms.
 
 The guiding principle: **one process, one binary, zero external SaaS**.
 
@@ -16,7 +16,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 ## 2. Problem Statement
 
-| Pain point | Current alternatives | Crearts approach |
+| Pain point | Current alternatives | Cogitor approach |
 |------------|---------------------|------------------|
 | Cloud IoT platforms require internet, incur per-device costs, and lock in data | AWS IoT, ThingsBoard Cloud, Blynk | Self-hosted; all data stays on the operator's NAS / server |
 | Multi-component stacks (broker + backend + DB + UI) are complex to deploy and maintain | ThingsBoard CE + Mosquitto + PostgreSQL + Grafana | Single Go binary with embedded MQTT broker, SQLite, and React dashboard |
@@ -71,7 +71,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | F-103 | Rotate device token; old MQTT session is disconnected immediately | P0 |
 | F-104 | Enable / disable / delete devices; disabled devices cannot authenticate | P0 |
 | F-105 | Auto-detect MQTT topic style (full `iot/v1/…` vs short `v1/me/…`) from the first device packet | P0 |
-| F-106 | Device provisioning payload: Wi-Fi + Crearts MQTT credentials as JSON for firmware | P1 |
+| F-106 | Device provisioning payload: Wi-Fi + Cogitor MQTT credentials as JSON for firmware | P1 |
 
 ### 5.2 Telemetry & Attributes
 
@@ -192,7 +192,82 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 ## 7. Architecture
 
-![Architecture](images/gemini-architecture.png)
+> **Diagram**: [Platform Architecture](diagrams.md#platform-architecture)
+
+```mermaid
+graph TB
+    subgraph Devices["ESP32 Devices"]
+        ESP1["Sensor / Actuator"]
+        ESP2["LED Controller"]
+        ESP3["Camera / Other"]
+    end
+
+    subgraph Platform["Cogitor IoT Platform (single Go binary)"]
+        subgraph Transport["MQTT Transport"]
+            Broker["MQTT Broker<br/>(mochi-mqtt, embedded)"]
+        end
+
+        subgraph Core["Core Processing"]
+            ACL["Device ACL<br/>(product.device identity)"]
+            Ingest["Telemetry Ingest"]
+            PluginHub["Plugin Hub<br/>(in-process)"]
+            OTA["OTA Manager<br/>(Auto-OTA)"]
+        end
+
+        subgraph Services["Services & Storage"]
+            Rules["Rules Bus<br/>publisher"]
+            WS["WebSocket Hub<br/>(real-time)"]
+            DB["SQLite<br/>(WAL mode)"]
+            API["REST API<br/>(chi router)"]
+            Auth["JWT / OAuth<br/>Auth"]
+            MCP["MCP Endpoint<br/>/mcp"]
+        end
+    end
+
+    subgraph External["External Clients"]
+        UI["React Dashboard<br/>(embedded SPA)"]
+        NR["Node-RED<br/>(optional, automation)"]
+        LLM["LLM / AI Client<br/>(Cursor, Claude)"]
+    end
+
+    %% Device → Transport
+    ESP1 & ESP2 & ESP3 -->|"MQTT TCP :1883<br/>MQTT WS :8083"| Broker
+
+    %% Transport → Core
+    Broker --> ACL
+    ACL --> Ingest
+
+    %% Core internal
+    Ingest --> PluginHub
+    Ingest --> OTA
+
+    %% Core → Services
+    Ingest --> DB
+    Ingest --> WS
+    Ingest --> Rules
+    PluginHub -->|"InvokeRPC"| Broker
+    OTA -->|"MQTT downlink<br/>v1/o/upd"| Broker
+
+    %% Services internal
+    API --> Auth
+    API --> DB
+    API --> WS
+    API --> PluginHub
+    MCP --> API
+
+    %% Services ↔ External
+    Rules -->|"platform/v1/events/..."| NR
+    NR -->|"platform/v1/commands/..."| Broker
+    UI -->|"REST + WS<br/>JWT / API token"| API
+    LLM -->|"Streamable HTTP<br/>JWT / API token"| MCP
+
+    style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
+    style Transport fill:#0f3460,stroke:#16213e,color:#eee
+    style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Services fill:#16213e,stroke:#1a1a2e,color:#eee
+    style Devices fill:#0f3460,stroke:#16213e,color:#eee
+    style External fill:#16213e,stroke:#1a1a2e,color:#eee
+```
 
 ### Data Flow
 
@@ -204,7 +279,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 ---
 
-## 8. MQTT Protocol (Crearts v1)
+## 8. MQTT Protocol (Cogitor v1)
 
 ### Topic Styles
 
@@ -242,7 +317,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | `SQLITE_PATH` | `./data/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth callbacks |
 | `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@crearts.local` / `admin` | Bootstrap admin credentials |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin credentials |
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Auto-cleanup period |
 | `RULES_BUS_ENABLED` | `true` | Enable Node-RED event/command bus |

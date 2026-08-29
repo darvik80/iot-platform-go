@@ -5,7 +5,7 @@
 server:
   http_addr: ":8080"
   public_base_url: "http://192.168.1.22:8080"   # device-reachable (OTA, email, Google)
-  platform_name: "Crearts IoT"
+  platform_name: "Cogitor IoT"
 
 timezone: "Asia/Bangkok"
 log_level: info                                 # debug | info | warn | error
@@ -28,7 +28,7 @@ auth:
 
 admin:
   login: admin
-  email: admin@crearts.local
+  email: admin@cogitor.local
   password: admin
 
 email:
@@ -37,7 +37,7 @@ email:
   smtp_port: 587
   smtp_user: ""
   smtp_pass: ""
-  smtp_from: "noreply@crearts.local"
+  smtp_from: "noreply@cogitor.local"
 
 google:
   client_id: ""

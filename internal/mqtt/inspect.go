@@ -6,8 +6,8 @@ import (
 
 	mochi "github.com/mochi-mqtt/server/v2"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
 )
 
 const mqttEventCap = 250

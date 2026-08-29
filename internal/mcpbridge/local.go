@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"crearts-iot-platform/internal/auth"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/auth"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/services"
 )
 
 // Local calls Platform services in-process (embedded HTTP MCP on the platform).

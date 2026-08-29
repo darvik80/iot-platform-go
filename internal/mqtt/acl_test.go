@@ -3,7 +3,7 @@ package mqtt
 import (
 	"testing"
 
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 func TestTopicUnder(t *testing.T) {

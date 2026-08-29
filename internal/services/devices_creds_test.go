@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"crearts-iot-platform/internal/config"
-	"crearts-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/config"
+	"cogitor-iot-platform/internal/db"
 )
 
 func TestDeviceProvisionJSON(t *testing.T) {
@@ -32,9 +32,9 @@ func TestDeviceProvisionJSON(t *testing.T) {
 	if creds.Provision == nil {
 		t.Fatal("missing provision")
 	}
-	c := creds.Provision.Crearts
+	c := creds.Provision.Cogitor
 	if c.Product != "home" || c.Device != "esp32-s3" || c.Host != "192.168.1.100" || c.Port != 1883 {
-		t.Fatalf("crearts=%+v", c)
+		t.Fatalf("cogitor=%+v", c)
 	}
 	if c.WSURL != "ws://192.168.1.100:8083/" || c.WSPort != 8083 {
 		t.Fatalf("ws=%+v", c)

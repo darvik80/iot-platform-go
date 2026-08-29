@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"crearts-iot-platform/internal/db"
-	"crearts-iot-platform/internal/models"
-	"crearts-iot-platform/internal/protocol"
+	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/protocol"
 )
 
 func (p *Platform) StoreEvent(d *models.Device, payload []byte) error {

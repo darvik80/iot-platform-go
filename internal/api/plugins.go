@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"crearts-iot-platform/internal/services"
+	"cogitor-iot-platform/internal/services"
 )
 
 func (s *Server) listPluginCatalog(w http.ResponseWriter, _ *http.Request) {
