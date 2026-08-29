@@ -75,7 +75,7 @@ for every single message — only for phase transitions.
 ## Centralization
 
 All diagrams live in `docs/diagrams.md`. Source documents (`prd.md`,
-`plugin-prd.md`, `plugins.md`) contain:
+`plugins-prd.md`, `plugins.md`) contain:
 
 1. Link: `> **Diagram**: [Name](diagrams.md#anchor)`
 2. Full inline mermaid block (identical copy)

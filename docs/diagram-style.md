@@ -151,7 +151,7 @@ participant D as Устройство
 ## 6. Centralization
 
 All diagrams are stored in `docs/diagrams.md`. Source documents
-(`prd.md`, `plugin-prd.md`, `plugins.md`) contain:
+(`prd.md`, `plugins-prd.md`, `plugins.md`) contain:
 
 1. A link reference: `> **Diagram**: [Name](diagrams.md#anchor)`
 2. The full inline mermaid block (for rendering in markdown previews)
