@@ -308,6 +308,7 @@ export interface MQTTStatus {
   listening: boolean;
   addr?: string;
   ws_addr?: string;
+  tls_addr?: string;
   client_count: number;
   clients: MQTTClient[];
   events: MQTTEvent[];

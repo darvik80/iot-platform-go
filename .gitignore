@@ -8,6 +8,7 @@ config.yml
 web/node_modules/
 web/dist/
 bin/
+certs/
 *.exe
 .DS_Store
 .idea/

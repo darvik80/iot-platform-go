@@ -18,6 +18,10 @@ ota_dir: "./data/firmware"
 mqtt:
   addr: ":1883"
   ws_addr: ":8083"                          # MQTT over WebSocket → ws://host:8083/  (off to disable)
+  # tls_addr: ":8883"                       # MQTT over TLS → mqtts://host:8883/
+  # tls_cert: "/etc/iot-platform-go/certs/cert.pem"
+  # tls_key: "/etc/iot-platform-go/certs/key.pem"
+  # tls_ca: "/etc/iot-platform-go/certs/ca.pem"   # optional: enables mutual TLS
   broker_host_public: "192.168.1.22"
 
 auth:

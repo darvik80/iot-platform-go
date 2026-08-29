@@ -131,8 +131,8 @@ export function OtaPage() {
       <h1 className="h3 mb-2">OTA</h1>
       <p className="muted mb-3">
         Upload a <span className="mono">.bin</span> here — platform stores it and gives a public download URL for ESP OTA.
-        Device reports <span className="mono">v1/o/ver</span>, can ask <span className="mono">v1/o/q</span>. Operator pushes{' '}
-        <span className="mono">v1/o/upd</span> to one device or the whole product. Auto-OTA pushes latest firmware when a
+        Device reports <span className="code">v1/o/ver</span>, can ask <span className="code">v1/o/q</span>. Operator pushes{' '}
+        <span className="code">v1/o/upd</span> to one device or the whole product. Auto-OTA pushes latest firmware when a
         device comes online or reports a version.
       </p>
       {publicLooksLocal && (

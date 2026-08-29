@@ -24,7 +24,7 @@ WORKDIR /
 COPY --from=build /out/platform /platform
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
-EXPOSE 8080 1883 8083
+EXPOSE 8080 1883 8083 8883
 ENV SQLITE_PATH=/data/platform.db
 ENV HTTP_ADDR=:8080
 ENV MQTT_ADDR=:1883

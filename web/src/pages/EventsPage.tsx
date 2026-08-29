@@ -37,7 +37,7 @@ export function EventsPage() {
     <div>
       <h1 className="h3 mb-3">Events</h1>
       <p className="muted small mb-3">
-        Discrete incidents: device online/offline, firmware <span className="mono">v1/e</span> posts, alerts. Not telemetry
+        Discrete incidents: device online/offline, firmware <span className="code">v1/e</span> posts, alerts. Not telemetry
         (metrics) and not log lines.
       </p>
       {error && <div className="alert alert-danger py-2">{error}</div>}
@@ -96,8 +96,8 @@ export function EventsPage() {
               <tr>
                 <td colSpan={6} className="muted">
                   No events yet. Online/offline will appear when a device connects. Firmware can also publish{' '}
-                  <span className="mono">v1/e</span>:{' '}
-                  <span className="mono">{`{"type":"alert","severity":"warning","code":"low_battery","message":"..."}`}</span>
+                  <span className="code">v1/e</span>:{' '}
+                  <span className="code">{`{"type":"alert","severity":"warning","code":"low_battery","message":"..."}`}</span>
                 </td>
               </tr>
             )}

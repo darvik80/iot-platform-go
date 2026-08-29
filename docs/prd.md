@@ -64,110 +64,110 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 ### 5.1 Device Lifecycle Management
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-101 | Create **products** as device archetypes with shared schema (RPC methods, telemetry metrics, attributes) | P0 |
-| F-102 | Register **devices** under a product; generate one-time access token shown once at creation | P0 |
-| F-103 | Rotate device token; old MQTT session is disconnected immediately | P0 |
-| F-104 | Enable / disable / delete devices; disabled devices cannot authenticate | P0 |
-| F-105 | Auto-detect MQTT topic style (full `iot/v1/…` vs short `v1/me/…`) from the first device packet | P0 |
-| F-106 | Device provisioning payload: Wi-Fi + Cogitor MQTT credentials as JSON for firmware | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-101 | Create **products** as device archetypes with shared schema (RPC methods, telemetry metrics, attributes) | P0 | ✅ |
+| F-102 | Register **devices** under a product; generate one-time access token shown once at creation | P0 | ✅ |
+| F-103 | Rotate device token; old MQTT session is disconnected immediately | P0 | ✅ |
+| F-104 | Enable / disable / delete devices; disabled devices cannot authenticate | P0 | ✅ |
+| F-105 | Auto-detect MQTT topic style (full `iot/v1/…` vs short `v1/me/…`) from the first device packet | P0 | ✅ |
+| F-106 | Device provisioning payload: Wi-Fi + Cogitor MQTT credentials as JSON for firmware | P1 | ✅ |
 
 ### 5.2 Telemetry & Attributes
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-201 | Ingest telemetry from MQTT uplink topics; store in SQLite with timestamps | P0 |
-| F-202 | Expose latest telemetry and historical range queries via REST | P0 |
-| F-203 | Support **reported** and **desired** attributes; desired attributes are published to the device on save | P0 |
-| F-204 | Telemetry retention: auto-cleanup of records older than configurable days (default 30) | P1 |
-| F-205 | Product-defined metric schema: key, label, group, unit, format (bytes / percent / rssi / etc.) | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-201 | Ingest telemetry from MQTT uplink topics; store in SQLite with timestamps | P0 | ✅ |
+| F-202 | Expose latest telemetry and historical range queries via REST | P0 | ✅ |
+| F-203 | Support **reported** and **desired** attributes; desired attributes are published to the device on save | P0 | ✅ |
+| F-204 | Telemetry retention: auto-cleanup of records older than configurable days (default 30) | P1 | ✅ |
+| F-205 | Product-defined metric schema: key, label, group, unit, format (bytes / percent / rssi / etc.) | P1 | ✅ |
 
 ### 5.3 Remote Procedure Calls (RPC)
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-301 | Send RPC requests to devices via MQTT downlink; wait for response with configurable timeout | P0 |
-| F-302 | RPC console in dashboard: auto-populate methods from product schema + live `rpc-list` | P0 |
-| F-303 | RPC history stored per device | P1 |
-| F-304 | Correlation via JSON `id` field; success = `code: 0` | P0 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-301 | Send RPC requests to devices via MQTT downlink; wait for response with configurable timeout | P0 | ✅ |
+| F-302 | RPC console in dashboard: auto-populate methods from product schema + live `rpc-list` | P0 | ✅ |
+| F-303 | RPC history stored per device | P1 | ✅ |
+| F-304 | Correlation via JSON `id` field; success = `code: 0` | P0 | ✅ |
 
 ### 5.4 OTA Firmware Updates
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-401 | Upload `.bin` firmware images (multipart, max 32 MB); hosted at a public URL (no auth for ESP HTTP GET) | P0 |
-| F-402 | Register external firmware URLs (HTTPS) as an alternative to hosting | P1 |
-| F-403 | Notify a single device or an entire product about new firmware via MQTT | P0 |
-| F-404 | **Auto-OTA**: when enabled on a product, push latest firmware to devices on connect or version report | P0 |
-| F-405 | Track OTA job status: pending → running → success / failed / cancelled | P0 |
-| F-406 | Module support: same product can have firmware for different modules (main, factory, etc.) | P1 |
-| F-407 | Same product + module + version replaces the previous image (new download URL) | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-401 | Upload `.bin` firmware images (multipart, max 32 MB); hosted at a public URL (no auth for ESP HTTP GET) | P0 | ✅ |
+| F-402 | Register external firmware URLs (HTTPS) as an alternative to hosting | P1 | ✅ |
+| F-403 | Notify a single device or an entire product about new firmware via MQTT | P0 | ✅ |
+| F-404 | **Auto-OTA**: when enabled on a product, push latest firmware to devices on connect or version report | P0 | ✅ |
+| F-405 | Track OTA job status: pending → running → success / failed / cancelled | P0 | ✅ |
+| F-406 | Module support: same product can have firmware for different modules (main, factory, etc.) | P1 | ✅ |
+| F-407 | Same product + module + version replaces the previous image (new download URL) | P1 | ✅ |
 
 ### 5.5 Authentication & Authorization
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-501 | Login by username or email + password | P0 |
-| F-502 | Self-registration with optional email verification (SMTP or log mode) | P1 |
-| F-503 | Google OAuth sign-in / sign-up with account linking | P1 |
-| F-504 | Role-based access: **admin** (full), **operator** (read + write devices/RPC/OTA), **viewer** (read-only) | P0 |
-| F-505 | Bootstrap admin account from environment variables | P0 |
-| F-506 | Long-lived API tokens for MCP and scripts (created in Settings, shown once) | P0 |
-| F-507 | Admin Users page: list, change role, disable, delete | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-501 | Login by username or email + password | P0 | ✅ |
+| F-502 | Self-registration with optional email verification (SMTP or log mode) | P1 | ✅ |
+| F-503 | Google OAuth sign-in / sign-up with account linking | P1 | ✅ |
+| F-504 | Role-based access: **admin** (full), **operator** (read + write devices/RPC/OTA), **viewer** (read-only) | P0 | ✅ |
+| F-505 | Bootstrap admin account from environment variables | P0 | ✅ |
+| F-506 | Long-lived API tokens for MCP and scripts (created in Settings, shown once) | P0 | ✅ |
+| F-507 | Admin Users page: list, change role, disable, delete | P1 | ✅ |
 
 ### 5.6 Automation
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-601 | **Rules bus**: normalized JSON events on `platform/v1/events/{product}/{device}/…` via MQTT | P0 |
-| F-602 | **Commands**: Node-RED publishes to `platform/v1/commands/{product}/{device}/…` for RPC, desired attributes, OTA | P0 |
-| F-603 | **Device plugins**: in-process per-device automations (LED garland, schedule) with RPC callbacks | P0 |
-| F-604 | LED garland plugin: WS2812 strip control with effects, quiet hours, night-light windows | P1 |
-| F-605 | Schedule plugin: fire device RPC at configurable local times and weekdays | P1 |
-| F-606 | Node-RED automation page embedded as iframe in the dashboard | P1 |
-| F-607 | Plugin extensibility: Go builtin plugins via `Register()` + `init()` pattern | P2 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-601 | **Rules bus**: normalized JSON events on `platform/v1/events/{product}/{device}/…` via MQTT | P0 | ✅ |
+| F-602 | **Commands**: Node-RED publishes to `platform/v1/commands/{product}/{device}/…` for RPC, desired attributes, OTA | P0 | ✅ |
+| F-603 | **Device plugins**: in-process per-device automations (LED garland, schedule) with RPC callbacks | P0 | ✅ |
+| F-604 | LED garland plugin: WS2812 strip control with effects, quiet hours, night-light windows | P1 | ✅ |
+| F-605 | Schedule plugin: fire device RPC at configurable local times and weekdays | P1 | ✅ |
+| F-606 | Node-RED automation page embedded as iframe in the dashboard | P1 | ✅ |
+| F-607 | Plugin extensibility: Go builtin plugins via `Register()` + `init()` pattern | P2 | ✅ |
 
 ### 5.7 MQTT Broker
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-701 | Embedded MQTT broker (mochi-mqtt) in the platform process — no external broker required | P0 |
-| F-702 | Device ACL scoped to `{product}.{device}` identity (up/down topics only) | P0 |
-| F-703 | Optional MQTT-over-WebSocket listener | P2 |
-| F-704 | LWT-based presence detection (online/offline) | P0 |
-| F-705 | MQTT monitoring page: live sessions, broker event trail (auth, connect, ACL, ingest) | P0 |
-| F-706 | NTP sync: device sends time request, platform responds with `serverRecvTime` / `serverSendTime` | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-701 | Embedded MQTT broker (mochi-mqtt) in the platform process — no external broker required | P0 | ✅ |
+| F-702 | Device ACL scoped to `{product}.{device}` identity (up/down topics only) | P0 | ✅ |
+| F-703 | Optional MQTT-over-WebSocket listener | P2 | ✅ |
+| F-704 | LWT-based presence detection (online/offline) | P0 | ✅ |
+| F-705 | MQTT monitoring page: live sessions, broker event trail (auth, connect, ACL, ingest) | P0 | ✅ |
+| F-706 | NTP sync: device sends time request, platform responds with `serverRecvTime` / `serverSendTime` | P1 | ✅ |
 
 ### 5.8 Dashboard (Web UI)
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-801 | React SPA (Bootstrap 5, Vite) embedded into Go binary at build time | P0 |
-| F-802 | Pages: Overview, MQTT, Products, Devices, Device Detail, Events, Logs, OTA, Automation, Settings, Users | P0 |
-| F-803 | Real-time updates via WebSocket (device status, telemetry, MQTT events, OTA progress) | P0 |
-| F-804 | Overview: online/offline/total counts, MQTT status, recent events, active sessions | P0 |
-| F-805 | Device detail: connection info, metrics, desired attributes form, OTA panel, plugins, RPC console, events | P0 |
-| F-806 | Mobile-responsive layout with off-canvas navigation | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-801 | React SPA (Bootstrap 5, Vite) embedded into Go binary at build time | P0 | ✅ |
+| F-802 | Pages: Overview, MQTT, Products, Devices, Device Detail, Events, Logs, OTA, Automation, Settings, Users | P0 | ✅ |
+| F-803 | Real-time updates via WebSocket (device status, telemetry, MQTT events, OTA progress) | P0 | ✅ |
+| F-804 | Overview: online/offline/total counts, MQTT status, recent events, active sessions | P0 | ✅ |
+| F-805 | Device detail: connection info, metrics, desired attributes form, OTA panel, plugins, RPC console, events | P0 | ✅ |
+| F-806 | Mobile-responsive layout with off-canvas navigation | P1 | ✅ |
 
 ### 5.9 MCP (LLM Integration)
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-901 | Streamable HTTP MCP endpoint at `/mcp` (same process, JWT/API token auth) | P0 |
-| F-902 | Tools: overview, list/get devices, list/get products, invoke RPC, reboot, telemetry, attributes | P0 |
-| F-903 | Write tools (RPC, reboot, set attributes) require operator/admin role | P0 |
-| F-904 | Compatible with Cursor, Claude, and other MCP clients | P1 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-901 | Streamable HTTP MCP endpoint at `/mcp` (same process, JWT/API token auth) | P0 | ✅ |
+| F-902 | Tools: overview, list/get devices, list/get products, invoke RPC, reboot, telemetry, attributes | P0 | ✅ |
+| F-903 | Write tools (RPC, reboot, set attributes) require operator/admin role | P0 | ✅ |
+| F-904 | Compatible with Cursor, Claude, and other MCP clients | P1 | ✅ |
 
 ### 5.10 Observability
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| F-1001 | Structured logs to stdout (`slog`): connect, disconnect, auth_fail, ACL deny, RPC, OTA | P0 |
-| F-1002 | Configurable log level: debug / info / warn / error | P0 |
-| F-1003 | Events page: filter by device, severity, time range | P0 |
-| F-1004 | Logs page: device log messages with level and time filtering | P1 |
-| F-1005 | Health endpoints: `/healthz` (liveness), `/readyz` (DB + MQTT ready) | P0 |
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-1001 | Structured logs to stdout (`slog`): connect, disconnect, auth_fail, ACL deny, RPC, OTA | P0 | ✅ |
+| F-1002 | Configurable log level: debug / info / warn / error | P0 | ✅ |
+| F-1003 | Events page: filter by device, severity, time range | P0 | ✅ |
+| F-1004 | Logs page: device log messages with level and time filtering | P1 | ✅ |
+| F-1005 | Health endpoints: `/healthz` (liveness), `/readyz` (DB + MQTT ready) | P0 | ✅ |
 
 ---
 

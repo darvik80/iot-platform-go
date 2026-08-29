@@ -61,14 +61,14 @@ export function DeviceDetailPage() {
   return (
     <div>
       <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-        <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/devices')}>
+        <button type="button" className="btn btn-outline-secondary btn-sm flex-shrink-0" onClick={() => navigate('/devices')}>
           ← Devices
         </button>
-        <h1 className="h4 mb-0">
+        <h1 className="h4 mb-0" style={{ minWidth: 0 }}>
           {d.product_id} / {d.device_id} <StatusBadge status={d.status} />
         </h1>
         {detail.product?.id ? (
-          <Link className="muted small ms-auto" to={`/products/${detail.product.id}`}>
+          <Link className="muted small ms-auto flex-shrink-0" to={`/products/${detail.product.id}`}>
             Edit product schema
           </Link>
         ) : null}

@@ -17,6 +17,10 @@ type Config struct {
 	SQLitePath             string
 	MQTTAddr               string
 	MQTTWSAddr             string
+	MQTTTLSAddr            string
+	MQTTTLSCert            string
+	MQTTTLSKey             string
+	MQTTTLSCA              string
 	JWTSecret              string
 	TelemetryRetentionDays int
 	RPCDefaultTimeout      time.Duration
@@ -61,6 +65,10 @@ func Load() Config {
 		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH"),
 		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
 		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ":8083"),
+		MQTTTLSAddr:            getenv("MQTT_TLS_ADDR", ":8883"),
+		MQTTTLSCert:            getenv("MQTT_TLS_CERT", ""),
+		MQTTTLSKey:             getenv("MQTT_TLS_KEY", ""),
+		MQTTTLSCA:              getenv("MQTT_TLS_CA", ""),
 		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
 		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
 		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
@@ -125,6 +133,45 @@ func (c Config) TimezoneOrUTC() string {
 
 func (c Config) MQTTPublicPort() int {
 	return parseListenPort(c.MQTTAddr, 1883)
+}
+
+// MQTTPublicURL is mqtt://{BROKER_HOST_PUBLIC}:{MQTT_PORT}.
+func (c Config) MQTTPublicURL() string {
+	port := c.MQTTPublicPort()
+	if port <= 0 {
+		return ""
+	}
+	host := strings.TrimSpace(c.BrokerHostPublic)
+	if host == "" {
+		host = "localhost"
+	}
+	return "mqtt://" + host + ":" + strconv.Itoa(port)
+}
+
+// MQTTTLSEnabled reports whether MQTT-over-TLS is configured (cert + key present).
+func (c Config) MQTTTLSEnabled() bool {
+	return c.MQTTTLSCert != "" && c.MQTTTLSKey != ""
+}
+
+// MQTTTLSPublicPort is the advertised MQTT-TLS port (0 if disabled).
+func (c Config) MQTTTLSPublicPort() int {
+	if !c.MQTTTLSEnabled() {
+		return 0
+	}
+	return parseListenPort(c.MQTTTLSAddr, 8883)
+}
+
+// MQTTTLSPublicURL is mqtts://{BROKER_HOST_PUBLIC}:{MQTT_TLS_PORT}/ (empty if TLS off).
+func (c Config) MQTTTLSPublicURL() string {
+	port := c.MQTTTLSPublicPort()
+	if port <= 0 {
+		return ""
+	}
+	host := strings.TrimSpace(c.BrokerHostPublic)
+	if host == "" {
+		host = "localhost"
+	}
+	return "mqtts://" + host + ":" + strconv.Itoa(port)
 }
 
 // MQTTWSEnabled reports whether MQTT-over-WebSocket listener is configured.

@@ -154,7 +154,10 @@ func clientSubscriptions(cl *mochi.Client) []string {
 }
 
 func (b *Broker) Status() models.MQTTStatus {
-	addr := b.listenAddr
+	addr := b.cfg.MQTTPublicURL()
+	if addr == "" {
+		addr = b.listenAddr
+	}
 	if addr == "" {
 		addr = b.cfg.MQTTAddr
 	}
@@ -168,6 +171,12 @@ func (b *Broker) Status() models.MQTTStatus {
 		st.WSAddr = b.cfg.MQTTWSPublicURL()
 		if st.WSAddr == "" {
 			st.WSAddr = b.cfg.MQTTWSAddr
+		}
+	}
+	if b.cfg.MQTTTLSEnabled() {
+		st.TLSAddr = b.cfg.MQTTTLSPublicURL()
+		if st.TLSAddr == "" {
+			st.TLSAddr = b.tlsListenAddr
 		}
 	}
 	if b.server != nil {

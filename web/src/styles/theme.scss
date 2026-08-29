@@ -51,6 +51,18 @@ body {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
 }
 
+// Inline code / topic highlight
+.code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.85em;
+  background: rgba(61, 156, 240, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+  white-space: nowrap;
+  color: var(--body-color);
+}
+
 .muted {
   color: var(--muted) !important;
 }
@@ -205,6 +217,16 @@ body {
   padding: 1.5rem;
 }
 
+@media (max-width: 767.98px) {
+  .login-box {
+    padding: 1rem;
+    border-radius: 0.35rem;
+  }
+  .login-wrap {
+    padding: 1rem;
+  }
+}
+
 .schema-compact input,
 .schema-compact select {
   padding: 0.28rem 0.4rem;
@@ -232,11 +254,101 @@ body {
   background: #1c2430;
 }
 
+// ── Mobile responsive ──────────────────────────────────────────────
 @media (max-width: 767.98px) {
   .sidebar {
     display: none;
   }
+
   .main-pad {
-    padding: 1rem !important;
+    padding: 0.65rem !important;
+  }
+
+  // Mobile header: compact
+  header.d-md-none {
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+    background: rgba(15, 20, 25, 0.95);
+    backdrop-filter: blur(8px);
+  }
+
+  // Panels: tighter padding
+  .panel {
+    padding: 0.65rem 0.75rem;
+    margin-bottom: 0.65rem;
+  }
+
+  // Stat cards: compact on mobile
+  .stat-card {
+    padding: 0.55rem 0.65rem;
+  }
+  .stat-card .value {
+    font-size: 1.15rem;
+  }
+  .stat-card .label {
+    font-size: 0.68rem;
+  }
+
+  // Tables: smaller font, tighter
+  .panel .table {
+    font-size: 0.82rem;
+  }
+  .panel .table th {
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .panel .table td {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+  }
+
+  // Headings
+  h1.h3 {
+    font-size: 1.15rem;
+  }
+  h2.h6 {
+    font-size: 0.78rem;
+  }
+
+  // Modals: full-width on mobile
+  .modal-dialog {
+    margin: 0.5rem;
+    max-width: calc(100vw - 1rem);
+  }
+
+  // Forms: full-width inputs
+  .d-flex.flex-wrap.gap-2 > .form-control,
+  .d-flex.flex-wrap.gap-2 > .form-select {
+    flex: 1 1 100%;
+    max-width: 100% !important;
+  }
+
+  // Metrics grid: 2 columns
+  .metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  // Connection info: word-break long strings
+  .mono.small {
+    word-break: break-all;
+  }
+
+  // Offcanvas: full width
+  .offcanvas.show {
+    width: 280px !important;
+  }
+}
+
+// Very small screens (phones < 400px)
+@media (max-width: 399.98px) {
+  .stat-card .value {
+    font-size: 1rem;
+  }
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .panel .table {
+    font-size: 0.75rem;
   }
 }

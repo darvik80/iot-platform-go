@@ -1,4 +1,4 @@
-.PHONY: web build build-linux run
+.PHONY: web build build-linux run gen-mqtt-tls
 
 web:
 	cd web && npm ci && npm run build
@@ -12,3 +12,10 @@ build-linux: web
 
 run: build
 	./bin/platform.exe
+
+# Generate self-signed TLS certificates for MQTT broker (requires openssl)
+# Usage: make gen-mqtt-tls [DIR=./certs/mqtt] [CN=iot.local]
+DIR ?= ./certs/mqtt
+CN ?= iot.local
+gen-mqtt-tls:
+	@bash scripts/gen-mqtt-tls.sh "$(DIR)" "$(CN)"

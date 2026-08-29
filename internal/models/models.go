@@ -207,6 +207,7 @@ type MQTTStatus struct {
 	Listening   bool         `json:"listening"`
 	Addr        string       `json:"addr,omitempty"`
 	WSAddr      string       `json:"ws_addr,omitempty"`
+	TLSAddr     string       `json:"tls_addr,omitempty"`
 	ClientCount int          `json:"client_count"`
 	Clients     []MQTTClient `json:"clients"`
 	Events      []MQTTEvent  `json:"events"`

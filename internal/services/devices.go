@@ -255,6 +255,10 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 	port := p.Cfg.MQTTPublicPort()
 	wsURL := p.Cfg.MQTTWSPublicURL()
 	wsPort := p.Cfg.MQTTWSPublicPort()
+	tlsEnabled := p.Cfg.MQTTTLSEnabled()
+	if tlsEnabled {
+		port = p.Cfg.MQTTTLSPublicPort()
+	}
 	return &models.DeviceCredentials{
 		ProductID:    productID,
 		DeviceID:     deviceID,
@@ -277,7 +281,7 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 				WSURL:      wsURL,
 				WSPort:     wsPort,
 				Token:      token,
-				TLS:        false,
+				TLS:        tlsEnabled,
 				TopicShort: style != protocol.StyleFull,
 			},
 		},

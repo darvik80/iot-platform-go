@@ -12,9 +12,9 @@ export function AutomationPage() {
         </a>
       </div>
       <p className="muted small mb-2">
-        Node-RED editor (MQTT user <span className="mono">nodered</span>). Events{' '}
-        <span className="mono">platform/v1/events/…</span> → commands{' '}
-        <span className="mono">platform/v1/commands/…/rpc</span>.
+        Node-RED editor (MQTT user <span className="code">nodered</span>). Events{' '}
+        <span className="code">platform/v1/events/…</span> → commands{' '}
+        <span className="code">platform/v1/commands/…/rpc</span>.
       </p>
       <iframe
         className="nodered-frame"

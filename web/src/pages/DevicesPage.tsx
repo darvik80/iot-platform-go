@@ -68,8 +68,8 @@ export function DevicesPage() {
       <h1 className="h3 mb-3">Devices</h1>
       {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="d-flex flex-wrap gap-2 mb-3">
-        <input className="form-control" style={{ maxWidth: 240 }} placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="button" className="btn btn-primary" onClick={() => setShowAdd((v) => !v)}>
+        <input className="form-control" style={{ maxWidth: 240, minWidth: 0, flex: '1 1 160px' }} placeholder="Search\u2026" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className="btn btn-primary flex-shrink-0" onClick={() => setShowAdd((v) => !v)}>
           Add device
         </button>
       </div>

@@ -40,17 +40,9 @@ export function MqttPage() {
       <div className="row g-3 mb-4">
         <div className="col-6 col-md-3">
           <div className="stat-card">
-            <div className="label">Broker</div>
+            <div className="label">Status</div>
             <div className="value" style={{ fontSize: '1.1rem', color: s.listening ? 'var(--ok)' : 'var(--crit)' }}>
               {s.listening ? 'listening' : 'down'}
-            </div>
-          </div>
-        </div>
-        <div className="col-6 col-md-3">
-          <div className="stat-card">
-            <div className="label">Listen</div>
-            <div className="value mono" style={{ fontSize: '1.1rem' }}>
-              {s.addr || '—'}
             </div>
           </div>
         </div>
@@ -60,25 +52,32 @@ export function MqttPage() {
             <div className="value">{s.client_count}</div>
           </div>
         </div>
-        {s.ws_addr ? (
-          <div className="col-6 col-md-3">
-            <div className="stat-card">
-              <div className="label">MQTT WS</div>
-              <div className="value mono" style={{ fontSize: '0.95rem' }}>
-                {s.ws_addr}
-              </div>
+      </div>
+      <div className="row g-3 mb-4">
+        <div className="col-12 col-md-4">
+          <div className="stat-card">
+            <div className="label">TCP</div>
+            <div className="value mono" style={{ fontSize: '0.9rem' }}>
+              {s.addr || '\u2014'}
             </div>
           </div>
-        ) : (
-          <div className="col-6 col-md-3">
-            <div className="stat-card">
-              <div className="label">MQTT WS</div>
-              <div className="value muted" style={{ fontSize: '1.1rem' }}>
-                off
-              </div>
+        </div>
+        <div className="col-12 col-md-4">
+          <div className="stat-card">
+            <div className="label">WS</div>
+            <div className="value mono" style={{ fontSize: '0.9rem' }}>
+              {s.ws_addr || <span className="muted">off</span>}
             </div>
           </div>
-        )}
+        </div>
+        <div className="col-12 col-md-4">
+          <div className="stat-card">
+            <div className="label">TLS</div>
+            <div className="value mono" style={{ fontSize: '0.9rem' }}>
+              {s.tls_addr || <span className="muted">off</span>}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="panel mb-4">
