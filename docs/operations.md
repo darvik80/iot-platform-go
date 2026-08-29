@@ -71,7 +71,7 @@ Dashboard → **MQTT** shows live sessions and a recent broker event trail (`GET
 
 ## Production notes
 
-- Change `JWT_SECRET`, `ADMIN_PASSWORD`, `NODERED_MQTT_PASSWORD`
+- Change `JWT_SECRET`, `ADMIN_PASSWORD`
 - Prefer MQTT TLS (front proxy / listener) and HTTPS in front of `:8080`
 - Do not expose MQTT `:1883` to the public internet without auth + firewall
 - If Synology (or another host) still runs RabbitMQ MQTT on `:1883`, stop it or bind the platform to another port (`MQTT_ADDR`)

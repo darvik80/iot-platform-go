@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +62,9 @@ func (s *Server) Router() http.Handler {
 			"mqtt_clients": st.ClientCount,
 		})
 	})
+
+	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
+	r.Get("/api/v1/mqtt/ca.pem", s.mqttCACert)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/auth/config", s.authConfig)
@@ -219,6 +224,35 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) mqttStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.Plat.MQTTStatus())
+}
+
+// mqttCACert serves the MQTT TLS CA certificate (public, no auth).
+func (s *Server) mqttCACert(w http.ResponseWriter, r *http.Request) {
+	caFile := s.Plat.Cfg.MQTTTLSCA
+	if caFile == "" {
+		writeErr(w, http.StatusNotFound, "MQTT TLS CA not configured")
+		return
+	}
+	// Resolve relative path: CWD → exe dir → as-is
+	path := caFile
+	if !filepath.IsAbs(path) {
+		if _, err := os.Stat(path); err != nil {
+			if exe, err := os.Executable(); err == nil {
+				candidate := filepath.Join(filepath.Dir(exe), path)
+				if _, err := os.Stat(candidate); err == nil {
+					path = candidate
+				}
+			}
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "read CA: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", `attachment; filename="ca.pem"`)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) listProducts(w http.ResponseWriter, r *http.Request) {
@@ -702,14 +736,11 @@ func (s *Server) listOTAJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	nrUser, nrPass := s.Plat.GetNodeRedMQTTCreds()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"platform_name":            s.Plat.Cfg.PlatformName,
 		"telemetry_retention_days": s.Plat.Cfg.TelemetryRetentionDays,
 		"rpc_default_timeout_ms":   int(s.Plat.Cfg.RPCDefaultTimeout / time.Millisecond),
 		"nodered_url":              s.Plat.Cfg.NodeRedURL,
-		"nodered_mqtt_user":        nrUser,
-		"nodered_mqtt_pass":        nrPass,
 		"rules_bus_enabled":        s.Plat.Cfg.RulesBusEnabled,
 		"broker_host":              s.Plat.Cfg.BrokerHostPublic,
 		"mqtt_port":                s.Plat.Cfg.MQTTPublicPort(),

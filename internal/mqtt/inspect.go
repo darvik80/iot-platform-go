@@ -125,9 +125,6 @@ func (b *Broker) clientKind(username string) string {
 	if username == "" {
 		return "other"
 	}
-	if username == b.cfg.NodeRedMQTTUser {
-		return "nodered"
-	}
 	if strings.HasPrefix(username, "extplg_") {
 		return "plugin"
 	}

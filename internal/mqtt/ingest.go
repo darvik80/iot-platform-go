@@ -97,7 +97,7 @@ func (b *Broker) resolve(topic, userID string) (*models.Device, string, error) {
 	if strings.HasPrefix(topic, protocol.PrefixShort) && len(parts) >= 2 {
 		capOp := strings.Join(parts[1:], "/")
 		var d *models.Device
-		if userID != "" && userID != b.cfg.NodeRedMQTTUser {
+		if userID != "" && !strings.HasPrefix(userID, "extplg_") {
 			d = b.plat.ResolveByClientID(userID)
 			if d == nil {
 				d = b.plat.ResolveByToken(userID)

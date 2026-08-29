@@ -47,13 +47,6 @@ export function SettingsPage() {
         </div>
         <div>Rules bus: {String(s.rules_bus_enabled)}</div>
         <div>Node-RED: {s.nodered_url}</div>
-        {s.nodered_mqtt_user && (
-          <div className="mt-2 p-2 border border-secondary rounded">
-            <div className="text-uppercase muted small mb-1">Node-RED MQTT Credentials</div>
-            <div>User: <span className="mono">{s.nodered_mqtt_user}</span></div>
-            <div>Pass: <span className="mono">{s.nodered_mqtt_pass}</span></div>
-          </div>
-        )}
         <div className="mt-2">Public URL: {s.public_base_url || '—'}</div>
         <div>Timezone: {s.timezone || 'UTC'}</div>
         <div>Registration: {String(s.register_enabled)}</div>

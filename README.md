@@ -509,7 +509,6 @@ JWT_SECRET=change-me-in-production
 ADMIN_LOGIN=admin
 ADMIN_EMAIL=admin@cogitor.local
 ADMIN_PASSWORD=strong-password-here
-NODERED_MQTT_PASSWORD=change-me
 ```
 
 ---
@@ -626,6 +625,7 @@ The **MQTT** page shows:
 | [Auth & Users](docs/auth.md) | Authentication flows, roles, Google OAuth |
 | [MQTT Protocol](docs/mqtt.md) | Device MQTT contract, topic styles, ingest rules |
 | [Automation / Node-RED](docs/automation.md) | Rules bus events/commands, Node-RED setup |
+| [Node-RED (RU)](docs/nodered-ru.md) | Подключение Node-RED как external plugin (инструкция на русском) |
 | [Device Plugins](docs/plugins.md) | Plugin architecture, LED garland, schedule, how to add plugins |
 | [Product Schema](docs/product-schema.md) | Methods, metrics, attributes definition |
 | [MCP (LLM Tools)](docs/mcp.md) | AI integration endpoint setup and tools |

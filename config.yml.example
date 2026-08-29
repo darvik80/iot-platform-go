@@ -50,8 +50,6 @@ google:
 
 nodered:
   url: "http://192.168.1.22:1880"
-  mqtt_user: nodered
-  mqtt_password: nodered
 
 rules:
   bus_enabled: true

@@ -298,27 +298,6 @@ func jsonValue(v any) string {
 	return string(b)
 }
 
-// ─── Node-RED MQTT Credentials ──────────────────────────────────────────────
-
-// GetNodeRedMQTTCreds returns the MQTT credentials for Node-RED.
-// Generates random password on first call if not set.
-func (p *Platform) GetNodeRedMQTTCreds() (user, pass string) {
-	user = p.getSetting("nodered_mqtt_user", "nodered")
-	pass = p.getSetting("nodered_mqtt_pass", "")
-	if pass == "" {
-		// Generate random password
-		pass = generateToken(16)
-		p.setSetting("nodered_mqtt_pass", pass)
-	}
-	return user, pass
-}
-
-// SetNodeRedMQTTCreds updates the MQTT credentials for Node-RED.
-func (p *Platform) SetNodeRedMQTTCreds(user, pass string) {
-	p.setSetting("nodered_mqtt_user", user)
-	p.setSetting("nodered_mqtt_pass", pass)
-}
-
 func (p *Platform) getSetting(key, fallback string) string {
 	var val string
 	err := p.DB.QueryRow(`SELECT value FROM settings WHERE key=?`, key).Scan(&val)

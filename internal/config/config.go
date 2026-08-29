@@ -28,8 +28,6 @@ type Config struct {
 	RulesBusEnabled        bool
 	RulesBusPrefix         string
 	NodeRedURL             string
-	NodeRedMQTTUser        string
-	NodeRedMQTTPassword    string
 	BrokerHostPublic       string
 	AdminEmail             string
 	AdminPassword          string
@@ -76,8 +74,6 @@ func Load() Config {
 		RulesBusEnabled:        getenvBool("RULES_BUS_ENABLED", true),
 		RulesBusPrefix:         strings.TrimRight(getenv("RULES_BUS_PREFIX", "platform/v1"), "/"),
 		NodeRedURL:             getenv("NODERED_URL", "http://localhost:1880"),
-		NodeRedMQTTUser:        getenv("NODERED_MQTT_USER", "nodered"),
-		NodeRedMQTTPassword:    getenv("NODERED_MQTT_PASSWORD", "nodered"),
 		BrokerHostPublic:       firstNonEmpty(os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
 		AdminEmail:             getenv("ADMIN_EMAIL", "admin@cogitor.local"),
 		AdminPassword:          getenv("ADMIN_PASSWORD", "admin"),

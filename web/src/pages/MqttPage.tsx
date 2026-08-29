@@ -76,6 +76,11 @@ export function MqttPage() {
             <div className="value mono" style={{ fontSize: '0.9rem' }}>
               {s.tls_addr || <span className="muted">off</span>}
             </div>
+            {s.tls_addr && (
+              <a className="small" href="/api/v1/mqtt/ca.pem" download>
+                Download CA
+              </a>
+            )}
           </div>
         </div>
       </div>
@@ -100,7 +105,7 @@ export function MqttPage() {
                 s.clients.map((c) => (
                   <tr key={c.client_id || c.username + c.remote}>
                     <td>
-                      <span className={`badge ${c.kind === 'device' ? 'badge-online' : c.kind === 'nodered' ? 'badge-info' : 'badge-unknown'}`}>
+                      <span className={`badge ${c.kind === 'device' ? 'badge-online' : c.kind === 'plugin' ? 'badge-info' : 'badge-unknown'}`}>
                         {c.kind}
                       </span>
                     </td>

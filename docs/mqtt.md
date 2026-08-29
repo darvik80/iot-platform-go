@@ -81,9 +81,9 @@ Stdout (`slog`, `LOG_LEVEL`, default Info): `connect`, `disconnect`, `auth_fail`
 
 WebSocket event `mqtt` is broadcast on connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 
-## Node-RED user
+## Node-RED
 
-`NODERED_MQTT_USER` / `NODERED_MQTT_PASSWORD` (defaults `nodered` / `nodered`):
+Node-RED connects as an **external plugin** (Dashboard → Settings → External Plugins). Create a plugin, take the generated `MQTT User` (`extplg_…`) and `MQTT Password`, and put them into the Node-RED MQTT nodes:
 
 - subscribe `platform/v1/events/#`
 - publish `platform/v1/commands/#`

@@ -336,8 +336,6 @@ export interface Settings {
   mqtt_ws_port?: number;
   rules_bus_enabled: boolean;
   nodered_url: string;
-  nodered_mqtt_user?: string;
-  nodered_mqtt_pass?: string;
   public_base_url?: string;
   timezone?: string;
   register_enabled?: boolean;

@@ -4,19 +4,20 @@ services:
     container_name: cogitor-nodered
     hostname: nodered
     restart: unless-stopped
-    depends_on:
-      platform:
-        condition: service_started
     ports:
       - "1880:1880"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-cogitor-nodered-dev}
+      # Container runtime: Docker=host.docker.internal, Podman=host.containers.internal
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-host.docker.internal}
+    entrypoint: ["/entrypoint-custom.sh"]
     volumes:
-      - nodered_data:/data
+      - ./nodered/data:/data
       - ./nodered/settings.js:/data/settings.js:ro
-      - ./nodered/flows.json:/data/flows.json
+      - ./nodered/flows.json:/templates/flows.json:ro
+      - ./nodered/entrypoint.sh:/entrypoint-custom.sh:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1880/"]
       interval: 30s
@@ -24,41 +25,3 @@ services:
       retries: 5
       start_period: 30s
 
-  platform:
-    build: ..
-    container_name: cogitor-platform
-    hostname: platform
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-      - "1883:1883"
-      - "8083:8083"
-      - "8883:8883"
-    environment:
-      HTTP_ADDR: ":8080"
-      SQLITE_PATH: /data/platform.db
-      MQTT_ADDR: ":1883"
-      MQTT_WS_ADDR: ${MQTT_WS_ADDR:-:8083}
-      MQTT_TLS_ADDR: ${MQTT_TLS_ADDR:-:8883}
-      MQTT_TLS_CERT: ${MQTT_TLS_CERT:-}
-      MQTT_TLS_KEY: ${MQTT_TLS_KEY:-}
-      MQTT_TLS_CA: ${MQTT_TLS_CA:-}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      BROKER_HOST_PUBLIC: ${BROKER_HOST_PUBLIC:-localhost}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
-      TIMEZONE: ${TIMEZONE:-Asia/Bangkok}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      NODERED_URL: http://localhost:1880
-      NODERED_MQTT_USER: ${NODERED_MQTT_USER:-nodered}
-      NODERED_MQTT_PASSWORD: ${NODERED_MQTT_PASSWORD:-nodered}
-      RULES_BUS_ENABLED: "true"
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@cogitor.local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-    volumes:
-      - platform_data:/data
-      - ./config:/etc/iot-platform-go:ro
-      - ./certs:/etc/iot-platform-go/certs:ro
-
-volumes:
-  nodered_data:
-  platform_data:

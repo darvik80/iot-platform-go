@@ -1,5 +1,7 @@
 # Automation (Node-RED)
 
+Русская версия: [nodered-ru.md](nodered-ru.md).
+
 Node-RED stays a separate process (compose / Synology). The dashboard **Automation** page embeds the editor in an iframe (`NODERED_URL`, e.g. `http://192.168.1.100:1880`). Same-origin reverse proxy is optional; iframe is enough for the lab if Node-RED allows `frame-ancestors` (see `deploy/nodered/settings.js`).
 
 ## Rules bus
@@ -51,11 +53,11 @@ Alternatively call REST `POST /api/v1/devices/{id}/rpc` with a Bearer token.
 
 For **per-device** behavior (LED garland, schedule, etc.) use [device plugins](plugins.md) instead of a Node-RED flow. Architecture: catalog type → SQLite binding → in-process hub (`status` / `apply` / `tick` → `InvokeRPC`). Same event envelopes as this bus, no device token. Set `TIMEZONE` for local quiet hours / jobs.
 
-## MQTT user
+## MQTT credentials
 
 Connect Node-RED to the **platform** MQTT port (`MQTT_ADDR`, default `:1883`), not a separate broker.
 
-User `nodered` (password from `NODERED_MQTT_PASSWORD`, default `nodered`) may subscribe to `platform/v1/events/#` and publish to `platform/v1/commands/#`.
+Create an **external plugin** (Dashboard → Settings → External Plugins) named e.g. `nodered`, then use its generated `MQTT User` (`extplg_…`) and `MQTT Password` in Node-RED MQTT nodes. Such a client may subscribe to `platform/v1/events/#` and publish to `platform/v1/commands/#`.
 
 **Never** put device access tokens into Node-RED flows.
 
