@@ -1,0 +1,27 @@
+[Unit]
+Description=IoT Platform (Go)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iot
+Group=iot
+WorkingDirectory=/opt/iot-platform-go
+EnvironmentFile=/opt/iot-platform-go/etc/.env
+ExecStart=/opt/iot-platform-go/bin/platform
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-platform
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/iot-platform-go/data
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -61,28 +61,8 @@ jobs:
           test -n "$HOST" && test -n "$USER" || { echo "missing IOT_DEPLOY_HOST / IOT_DEPLOY_USER"; exit 1; }
           scp -o IdentitiesOnly=yes bin/platform "$USER@$HOST:/tmp/iot-platform.new"
           scp -o IdentitiesOnly=yes deploy/iot-platform.service "$USER@$HOST:/tmp/iot-platform.service"
-          ssh -o IdentitiesOnly=yes "$USER@$HOST" bash -s <<EOF
-          set -euo pipefail
-
-          # --- install systemd unit (idempotent) ---
-          UNIT=/etc/systemd/system/$SERVICE_NAME.service
-          if [ ! -f "\$UNIT" ] || ! cmp -s /tmp/iot-platform.service "\$UNIT"; then
-            sudo install -m 0644 /tmp/iot-platform.service "\$UNIT"
-            sudo systemctl daemon-reload
-            sudo systemctl enable $SERVICE_NAME
-            echo "service file installed & enabled"
-          else
-            echo "service file unchanged"
-          fi
-          rm -f /tmp/iot-platform.service
-
-          # --- deploy binary ---
-          sudo install -o iot -g iot -m 0755 /tmp/iot-platform.new $DEPLOY_PATH/bin/platform
-          rm -f /tmp/iot-platform.new
-          sudo systemctl restart $SERVICE_NAME
-
-          sleep 2
-          systemctl is-active --quiet $SERVICE_NAME
-          curl -fsS --max-time 5 http://127.0.0.1:8080/healthz >/dev/null
-          echo "deploy ok"
-EOF
+          sed -e "s|__DEPLOY_PATH__|$DEPLOY_PATH|g" \
+              -e "s|__SERVICE_NAME__|$SERVICE_NAME|g" \
+              deploy/remote-deploy.sh | \
+            ssh -o IdentitiesOnly=yes "$USER@$HOST" "cat > /tmp/deploy.sh"
+          ssh -o IdentitiesOnly=yes "$USER@$HOST" bash /tmp/deploy.sh
