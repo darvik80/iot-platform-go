@@ -24,7 +24,6 @@ type ExternalPluginHub struct {
 
 	mu      sync.RWMutex
 	plugins map[string]*models.ExternalPlugin // id → plugin
-	tokens  map[string]string                 // token → plugin_id
 
 	httpClient *http.Client
 	grpc       *grpcPool
@@ -34,7 +33,6 @@ func newExternalPluginHub(p *Platform) *ExternalPluginHub {
 	return &ExternalPluginHub{
 		plat:    p,
 		plugins: map[string]*models.ExternalPlugin{},
-		tokens:  map[string]string{},
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -47,7 +45,7 @@ func (h *ExternalPluginHub) Start(ctx context.Context) {
 	list, err := h.plat.ListExternalPlugins()
 	if err != nil {
 		if h.plat.Log != nil {
-			h.plat.Log.Warn("external plugins load failed", "err", err)
+			h.plat.Log.Error("external plugins load failed", "err", err)
 		}
 		return
 	}
@@ -56,6 +54,10 @@ func (h *ExternalPluginHub) Start(ctx context.Context) {
 		h.plugins[list[i].ID] = &list[i]
 	}
 	h.mu.Unlock()
+
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugins loaded", "count", len(list))
+	}
 
 	go h.heartbeatMonitor(ctx)
 }
@@ -180,7 +182,6 @@ func (h *ExternalPluginHub) Register(in RegisterExternalPluginInput) (*models.Ex
 
 	h.mu.Lock()
 	h.plugins[p.ID] = p
-	h.tokens[token] = p.ID
 	h.mu.Unlock()
 
 	return p, token, mqttPass, nil
@@ -372,16 +373,24 @@ func (h *ExternalPluginHub) ListAll() []models.ExternalPlugin {
 func (h *ExternalPluginHub) ValidateToken(pluginID, token string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	storedID, ok := h.tokens[token]
-	return ok && storedID == pluginID
+	p, ok := h.plugins[pluginID]
+	if !ok {
+		return false
+	}
+	return hashToken(token) == p.AuthTokenHash
 }
 
-// GetPluginIDByToken returns the plugin ID for a given token.
+// GetPluginIDByToken returns the plugin ID for a given token by hash matching.
 func (h *ExternalPluginHub) GetPluginIDByToken(token string) (string, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	id, ok := h.tokens[token]
-	return id, ok
+	hash := hashToken(token)
+	for _, p := range h.plugins {
+		if p.AuthTokenHash == hash {
+			return p.ID, true
+		}
+	}
+	return "", false
 }
 
 // ValidateMQTTCreds checks MQTT username/password for external plugin auth.
@@ -471,7 +480,13 @@ func (p *Platform) ListExternalPlugins() ([]models.ExternalPlugin, error) {
 		default_config, effects, form, mode, status, last_heartbeat_at, mqtt_user, mqtt_pass_hash, created_at, updated_at 
 		FROM external_plugins ORDER BY id`)
 	if err != nil {
-		return nil, err
+		// Fallback: mqtt columns may not exist if migration 008 was not applied
+		rows, err = p.DB.Query(`SELECT id, name, description, endpoint, auth_token_hash, auto, interval_ms, 
+			default_config, effects, form, mode, status, last_heartbeat_at, '', '', created_at, updated_at 
+			FROM external_plugins ORDER BY id`)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer rows.Close()
 
@@ -479,16 +494,17 @@ func (p *Platform) ListExternalPlugins() ([]models.ExternalPlugin, error) {
 	for rows.Next() {
 		var ep models.ExternalPlugin
 		var autoInt int
-		var effectsStr, formStr string
+		var configStr, effectsStr, formStr string
 		var lastHB *int64
 		err := rows.Scan(&ep.ID, &ep.Name, &ep.Description, &ep.Endpoint, &ep.AuthTokenHash,
-			&autoInt, &ep.IntervalMS, &ep.DefaultConfig, &effectsStr, &formStr,
+			&autoInt, &ep.IntervalMS, &configStr, &effectsStr, &formStr,
 			&ep.Mode, &ep.Status, &lastHB, &ep.MQTTUser, &ep.MQTTPassHash, &ep.CreatedAt, &ep.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
 		ep.Auto = autoInt != 0
 		ep.LastHeartbeatAt = lastHB
+		ep.DefaultConfig = json.RawMessage(configStr)
 		_ = json.Unmarshal([]byte(effectsStr), &ep.Effects)
 		ep.Form = json.RawMessage(formStr)
 		out = append(out, ep)
@@ -508,6 +524,15 @@ func (p *Platform) saveExternalPlugin(ep *models.ExternalPlugin) error {
 		ep.ID, ep.Name, ep.Description, ep.Endpoint, ep.AuthTokenHash, autoInt, ep.IntervalMS,
 		string(ep.DefaultConfig), string(effectsJSON), string(ep.Form), ep.Mode, ep.Status,
 		ep.LastHeartbeatAt, ep.MQTTUser, ep.MQTTPassHash, ep.CreatedAt, ep.UpdatedAt)
+	if err != nil && strings.Contains(err.Error(), "mqtt_user") {
+		// Fallback: mqtt columns may not exist if migration 008 was not applied
+		_, err = p.DB.Exec(`INSERT OR REPLACE INTO external_plugins 
+			(id, name, description, endpoint, auth_token_hash, auto, interval_ms, default_config, effects, form, mode, status, last_heartbeat_at, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			ep.ID, ep.Name, ep.Description, ep.Endpoint, ep.AuthTokenHash, autoInt, ep.IntervalMS,
+			string(ep.DefaultConfig), string(effectsJSON), string(ep.Form), ep.Mode, ep.Status,
+			ep.LastHeartbeatAt, ep.CreatedAt, ep.UpdatedAt)
+	}
 	return err
 }
 
