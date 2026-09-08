@@ -21,7 +21,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | Cloud IoT platforms require internet, incur per-device costs, and lock in data | AWS IoT, ThingsBoard Cloud, Blynk | Self-hosted; all data stays on the operator's NAS / server |
 | Multi-component stacks (broker + backend + DB + UI) are complex to deploy and maintain | ThingsBoard CE + Mosquitto + PostgreSQL + Grafana | Single Go binary with embedded MQTT broker, SQLite, and React dashboard |
 | Firmware OTA is manual (SCP / TFTP / custom scripts) | Custom shell scripts, manual flashing | Built-in OTA: upload `.bin`, hosted download URL, auto-push on reconnect |
-| Automation requires a separate server with its own state | Standalone Node-RED, Home Assistant | Optional Node-RED integration via MQTT rules bus; per-device plugins in-process |
+| Automation requires a separate server with its own state | Standalone Node-RED, Home Assistant | In-process per-device plugins (Go) + optional Node-RED for cross-device rules via MQTT rules bus |
 | No LLM / AI integration for device ops | None in open-source IoT platforms | Embedded MCP endpoint — any MCP-compatible AI client can list devices, invoke RPC, read telemetry |
 
 ---
