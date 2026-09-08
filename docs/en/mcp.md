@@ -22,7 +22,7 @@ Identify a device by platform `id` **or** `product_id` + `device_id`.
 ## Endpoint / auth
 
 ```
-http://<platform-host>:9082/mcp
+http://<platform-host>:8080/mcp
 Authorization: Bearer <API token or JWT>
 ```
 
@@ -36,7 +36,7 @@ Prefer a long-lived **API token** (Settings → API tokens), not a login JWT.
 {
   "mcpServers": {
     "cogitor-iot": {
-      "url": "http://192.168.1.100:9082/mcp",
+      "url": "http://192.168.1.100:8080/mcp",
       "headers": {
         "Authorization": "Bearer cip_…"
       }
@@ -49,11 +49,11 @@ Or via API:
 
 ```bash
 # login JWT (short-lived) to create an API token
-JWT=$(curl -s -X POST http://192.168.1.100:9082/api/v1/auth/login \
+JWT=$(curl -s -X POST http://192.168.1.100:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin","password":"admin"}' | jq -r .token)
 
-curl -s -X POST http://192.168.1.100:9082/api/v1/me/tokens \
+curl -s -X POST http://192.168.1.100:8080/api/v1/me/tokens \
   -H "Authorization: Bearer $JWT" \
   -H "Content-Type: application/json" \
   -d '{"name":"mcp"}'

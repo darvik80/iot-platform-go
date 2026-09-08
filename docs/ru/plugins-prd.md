@@ -1,4 +1,4 @@
-# External Plugin PRD
+# PRD: Внешние плагины
 
 ## 1. Обзор
 

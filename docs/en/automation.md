@@ -1,7 +1,5 @@
 # Automation (Node-RED)
 
-Русская версия: [nodered-ru.md](nodered-ru.md).
-
 Node-RED stays a separate process (compose / Synology). The dashboard **Automation** page embeds the editor in an iframe (`NODERED_URL`, e.g. `http://192.168.1.100:1880`). Same-origin reverse proxy is optional; iframe is enough for the lab if Node-RED allows `frame-ancestors` (see `deploy/nodered/settings.js`).
 
 ## Rules bus

@@ -2,6 +2,8 @@
 
 **Self-hosted IoT backend and operations dashboard for ESP32-class devices.**
 
+[Русская версия](README.ru.md)
+
 One Go binary. Embedded MQTT broker. SQLite database. React dashboard. Zero cloud dependencies.
 
 ![Architecture](docs/images/architecture.png)
@@ -376,6 +378,12 @@ Fire device RPC at configurable local times:
 
 Plugins appear on the device detail page under **Plugins**. Click **Add plugin**, select a catalog type, configure, and save.
 
+### External Plugins
+
+External plugins run as **separate processes** (any language) and communicate with the platform via **JSON-RPC 2.0 over HTTP** (webhook or polling) or **gRPC**. They get the same events as in-process plugins but without recompiling the Go binary.
+
+Create an external plugin in **Settings → External Plugins**. The platform generates API token + MQTT credentials (`extplg_…`). Write your plugin in Python, Go, Java, C++ — anything that speaks HTTP or gRPC. See [examples/plugins/](examples/plugins/) for examples.
+
 ---
 
 ## MCP — AI / LLM Integration
@@ -618,20 +626,24 @@ The **MQTT** page shows:
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Product Requirements (PRD)](docs/prd.md) | Full product vision, requirements, architecture |
-| [REST API](docs/api.md) | Complete API reference with endpoints and examples |
-| [Auth & Users](docs/auth.md) | Authentication flows, roles, Google OAuth |
-| [MQTT Protocol](docs/mqtt.md) | Device MQTT contract, topic styles, ingest rules |
-| [Automation / Node-RED](docs/automation.md) | Rules bus events/commands, Node-RED setup |
-| [Node-RED (RU)](docs/nodered-ru.md) | Подключение Node-RED как external plugin (инструкция на русском) |
-| [Device Plugins](docs/plugins.md) | Plugin architecture, LED garland, schedule, how to add plugins |
-| [Product Schema](docs/product-schema.md) | Methods, metrics, attributes definition |
-| [MCP (LLM Tools)](docs/mcp.md) | AI integration endpoint setup and tools |
-| [Operations](docs/operations.md) | Config files, logging, OTA workflow, production notes |
-| [Deploy VDS](docs/deploy-vds.md) | `iot.cogitor.dev` systemd + `deploy-vds.yml` |
-| [Deploy Docker](docs/deploy-docker.md) | Synology / compose + `deploy-docker.yml` |
+See [docs/README_en.md](docs/README_en.md) for the full index.
+
+| Document | EN | RU |
+|----------|----|----|
+| Product Requirements (PRD) | [prd.md](docs/en/prd.md) | [prd.md](docs/ru/prd.md) |
+| REST API | [api.md](docs/en/api.md) | [api.md](docs/ru/api.md) |
+| Auth & Users | [auth.md](docs/en/auth.md) | [auth.md](docs/ru/auth.md) |
+| MQTT Protocol | [mqtt.md](docs/en/mqtt.md) | [mqtt.md](docs/ru/mqtt.md) |
+| MQTT over TLS | [mqtt-tls.md](docs/en/mqtt-tls.md) | [mqtt-tls.md](docs/ru/mqtt-tls.md) |
+| Automation / Node-RED | [automation.md](docs/en/automation.md) | [automation.md](docs/ru/automation.md) |
+| Device Plugins | [plugins.md](docs/en/plugins.md) | [plugins.md](docs/ru/plugins.md) |
+| External Plugin PRD | [plugins-prd.md](docs/en/plugins-prd.md) | [plugins-prd.md](docs/ru/plugins-prd.md) |
+| Product Schema | [product-schema.md](docs/en/product-schema.md) | [product-schema.md](docs/ru/product-schema.md) |
+| MCP (LLM Tools) | [mcp.md](docs/en/mcp.md) | [mcp.md](docs/ru/mcp.md) |
+| Operations | [operations.md](docs/en/operations.md) | [operations.md](docs/ru/operations.md) |
+| Deploy VDS | [deploy-vds.md](docs/en/deploy-vds.md) | [deploy-vds.md](docs/ru/deploy-vds.md) |
+| Deploy Docker | [deploy-docker.md](docs/en/deploy-docker.md) | [deploy-docker.md](docs/ru/deploy-docker.md) |
+| Diagrams | [diagrams.md](docs/en/diagrams.md) | [diagrams.md](docs/ru/diagrams.md) |
 
 ---
 
