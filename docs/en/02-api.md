@@ -22,7 +22,7 @@ Public flags: `register_enabled`, `require_email_verify`, `google_enabled`.
 { "email": "admin@cogitor.local", "password": "admin" }
 ```
 
-`email` accepts login **or** email. See [auth.md](auth.md) for Google OAuth and verification.
+`email` accepts login **or** email. See [03-auth.md](03-auth.md) for Google OAuth and verification.
 
 ### `GET /me`
 

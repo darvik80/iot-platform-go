@@ -40,4 +40,4 @@ ssh darvik@HOST 'sudo install -o iot -g iot -m 755 /tmp/iot-platform.new /opt/io
 | MQTT TCP | `iot.cogitor.dev:1883` |
 | MQTT WS | `wss://iot.cogitor.dev/mqtt` |
 
-Docker / Synology: [deploy-docker.md](deploy-docker.md).
+Docker / Synology: [13-deploy-docker.md](13-deploy-docker.md).

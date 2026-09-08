@@ -1,17 +1,24 @@
-# PRD: Внешние плагины
+# Внешние плагины
 
 ## 1. Обзор
 
 Внешние плагины расширяют логику IoT Platform без перекомпиляции Go-бинарника.
 Работают как отдельные процессы (любой язык), общаются с платформой через
-**JSON-RPC 2.0 поверх HTTP** (основной) или **gRPC** (продвинутый).
+**HTTP** (webhook/polling), **MQTT** (подписка на шину правил) или **gRPC**.
 
 Контракт внешнего плагина зеркалит внутренний `plugins.Instance` —
 поведение идентично, меняется только транспорт.
 
+| Транспорт | Направление | Когда использовать |
+|-----------|-------------|--------------------|
+| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP |
+| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом |
+| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED |
+| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация |
+
 | Внутренний (in-process)               | Внешний (out-of-process)                    |
 |---------------------------------------|---------------------------------------------|
-| `Register(Descriptor, Factory)`       | `POST /api/plugins/external/register`       |
+| `Register(Descriptor, Factory)`       | `POST /api/v1/plugins/external`             |
 | `ApplyConfig(json)`                   | Platform → Plugin: `plugin.apply_config`    |
 | `OnEvent(Runtime, Event)`             | Platform → Plugin: `plugin.on_event`        |
 | `Runtime.InvokeRPC(method, params)`   | Plugin → Platform: `platform.invoke_rpc`    |
@@ -21,7 +28,7 @@
 
 ## 2. Архитектура
 
-> **Diagram**: [External Plugin Architecture](diagrams.md#external-plugin-architecture)
+> **Diagram**: [External Plugin Architecture](14-diagrams.md#external-plugin-architecture)
 
 ```mermaid
 graph TB
@@ -85,7 +92,7 @@ graph TB
 
 ### Поток событий
 
-> **Diagram**: [External Plugin Event Flow](diagrams.md#external-plugin-event-flow)
+> **Diagram**: [External Plugin Event Flow](14-diagrams.md#external-plugin-event-flow)
 
 ```mermaid
 sequenceDiagram
@@ -107,7 +114,7 @@ sequenceDiagram
 события — точно так же, как внутренние. Платформа владеет таймером,
 плагин только реагирует.
 
-> **Diagram**: [External Plugin Tick Flow](diagrams.md#external-plugin-tick-flow)
+> **Diagram**: [External Plugin Tick Flow](14-diagrams.md#external-plugin-tick-flow)
 
 ```mermaid
 sequenceDiagram
@@ -166,12 +173,14 @@ type Event struct {
 
 ### 4.1 Регистрация
 
-Плагин регистрируется один раз при старте (или через CLI). Платформа сохраняет
-дескриптор в таблицу `external_plugins`.
+Админ создаёт плагин через дашборд (**Settings → External Plugins**) или
+через API. Платформа сохраняет дескриптор в таблицу `external_plugins`
+и возвращает креды (API-токен + MQTT).
 
 ```
-POST /api/plugins/external/register
+POST /api/v1/plugins/external
 Content-Type: application/json
+Authorization: Bearer <admin JWT>
 
 {
   "id":           "temp-alert",
@@ -197,10 +206,22 @@ Content-Type: application/json
 Ответ:
 
 ```json
-{ "ok": true, "id": "temp-alert", "token": "ext_plg_abc123…" }
+{
+  "ok": true,
+  "id": "temp-alert",
+  "token": "ext_plg_abc123…",
+  "mqtt_user": "extplg_temp-alert",
+  "mqtt_pass": "одноразовый-пароль…",
+  "mqtt_host": "192.168.1.22",
+  "mqtt_port": 1883,
+  "mqtt_ws": "ws://192.168.1.22:8083/",
+  "rules_bus": "platform/v1"
+}
 ```
 
-Поля:
+**Сохраните все креды сразу** — `token`, `mqtt_pass` показываются только один раз.
+
+Поля (запрос):
 
 | Поле             | Тип        | Обяз. | Описание                                   |
 |------------------|------------|-------|--------------------------------------------|
@@ -219,11 +240,12 @@ Content-Type: application/json
 
 ### 4.2 Подключение и доступность
 
-Платформа должна знать, как доставить события плагину. Есть два режима:
+Платформа поддерживает **четыре транспорта** доставки событий плагинам:
 
-#### Режим 1: Webhook (push) — основной
+#### Режим 1: Webhook (HTTP push)
 
-Плагин указывает `endpoint` при регистрации. Платформа POST-ит события на этот URL.
+Плагин указывает `endpoint` (начинается с `http://` или `https://`) при регистрации.
+Платформа POST-ит JSON-RPC уведомления на этот URL.
 
 **Требования:**
 - URL должен быть доступен с сервера платформы
@@ -234,10 +256,93 @@ Content-Type: application/json
 - Плагин за NAT/файрволом — платформа не достучится
 - Динамический IP/порт — нужно перерегистрироваться
 
-#### Режим 2: Polling (pull) — для плагинов за NAT
+#### Режим 2: Polling (HTTP pull)
 
 Плагин не указывает `endpoint`. Вместо этого он периодически вызывает
 `platform.poll_events` чтобы получить накопленные события.
+
+#### Режим 3: MQTT (подписка на шину правил)
+
+Каждый зарегистрированный плагин получает **MQTT-креды** при регистрации.
+Плагин подключается к встроенному MQTT-брокеру платформы и подписывается
+на шину правил — те же топики, что использует Node-RED.
+
+**Подключение:**
+```
+Хост:     mqtt_host (из ответа регистрации)
+Порт:     mqtt_port (по умолчанию 1883) или mqtt_ws (WebSocket)
+Имя:      mqtt_user (формат: extplg_{plugin_id})
+Пароль:   mqtt_pass (одноразовый, показан только при регистрации)
+```
+
+**ACL (что плагин может через MQTT):**
+
+| Действие | Паттерн топика | Описание |
+|----------|---------------|----------|
+| Подписка (чтение) | `{rules_bus}/events/#` | Все события устройств: телеметрия, статус, события, логи, OTA, атрибуты |
+| Публикация (запись) | `{rules_bus}/commands/{product}/{device}/{cap}` | Отправка RPC, установка атрибутов, запуск OTA |
+
+**Структура топиков событий** (подписка):
+```
+platform/v1/events/{product_id}/{device_id}/telemetry
+platform/v1/events/{product_id}/{device_id}/status
+platform/v1/events/{product_id}/{device_id}/event
+platform/v1/events/{product_id}/{device_id}/log
+platform/v1/events/{product_id}/{device_id}/ota
+platform/v1/events/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{product_id}/{device_id}/rpc/result
+```
+
+**Структура топиков команд** (публикация):
+```
+platform/v1/commands/{product_id}/{device_id}/rpc
+platform/v1/commands/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{product_id}/{device_id}/ota
+```
+
+**Пример: подписка на все события (Python):**
+```python
+import paho.mqtt.client as mqtt
+
+def on_message(client, userdata, msg):
+    print(f"[{msg.topic}] {msg.payload.decode()}")
+
+client = mqtt.Client()
+client.username_pw_set("extplg_temp-alert", "одноразовый-пароль")
+client.connect("192.168.1.22", 1883)
+client.subscribe("platform/v1/events/#")
+client.on_message = on_message
+client.loop_forever()
+```
+
+**Пример: отправка RPC команды (публикация):**
+```python
+import json
+client.publish(
+    "platform/v1/commands/esp32-cam/cam-001/rpc",
+    json.dumps({"method": "reboot", "params": {"delayMs": 1000}})
+)
+```
+
+**Преимущества MQTT-режима:**
+- Не нужен HTTP endpoint или polling — просто подписка
+- Работает за NAT (исходящее MQTT-соединение)
+- Видит **все** события устройств, не только привязанные
+- Может отправлять команды любому устройству (через топики commands)
+- Heartbeat не нужен (состояние MQTT-соединения = живость плагина)
+
+**Ограничения MQTT-режима:**
+- Нет фильтрации по binding-ам (получает все события)
+- Нет тик-событий (используйте внутренний таймер)
+- Нет уведомлений `plugin.apply_config` / `plugin.detach`
+
+#### Режим 4: gRPC
+
+Плагин указывает `endpoint` **без** префикса `http://` (напр. `localhost:50051`).
+Платформа подключается как gRPC клиент. См. [Раздел 5](#5-grpc-транспорт-продвинутый).
+
+#### Детали Polling
 
 ```json
 {
@@ -321,7 +426,7 @@ Content-Type: application/json
 - Таймаут: если нет heartbeat 90 секунд → плагин помечается `offline`
 - UI показывает статус плагина: `online` / `offline` / `unknown`
 
-> **Diagram**: [External Plugin Heartbeat](diagrams.md#external-plugin-heartbeat)
+> **Diagram**: [External Plugin Heartbeat](14-diagrams.md#external-plugin-heartbeat)
 
 ```mermaid
 sequenceDiagram
@@ -340,13 +445,14 @@ sequenceDiagram
 
 #### Сравнение режимов
 
-| Характеристика       | Webhook (push)        | Polling (pull)         |
-|----------------------|-----------------------|------------------------|
-| Задержка доставки    | Мгновенно             | Зависит от интервала   |
-| Плагин за NAT        | Нет (нужен public IP) | Да                     |
-| Нагрузка на сеть     | Ниже (только события) | Выше (постоянный poll) |
-| Сложность реализации | Ниже                  | Выше (нужен ack)       |
-| Рекомендация         | LAN, cloud            | NAT, firewall          |
+| Характеристика       | Webhook (push)        | Polling (pull)         | MQTT (подписка)        | gRPC            |
+|----------------------|-----------------------|------------------------|------------------------|------------------|
+| Задержка доставки    | Мгновенно             | Зависит от интервала   | Мгновенно              | Мгновенно        |
+| Плагин за NAT        | Нет (нужен public IP) | Да                     | Да (исходящее MQTT)    | Нет (нужен IP)   |
+| Видит все события    | Только свои binding   | Только свои binding    | Да (все устройства)    | Только свои binding |
+| Может отправлять команды | Через invoke_rpc  | Через invoke_rpc       | Через commands топики  | Через invoke_rpc |
+| Сложность реализации | Средняя (HTTP server) | Выше (poll + ack)      | Ниже (MQTT клиент)     | Высокая (protobuf) |
+| Рекомендация         | LAN, cloud            | NAT, firewall          | Node-RED стиль, мониторинг | Высокая нагрузка |
 
 ### 4.3 Уведомления Platform → Plugin (только webhook режим)
 
@@ -562,7 +668,9 @@ message GetDeviceResponse {
 
 ---
 
-## 6. Безопасность (частично реализовано)
+## 6. Безопасность
+
+### HTTP API
 
 - Токен плагина выдаётся при регистрации, хранится хешированным в БД.
 - Токен ограничен: можно вызывать только `platform.invoke_rpc`,
@@ -571,6 +679,22 @@ message GetDeviceResponse {
 - Endpoint плагина должен быть доступен с сервера платформы.
 - HTTPS рекомендуется для production; HTTP разрешён для локальной разработки.
 - Rate limit: 100 вызовов/сек на один токен плагина.
+
+### MQTT ACL
+
+Внешние плагины подключаются к MQTT с username `extplg_{plugin_id}`. Брокер
+автоматически применяет ACL:
+
+| Действие | Разрешено | Запрещено |
+|----------|-----------|-----------|
+| Подписка | `{prefix}/events/#` — все события | Топики устройств, `$SYS`, другие плагины |
+| Публикация | `{prefix}/commands/{product}/{device}/{cap}` | Топики устройств, `$SYS`, `events/` |
+
+MQTT-креды генерируются **один раз** при регистрации. Для сброса пароля:
+```
+POST /api/v1/plugins/external/{id}/regenerate-mqtt
+Authorization: Bearer <admin JWT>
+```
 
 ---
 
@@ -798,7 +922,7 @@ if __name__ == "__main__":
 
 ### End-to-end поток
 
-> **Diagram**: [External Plugin End-to-End Flow](diagrams.md#external-plugin-end-to-end-flow)
+> **Diagram**: [External Plugin End-to-End Flow](14-diagrams.md#external-plugin-end-to-end-flow)
 
 ```mermaid
 sequenceDiagram
@@ -807,7 +931,9 @@ sequenceDiagram
     participant U as Пользователь (UI)
     participant D as Устройство
 
-    Pl->>P: POST /register → получает token
+    Note over U: Админ создаёт плагин в UI / API
+    U->>P: POST /api/v1/plugins/external → токен + MQTT креды
+    U-->>Pl: передаёт креды плагину
     U->>P: Привязать плагин к устройству
     P->>Pl: plugin.apply_config {threshold_c: 30}
     D->>P: MQTT telemetry {temperature: 32.5}
@@ -849,7 +975,7 @@ CREATE TABLE IF NOT EXISTS external_plugins (
 
 ## 9. Жизненный цикл
 
-> **Diagram**: [External Plugin Lifecycle](diagrams.md#external-plugin-lifecycle)
+> **Diagram**: [External Plugin Lifecycle](14-diagrams.md#external-plugin-lifecycle)
 
 ```mermaid
 sequenceDiagram
@@ -858,9 +984,10 @@ sequenceDiagram
     participant U as Пользователь
     participant D as Устройство
 
-    Note over Pl: Старт процесса
-    Pl->>P: POST /register
-    P-->>Pl: {ok: true, token: "..."}
+    Note over U: Админ создаёт плагин в UI
+    U->>P: POST /api/v1/plugins/external
+    P-->>U: {ok: true, token: "...", mqtt_user: "...", ...}
+    U-->>Pl: передаёт токен и MQTT-креды плагину
 
     loop каждые 30 сек
         Pl->>P: platform.heartbeat

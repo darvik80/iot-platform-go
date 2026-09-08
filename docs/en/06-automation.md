@@ -49,7 +49,7 @@ RPC command (platform allocates device-facing `id`):
 
 Alternatively call REST `POST /api/v1/devices/{id}/rpc` with a Bearer token.
 
-For **per-device** behavior (LED garland, schedule, etc.) use [device plugins](plugins.md) instead of a Node-RED flow. Architecture: catalog type → SQLite binding → in-process hub (`status` / `apply` / `tick` → `InvokeRPC`). Same event envelopes as this bus, no device token. Set `TIMEZONE` for local quiet hours / jobs.
+For **per-device** behavior (LED garland, schedule, etc.) use [device plugins](07-internal-plugins.md) instead of a Node-RED flow. Architecture: catalog type → SQLite binding → in-process hub (`status` / `apply` / `tick` → `InvokeRPC`). Same event envelopes as this bus, no device token. Set `TIMEZONE` for local quiet hours / jobs.
 
 ## MQTT credentials
 

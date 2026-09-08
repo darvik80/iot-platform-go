@@ -192,7 +192,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 ## 7. Architecture
 
-> **Diagram**: [Platform Architecture](diagrams.md#platform-architecture)
+> **Diagram**: [Platform Architecture](14-diagrams.md#platform-architecture)
 
 ```mermaid
 graph TB

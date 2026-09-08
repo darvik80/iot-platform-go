@@ -1,13 +1,20 @@
-# External Plugin PRD
+# External Plugins
 
 ## 1. Overview
 
 External plugins extend IoT Platform logic without recompiling the Go binary.
 They run as separate processes (any language) and communicate with the platform
-via **JSON-RPC 2.0 over HTTP** (primary) or **gRPC** (advanced).
+via **HTTP** (webhook/polling), **MQTT** (rules bus subscription), or **gRPC**.
 
 The external plugin contract mirrors the internal `plugins.Instance` —
 behavior is identical, only the transport changes.
+
+| Transport | Direction | When to use |
+|-----------|-----------|-------------|
+| **Webhook** (HTTP push) | Platform → Plugin | Low latency, plugin has public IP |
+| **Polling** (HTTP pull) | Plugin → Platform | Plugin behind NAT/firewall |
+| **MQTT** (rules bus) | Plugin subscribes to broker | Cross-device events, Node-RED style |
+| **gRPC** | Platform → Plugin | High throughput, strict typing |
 
 | Internal (in-process)                 | External (out-of-process)                   |
 |---------------------------------------|---------------------------------------------|
@@ -21,7 +28,7 @@ behavior is identical, only the transport changes.
 
 ## 2. Architecture
 
-> **Diagram**: [External Plugin Architecture](diagrams.md#external-plugin-architecture)
+> **Diagram**: [External Plugin Architecture](14-diagrams.md#external-plugin-architecture)
 
 ```mermaid
 graph TB
@@ -85,7 +92,7 @@ graph TB
 
 ### Event Flow
 
-> **Diagram**: [External Plugin Event Flow](diagrams.md#external-plugin-event-flow)
+> **Diagram**: [External Plugin Event Flow](14-diagrams.md#external-plugin-event-flow)
 
 ```mermaid
 sequenceDiagram
@@ -107,7 +114,7 @@ Plugins with `auto: true` and `interval_ms > 0` receive periodic `tick`
 events — just like internal plugins. The platform owns the timer;
 the plugin only reacts.
 
-> **Diagram**: [External Plugin Tick Flow](diagrams.md#external-plugin-tick-flow)
+> **Diagram**: [External Plugin Tick Flow](14-diagrams.md#external-plugin-tick-flow)
 
 ```mermaid
 sequenceDiagram
@@ -166,8 +173,9 @@ External plugins receive the **same** event types over the wire.
 
 ### 4.1 Registration
 
-The plugin registers once at startup (or via CLI). The platform saves
-the descriptor to the `external_plugins` table.
+Admin creates the plugin via dashboard (**Settings → External Plugins**) or
+via API. The platform saves the descriptor to the `external_plugins` table
+and returns credentials (API token + MQTT).
 
 ```
 POST /api/v1/plugins/external
@@ -198,10 +206,22 @@ Authorization: Bearer <admin JWT>
 Response:
 
 ```json
-{ "ok": true, "id": "temp-alert", "token": "ext_plg_abc123…", "mqtt_user": "extplg_temp-alert_…", "mqtt_pass": "…" }
+{
+  "ok": true,
+  "id": "temp-alert",
+  "token": "ext_plg_abc123…",
+  "mqtt_user": "extplg_temp-alert",
+  "mqtt_pass": "one-time-password…",
+  "mqtt_host": "192.168.1.22",
+  "mqtt_port": 1883,
+  "mqtt_ws": "ws://192.168.1.22:8083/",
+  "rules_bus": "platform/v1"
+}
 ```
 
-Fields:
+**Save all credentials immediately** — `token`, `mqtt_pass` are shown only once.
+
+Fields (request):
 
 | Field            | Type       | Req | Description                                  |
 |------------------|-----------|------|----------------------------------------------|
@@ -220,11 +240,12 @@ The `form` schema is identical to the internal `FormField` type
 
 ### 4.2 Connectivity
 
-The platform needs to know how to deliver events to the plugin. Two modes:
+The platform supports **four transport modes** for delivering events to plugins:
 
-#### Mode 1: Webhook (push) — primary
+#### Mode 1: Webhook (HTTP push)
 
-Plugin specifies `endpoint` at registration. Platform POSTs events to that URL.
+Plugin specifies `endpoint` (starting with `http://` or `https://`) at registration.
+Platform POSTs JSON-RPC notifications to that URL.
 
 **Requirements:**
 - URL must be reachable from the platform server
@@ -235,7 +256,93 @@ Plugin specifies `endpoint` at registration. Platform POSTs events to that URL.
 - Plugin behind NAT/firewall — platform cannot reach it
 - Dynamic IP/port — need to re-register
 
-#### Mode 2: Polling (pull) — for plugins behind NAT
+#### Mode 2: Polling (HTTP pull)
+
+Plugin does not specify `endpoint`. Instead, it periodically calls
+`platform.poll_events` to get accumulated events.
+
+#### Mode 3: MQTT (rules bus subscription)
+
+Every registered plugin receives **MQTT credentials** at registration.
+The plugin connects to the platform's embedded MQTT broker and subscribes
+to the rules bus — the same topics Node-RED uses.
+
+**Connection:**
+```
+Host:     mqtt_host (from registration response)
+Port:     mqtt_port (default 1883) or mqtt_ws (WebSocket)
+Username: mqtt_user (format: extplg_{plugin_id})
+Password: mqtt_pass (one-time, shown only at registration)
+```
+
+**ACL (what the plugin can do over MQTT):**
+
+| Action | Topic pattern | Description |
+|--------|---------------|-------------|
+| Subscribe (read) | `{rules_bus}/events/#` | All device events: telemetry, status, event, log, ota, attributes |
+| Publish (write) | `{rules_bus}/commands/{product}/{device}/{capability}` | Send RPC, set attributes, trigger OTA |
+
+**Event topic structure** (subscribe):
+```
+platform/v1/events/{product_id}/{device_id}/telemetry
+platform/v1/events/{product_id}/{device_id}/status
+platform/v1/events/{product_id}/{device_id}/event
+platform/v1/events/{product_id}/{device_id}/log
+platform/v1/events/{product_id}/{device_id}/ota
+platform/v1/events/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{product_id}/{device_id}/rpc/result
+```
+
+**Command topic structure** (publish):
+```
+platform/v1/commands/{product_id}/{device_id}/rpc
+platform/v1/commands/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{product_id}/{device_id}/ota
+```
+
+**Example: subscribe to all events (Python):**
+```python
+import paho.mqtt.client as mqtt
+
+def on_message(client, userdata, msg):
+    print(f"[{msg.topic}] {msg.payload.decode()}")
+
+client = mqtt.Client()
+client.username_pw_set("extplg_temp-alert", "one-time-password")
+client.connect("192.168.1.22", 1883)
+client.subscribe("platform/v1/events/#")
+client.on_message = on_message
+client.loop_forever()
+```
+
+**Example: send RPC command (publish):**
+```python
+import json
+client.publish(
+    "platform/v1/commands/esp32-cam/cam-001/rpc",
+    json.dumps({"method": "reboot", "params": {"delayMs": 1000}})
+)
+```
+
+**MQTT mode advantages:**
+- No need for HTTP endpoint or polling — just subscribe
+- Works behind NAT (outbound MQTT connection)
+- See **all** device events, not just bound ones
+- Can send commands to any device (via commands topics)
+- No heartbeat needed (MQTT connection state = plugin liveness)
+
+**MQTT mode limitations:**
+- No per-binding event filtering (receives all events)
+- No tick events (use internal timer instead)
+- No `plugin.apply_config` / `plugin.detach` notifications
+
+#### Mode 4: gRPC
+
+Plugin specifies `endpoint` **without** `http://` prefix (e.g. `localhost:50051`).
+Platform connects as gRPC client. See [Section 5](#5-grpc-transport-advanced).
+
+#### Polling details
 
 Plugin does not specify `endpoint`. Instead, it periodically calls
 `platform.poll_events` to get accumulated events.
@@ -322,7 +429,7 @@ Response:
 - Timeout: no heartbeat for 90 seconds → plugin marked `offline`
 - UI shows plugin status: `online` / `offline` / `unknown`
 
-> **Diagram**: [External Plugin Heartbeat](diagrams.md#external-plugin-heartbeat)
+> **Diagram**: [External Plugin Heartbeat](14-diagrams.md#external-plugin-heartbeat)
 
 ```mermaid
 sequenceDiagram
@@ -341,13 +448,16 @@ sequenceDiagram
 
 #### Mode Comparison
 
-| Characteristic     | Webhook (push)        | Polling (pull)         |
-|--------------------|-----------------------|------------------------|
-| Delivery latency   | Instant               | Depends on interval    |
-| Plugin behind NAT  | No (needs public IP)  | Yes                    |
-| Network overhead   | Lower (events only)   | Higher (constant poll) |
-| Implementation     | Simpler               | More complex (needs ack)|
-| Recommendation     | LAN, cloud            | NAT, firewall          |
+| Characteristic     | Webhook       | Polling       | MQTT              | gRPC          |
+|--------------------|---------------|---------------|-------------------|---------------|
+| Delivery latency   | Instant       | Poll interval | Instant           | Instant       |
+| Plugin behind NAT  | No            | Yes           | Yes (outbound)    | No            |
+| Event scope        | Bound device  | Bound device  | All devices       | Bound device  |
+| Can send commands  | Via RPC API   | Via RPC API   | Via MQTT publish  | Via RPC API   |
+| Heartbeat          | Required      | Required      | Not needed        | Ping (gRPC)   |
+| Implementation     | HTTP server   | HTTP client   | MQTT client       | gRPC server   |
+| Typing             | JSON          | JSON          | JSON              | Protobuf      |
+| Recommendation     | LAN, cloud    | NAT, firewall | Cross-device, IoT | High perf     |
 
 ### 4.3 Notifications Platform → Plugin (webhook mode only)
 
@@ -563,15 +673,25 @@ message GetDeviceResponse {
 
 ---
 
-## 6. Security (partially implemented)
+## 6. Security
 
+### HTTP API
 - Plugin token issued at registration, stored hashed in DB.
-- Token is scoped: can only call `platform.invoke_rpc`,
-  `platform.set_attributes`, `platform.get_device` for bindings
+- Token is scoped: can only call `platform.invoke_rpc` for bindings
   referencing this plugin ID.
-- Plugin endpoint must be reachable from the platform server.
 - HTTPS recommended for production; HTTP allowed for local development.
 - Rate limit: 100 calls/sec per plugin token.
+
+### MQTT ACL
+External plugins authenticate with `extplg_{id}` username + one-time password.
+The broker enforces strict ACL:
+
+| Direction | Allowed topics | Denied |
+|-----------|---------------|--------|
+| Subscribe (read) | `{prefix}/events/#` | Device topics (`iot/v1/…`, `v1/…`) |
+| Publish (write) | `{prefix}/commands/{product}/{device}/{cap}` | Device topics, other plugins' events |
+
+Plugins **cannot** impersonate devices or read other plugins' traffic.
 
 ---
 
@@ -799,7 +919,7 @@ if __name__ == "__main__":
 
 ### End-to-End Flow
 
-> **Diagram**: [External Plugin End-to-End Flow](diagrams.md#external-plugin-end-to-end-flow)
+> **Diagram**: [External Plugin End-to-End Flow](14-diagrams.md#external-plugin-end-to-end-flow)
 
 ```mermaid
 sequenceDiagram
@@ -808,7 +928,9 @@ sequenceDiagram
     participant U as User (UI)
     participant D as Device
 
-    Pl->>P: POST /register → receives token
+    Note over U: Admin creates plugin in UI / API
+    U->>P: POST /api/v1/plugins/external → token + MQTT creds
+    U-->>Pl: pass credentials to plugin
     U->>P: Bind plugin to device
     P->>Pl: plugin.apply_config {threshold_c: 30}
     D->>P: MQTT telemetry {temperature: 32.5}
@@ -850,7 +972,7 @@ delivers events over HTTP instead of in-process `OnEvent` calls.
 
 ## 9. Lifecycle
 
-> **Diagram**: [External Plugin Lifecycle](diagrams.md#external-plugin-lifecycle)
+> **Diagram**: [External Plugin Lifecycle](14-diagrams.md#external-plugin-lifecycle)
 
 ```mermaid
 sequenceDiagram
@@ -859,9 +981,10 @@ sequenceDiagram
     participant U as User
     participant D as Device
 
-    Note over Pl: Process start
-    Pl->>P: POST /register
-    P-->>Pl: {ok: true, token: "..."}
+    Note over U: Admin creates plugin in UI
+    U->>P: POST /api/v1/plugins/external
+    P-->>U: {ok: true, token: "...", mqtt_user: "...", ...}
+    U-->>Pl: pass token + MQTT creds to plugin
 
     loop every 30 sec
         Pl->>P: platform.heartbeat

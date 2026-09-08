@@ -1,7 +1,7 @@
 # Deploy Docker (Synology / compose)
 
 Containerized run: Synology Gitea runner or `deploy/docker-compose.yml`.  
-Production on Cogitor VPS uses systemd instead — see [deploy-vds.md](deploy-vds.md).
+Production on Cogitor VPS uses systemd instead — see [12-deploy-vds.md](12-deploy-vds.md).
 
 ## Gitea workflow
 

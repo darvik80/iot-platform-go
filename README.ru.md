@@ -57,7 +57,7 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 - **Встроенный MQTT-брокер** — внешний брокер не нужен; ACL устройств по идентификатору
 - **Дашборд реального времени** — WebSocket-обновления статуса, телеметрии, MQTT-сессий
 - **Автоматизация** — шина правил Node-RED для меж-устройственной логики; встроенные плагины для поведения каждого устройства (LED-гирлянда, расписание)
-- **Внешние плагины** — отдельные процессы на любом языке (JSON-RPC 2.0 / gRPC)
+- **Внешние плагины** — отдельные процессы на любом языке (HTTP / MQTT / gRPC)
 - **MCP-эндпоинт** — AI-клиенты (Cursor, Claude и др.) могут просматривать устройства, читать телеметрию, вызывать RPC
 - **Аутентификация и роли** — JWT-логин, Google OAuth, саморегистрация, роли admin / operator / viewer
 - **API-токены** — долгоживущие токены для скриптов и MCP-интеграции
@@ -323,9 +323,16 @@ platform/v1/commands/{product_id}/{device_id}/ota
 
 ### Внешние плагины
 
-Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой через **JSON-RPC 2.0 поверх HTTP** (webhook или polling) или **gRPC**. Получают те же события, что и встроенные плагины, без перекомпиляции Go-бинарника.
+Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой через четыре транспорта:
 
-Создать внешний плагин: **Settings → External Plugins**. Платформа генерирует API-токен + MQTT-креды (`extplg_…`). Примеры: [examples/plugins/](examples/plugins/).
+| Режим | Направление | Когда использовать |
+|-------|-------------|--------------------|
+| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP |
+| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом |
+| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED |
+| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация |
+
+Создать внешний плагин: **Settings → External Plugins**. Платформа генерирует API-токен + MQTT-креды (`extplg_…`). Пишите на Python, Go, Java, C++ — любом языке, который говорит HTTP, MQTT или gRPC. Примеры: [examples/plugins/](examples/plugins/).
 
 ---
 
@@ -500,20 +507,20 @@ make build-linux
 
 | Документ | RU | EN |
 |----------|----|----|
-| Требования к продукту (PRD) | [prd.md](docs/ru/prd.md) | [prd.md](docs/en/prd.md) |
-| REST API | [api.md](docs/ru/api.md) | [api.md](docs/en/api.md) |
-| Аутентификация | [auth.md](docs/ru/auth.md) | [auth.md](docs/en/auth.md) |
-| MQTT-протокол | [mqtt.md](docs/ru/mqtt.md) | [mqtt.md](docs/en/mqtt.md) |
-| MQTT over TLS | [mqtt-tls.md](docs/ru/mqtt-tls.md) | [mqtt-tls.md](docs/en/mqtt-tls.md) |
-| Автоматизация / Node-RED | [automation.md](docs/ru/automation.md) | [automation.md](docs/en/automation.md) |
-| Плагины устройств | [plugins.md](docs/ru/plugins.md) | [plugins.md](docs/en/plugins.md) |
-| PRD внешних плагинов | [plugins-prd.md](docs/ru/plugins-prd.md) | [plugins-prd.md](docs/en/plugins-prd.md) |
-| Схема продукта | [product-schema.md](docs/ru/product-schema.md) | [product-schema.md](docs/en/product-schema.md) |
-| MCP (LLM-инструменты) | [mcp.md](docs/ru/mcp.md) | [mcp.md](docs/en/mcp.md) |
-| Эксплуатация | [operations.md](docs/ru/operations.md) | [operations.md](docs/en/operations.md) |
-| Развёртывание VDS | [deploy-vds.md](docs/ru/deploy-vds.md) | [deploy-vds.md](docs/en/deploy-vds.md) |
-| Развёртывание Docker | [deploy-docker.md](docs/ru/deploy-docker.md) | [deploy-docker.md](docs/en/deploy-docker.md) |
-| Диаграммы | [diagrams.md](docs/ru/diagrams.md) | [diagrams.md](docs/en/diagrams.md) |
+| Требования к продукту (PRD) | [01-prd.md](docs/ru/01-prd.md) | [01-prd.md](docs/en/01-prd.md) |
+| REST API | [02-api.md](docs/ru/02-api.md) | [02-api.md](docs/en/02-api.md) |
+| Аутентификация | [03-auth.md](docs/ru/03-auth.md) | [03-auth.md](docs/en/03-auth.md) |
+| MQTT-протокол | [04-mqtt.md](docs/ru/04-mqtt.md) | [04-mqtt.md](docs/en/04-mqtt.md) |
+| MQTT over TLS | [05-mqtt-tls.md](docs/ru/05-mqtt-tls.md) | [05-mqtt-tls.md](docs/en/05-mqtt-tls.md) |
+| Автоматизация / Node-RED | [06-automation.md](docs/ru/06-automation.md) | [06-automation.md](docs/en/06-automation.md) |
+| Встроенные плагины | [07-internal-plugins.md](docs/ru/07-internal-plugins.md) | [07-internal-plugins.md](docs/en/07-internal-plugins.md) |
+| Внешние плагины | [08-external-plugins.md](docs/ru/08-external-plugins.md) | [08-external-plugins.md](docs/en/08-external-plugins.md) |
+| Схема продукта | [09-product-schema.md](docs/ru/09-product-schema.md) | [09-product-schema.md](docs/en/09-product-schema.md) |
+| MCP (LLM-инструменты) | [10-mcp.md](docs/ru/10-mcp.md) | [10-mcp.md](docs/en/10-mcp.md) |
+| Эксплуатация | [11-operations.md](docs/ru/11-operations.md) | [11-operations.md](docs/en/11-operations.md) |
+| Развёртывание VDS | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) | [12-deploy-vds.md](docs/en/12-deploy-vds.md) |
+| Развёртывание Docker | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) | [13-deploy-docker.md](docs/en/13-deploy-docker.md) |
+| Диаграммы | [14-diagrams.md](docs/ru/14-diagrams.md) | [14-diagrams.md](docs/en/14-diagrams.md) |
 
 ---
 

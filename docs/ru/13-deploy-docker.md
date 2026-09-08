@@ -1,7 +1,7 @@
 # Развёртывание Docker (Synology / compose)
 
 Контейнерный запуск: Gitea runner на Synology или `deploy/docker-compose.yml`.
-Production на Cogitor VPS использует systemd — см. [deploy-vds.md](deploy-vds.md).
+Production на Cogitor VPS использует systemd — см. [12-deploy-vds.md](12-deploy-vds.md).
 
 ## Gitea workflow
 

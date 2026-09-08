@@ -168,3 +168,119 @@ go test ./internal/plugins/ ./internal/services/
 - Не использовать MQTT / токены устройств из плагина — только `InvokeRPC` + события.
 - Не заменять Node-RED для меж-устройственных правил.
 - Не блокировать надолго внутри `OnEvent`.
+
+---
+
+## Внешние плагины
+
+Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой через четыре транспорта. Получают те же события, что и встроенные плагины, без перекомпиляции Go-бинарника.
+
+### Режимы транспорта
+
+| Режим | Направление | Когда использовать |
+|-------|-------------|--------------------|
+| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP |
+| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом |
+| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED |
+| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация |
+
+### Регистрация
+
+```
+POST /api/v1/plugins/external
+Authorization: Bearer <admin JWT>
+
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "description": "...",
+  "endpoint": "http://192.168.1.50:8080/rpc"   // webhook URL, или пропустить для polling
+}
+```
+
+Ответ содержит API-токен **и** MQTT-креды:
+
+```json
+{
+  "ok": true,
+  "id": "my-plugin",
+  "token": "ext_plg_abc123…",
+  "mqtt_user": "extplg_my-plugin",
+  "mqtt_pass": "одноразовый-пароль…",
+  "mqtt_host": "192.168.1.22",
+  "mqtt_port": 1883,
+  "mqtt_ws": "ws://192.168.1.22:8083/",
+  "rules_bus": "platform/v1"
+}
+```
+
+### Режим MQTT
+
+Каждый зарегистрированный плагин может подключиться к встроенному MQTT-брокеру, используя креды из регистрации. Самый простой режим — не нужен HTTP-сервер или polling.
+
+**Подключение:** `mqtt_user` / `mqtt_pass` из ответа регистрации. Формат username: `extplg_{plugin_id}`.
+
+**ACL (что плагин может через MQTT):**
+
+| Действие | Паттерн топика | Описание |
+|----------|---------------|----------|
+| Подписка | `{rules_bus}/events/#` | Все события устройств: телеметрия, статус, события, логи, OTA, атрибуты |
+| Публикация | `{rules_bus}/commands/{product}/{device}/{cap}` | Отправка RPC, установка атрибутов, запуск OTA |
+
+**Топики событий** (подписка):
+```
+platform/v1/events/{product_id}/{device_id}/telemetry
+platform/v1/events/{product_id}/{device_id}/status
+platform/v1/events/{product_id}/{device_id}/event
+platform/v1/events/{product_id}/{device_id}/log
+platform/v1/events/{product_id}/{device_id}/ota
+platform/v1/events/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{product_id}/{device_id}/rpc/result
+```
+
+**Топики команд** (публикация):
+```
+platform/v1/commands/{product_id}/{device_id}/rpc
+platform/v1/commands/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{product_id}/{device_id}/ota
+```
+
+**Пример: подписка на все события (Python):**
+```python
+import paho.mqtt.client as mqtt
+
+def on_message(client, userdata, msg):
+    print(f"[{msg.topic}] {msg.payload.decode()}")
+
+client = mqtt.Client()
+client.username_pw_set("extplg_my-plugin", "одноразовый-пароль")
+client.connect("192.168.1.22", 1883)
+client.subscribe("platform/v1/events/#")
+client.on_message = on_message
+client.loop_forever()
+```
+
+**Пример: отправка RPC команды (публикация):**
+```python
+import json
+client.publish(
+    "platform/v1/commands/esp32-cam/cam-001/rpc",
+    json.dumps({"method": "reboot", "params": {"delayMs": 1000}})
+)
+```
+
+**Преимущества:** Не нужен HTTP endpoint; работает за NAT; видит все устройства; может отправлять команды.
+**Ограничения:** Нет фильтрации по binding; нет тик-событий; нет уведомлений `plugin.apply_config` / `plugin.detach`.
+
+### API
+
+| Метод | Путь |
+|-------|------|
+| POST | `/api/v1/plugins/external` | Регистрация (admin JWT) |
+| GET | `/api/v1/plugins/external` | Список плагинов (auth) |
+| DELETE | `/api/v1/plugins/external/{id}` | Удаление (admin) |
+| POST | `/api/v1/plugins/external/{id}/regenerate-mqtt` | Обновить MQTT-пароль (admin) |
+| POST | `/api/plugins/external/rpc` | JSON-RPC endpoint (plugin token) |
+
+Полная спецификация — [08-external-plugins.md](08-external-plugins.md), примеры кода — [examples/plugins/](../../examples/plugins/) (Python, Go, Java, C++, gRPC).

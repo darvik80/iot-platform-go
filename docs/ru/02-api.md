@@ -22,7 +22,7 @@ WebSocket: `GET /api/v1/ws?token=<jwt>` — JSON-сообщения `{ "event", 
 { "email": "admin@cogitor.local", "password": "admin" }
 ```
 
-`email` принимает логин **или** email. См. [auth.md](auth.md) для Google OAuth и подтверждения email.
+`email` принимает логин **или** email. См. [03-auth.md](03-auth.md) для Google OAuth и подтверждения email.
 
 ### `GET /me`
 

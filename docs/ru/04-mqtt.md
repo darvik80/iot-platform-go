@@ -3,7 +3,7 @@
 Канонический контракт устройства: **протокол v1** (см. embed-framework `docs/iot-platform-mqtt-spec.md`).
 Go-имена: [`internal/protocol`](../internal/protocol/topics.go) (`UpTelemetry` / `ShortTelemetry`, downlink-и, шина правил).
 
-Платформа **является** MQTT-брокером ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Устройства и Node-RED подключаются к `MQTT_ADDR` (по умолчанию `:1883`). Опционально MQTT-over-WebSocket на `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, подпротокол `mqtt`). Установить `MQTT_WS_ADDR=off` для отключения. MQTT-over-TLS на `MQTT_TLS_ADDR` (по умолчанию `:8883`) — см. [mqtt-tls.md](mqtt-tls.md). Внешнего RabbitMQ нет.
+Платформа **является** MQTT-брокером ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Устройства и Node-RED подключаются к `MQTT_ADDR` (по умолчанию `:1883`). Опционально MQTT-over-WebSocket на `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, подпротокол `mqtt`). Установить `MQTT_WS_ADDR=off` для отключения. MQTT-over-TLS на `MQTT_TLS_ADDR` (по умолчанию `:8883`) — см. [05-mqtt-tls.md](05-mqtt-tls.md). Внешнего RabbitMQ нет.
 
 ## Стили топиков
 

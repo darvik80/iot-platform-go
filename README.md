@@ -380,9 +380,16 @@ Plugins appear on the device detail page under **Plugins**. Click **Add plugin**
 
 ### External Plugins
 
-External plugins run as **separate processes** (any language) and communicate with the platform via **JSON-RPC 2.0 over HTTP** (webhook or polling) or **gRPC**. They get the same events as in-process plugins but without recompiling the Go binary.
+External plugins run as **separate processes** (any language) and communicate with the platform via four transport modes:
 
-Create an external plugin in **Settings → External Plugins**. The platform generates API token + MQTT credentials (`extplg_…`). Write your plugin in Python, Go, Java, C++ — anything that speaks HTTP or gRPC. See [examples/plugins/](examples/plugins/) for examples.
+| Mode | Direction | When to use |
+|------|-----------|-------------|
+| **Webhook** (HTTP push) | Platform → Plugin | Low latency, plugin has a public IP |
+| **Polling** (HTTP pull) | Plugin → Platform | Plugin behind NAT/firewall |
+| **MQTT** (rules bus) | Plugin subscribes to broker | Cross-device events, Node-RED style |
+| **gRPC** | Platform → Plugin | High throughput, strict typing |
+
+Create an external plugin in **Settings → External Plugins**. The platform generates an API token + MQTT credentials (`extplg_…`). Write your plugin in Python, Go, Java, C++ — anything that speaks HTTP, MQTT, or gRPC. See [examples/plugins/](examples/plugins/) for working examples.
 
 ---
 
@@ -549,7 +556,7 @@ make build          # builds web UI + Go binary
 
 ### Cogitor VPS (`iot.cogitor.dev`)
 
-Production target is a **systemd** service (no Docker on the VPS). Infra: ansible in `devops/cogitor` (`iot.yml`). CI: [docs/deploy-vds.md](docs/deploy-vds.md) / `.gitea/workflows/deploy-vds.yml`.
+Production target is a **systemd** service (no Docker on the VPS). Infra: ansible in `devops/cogitor` (`iot.yml`). CI: [docs/12-deploy-vds.md](docs/12-deploy-vds.md) / `.gitea/workflows/deploy-vds.yml`.
 
 ```bash
 # on VPS (once)
@@ -564,7 +571,7 @@ Dashboard: `https://iot.cogitor.dev` · MQTT: `iot.cogitor.dev:1883` · MQTT WS:
 
 ### Docker (Synology / compose)
 
-See [docs/deploy-docker.md](docs/deploy-docker.md) / `.gitea/workflows/deploy-docker.yml`.
+See [docs/13-deploy-docker.md](docs/13-deploy-docker.md) / `.gitea/workflows/deploy-docker.yml`.
 
 ### Health Checks
 
@@ -630,20 +637,20 @@ See [docs/README_en.md](docs/README_en.md) for the full index.
 
 | Document | EN | RU |
 |----------|----|----|
-| Product Requirements (PRD) | [prd.md](docs/en/prd.md) | [prd.md](docs/ru/prd.md) |
-| REST API | [api.md](docs/en/api.md) | [api.md](docs/ru/api.md) |
-| Auth & Users | [auth.md](docs/en/auth.md) | [auth.md](docs/ru/auth.md) |
-| MQTT Protocol | [mqtt.md](docs/en/mqtt.md) | [mqtt.md](docs/ru/mqtt.md) |
-| MQTT over TLS | [mqtt-tls.md](docs/en/mqtt-tls.md) | [mqtt-tls.md](docs/ru/mqtt-tls.md) |
-| Automation / Node-RED | [automation.md](docs/en/automation.md) | [automation.md](docs/ru/automation.md) |
-| Device Plugins | [plugins.md](docs/en/plugins.md) | [plugins.md](docs/ru/plugins.md) |
-| External Plugin PRD | [plugins-prd.md](docs/en/plugins-prd.md) | [plugins-prd.md](docs/ru/plugins-prd.md) |
-| Product Schema | [product-schema.md](docs/en/product-schema.md) | [product-schema.md](docs/ru/product-schema.md) |
-| MCP (LLM Tools) | [mcp.md](docs/en/mcp.md) | [mcp.md](docs/ru/mcp.md) |
-| Operations | [operations.md](docs/en/operations.md) | [operations.md](docs/ru/operations.md) |
-| Deploy VDS | [deploy-vds.md](docs/en/deploy-vds.md) | [deploy-vds.md](docs/ru/deploy-vds.md) |
-| Deploy Docker | [deploy-docker.md](docs/en/deploy-docker.md) | [deploy-docker.md](docs/ru/deploy-docker.md) |
-| Diagrams | [diagrams.md](docs/en/diagrams.md) | [diagrams.md](docs/ru/diagrams.md) |
+| Product Requirements (PRD) | [01-prd.md](docs/en/01-prd.md) | [01-prd.md](docs/ru/01-prd.md) |
+| REST API | [02-api.md](docs/en/02-api.md) | [02-api.md](docs/ru/02-api.md) |
+| Auth & Users | [03-auth.md](docs/en/03-auth.md) | [03-auth.md](docs/ru/03-auth.md) |
+| MQTT Protocol | [04-mqtt.md](docs/en/04-mqtt.md) | [04-mqtt.md](docs/ru/04-mqtt.md) |
+| MQTT over TLS | [05-mqtt-tls.md](docs/en/05-mqtt-tls.md) | [05-mqtt-tls.md](docs/ru/05-mqtt-tls.md) |
+| Automation / Node-RED | [06-automation.md](docs/en/06-automation.md) | [06-automation.md](docs/ru/06-automation.md) |
+| Internal Plugins | [07-internal-plugins.md](docs/en/07-internal-plugins.md) | [07-internal-plugins.md](docs/ru/07-internal-plugins.md) |
+| External Plugins | [08-external-plugins.md](docs/en/08-external-plugins.md) | [08-external-plugins.md](docs/ru/08-external-plugins.md) |
+| Product Schema | [09-product-schema.md](docs/en/09-product-schema.md) | [09-product-schema.md](docs/ru/09-product-schema.md) |
+| MCP (LLM Tools) | [10-mcp.md](docs/en/10-mcp.md) | [10-mcp.md](docs/ru/10-mcp.md) |
+| Operations | [11-operations.md](docs/en/11-operations.md) | [11-operations.md](docs/ru/11-operations.md) |
+| Deploy VDS | [12-deploy-vds.md](docs/en/12-deploy-vds.md) | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) |
+| Deploy Docker | [13-deploy-docker.md](docs/en/13-deploy-docker.md) | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) |
+| Diagrams | [14-diagrams.md](docs/en/14-diagrams.md) | [14-diagrams.md](docs/ru/14-diagrams.md) |
 
 ---
 

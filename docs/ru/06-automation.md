@@ -49,7 +49,7 @@ RPC-команда (платформа выделяет device-facing `id`):
 
 Альтернативно — REST `POST /api/v1/devices/{id}/rpc` с Bearer-токеном.
 
-Для **поведения каждого устройства** (LED-гирлянда, расписание и т.п.) используйте [плагины устройств](plugins.md) вместо Node-RED-потока.
+Для **поведения каждого устройства** (LED-гирлянда, расписание и т.п.) используйте [плагины устройств](07-internal-plugins.md) вместо Node-RED-потока.
 
 ## MQTT-креды Node-RED
 
@@ -86,7 +86,7 @@ RPC-команда (платформа выделяет device-facing `id`):
 1. Дважды кликнуть по **MQTT Connection** → **Edit connection node**.
 2. Вкладки `Server` / `Security`:
    - **Server**: IP или hostname платформы (в docker-compose — `platform`), **Port**: `1883`
-   - TLS (опционально): **Port**: `8883`, включить *Enable TLS* — см. [mqtt-tls.md](mqtt-tls.md)
+   - TLS (опционально): **Port**: `8883`, включить *Enable TLS* — см. [05-mqtt-tls.md](05-mqtt-tls.md)
 3. Вкладка **Security**:
    - **User ID**: `MQTT User` из шага создания (`extplg_…`)
    - **Password**: `MQTT Password` из шага создания
