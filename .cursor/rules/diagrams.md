@@ -7,9 +7,9 @@ alwaysApply: true
 # Mermaid Diagram Style
 
 All Mermaid diagrams in `docs/` must follow these rules.
-The **Platform Architecture** diagram in `docs/diagrams.md` is the canonical reference — copy its style exactly.
+The **Platform Architecture** diagram in `docs/en/14-diagrams.md` (RU: `docs/ru/14-diagrams.md`) is the canonical reference — copy its style exactly.
 
-Full human-readable guide: `docs/diagram-style.md`.
+Full human-readable guide: `docs/en/15-diagram-style.md`.
 
 ## graph / flowchart
 
@@ -74,13 +74,13 @@ for every single message — only for phase transitions.
 
 ## Centralization
 
-All diagrams live in `docs/diagrams.md`. Source documents (`prd.md`,
-`plugins-prd.md`, `plugins.md`) contain:
+All diagrams live in `docs/{en,ru}/14-diagrams.md`. Source documents (`01-prd.md`,
+`07-internal-plugins.md`, `08-external-plugins.md`) contain:
 
-1. Link: `> **Diagram**: [Name](diagrams.md#anchor)`
+1. Link: `> **Diagram**: [Name](14-diagrams.md#anchor)`
 2. Full inline mermaid block (identical copy)
 
-**When updating a diagram, update BOTH copies.**
+**When updating a diagram, update ALL copies (EN + RU diagrams.md + source docs).**
 
 ## Checklist
 
@@ -90,4 +90,4 @@ Before committing:
 - [ ] Nested subgraphs with labels + distinct colors (platform diagrams)
 - [ ] Node labels have technical details in parentheses
 - [ ] Edge groups separated by `%%` comments
-- [ ] Diagram in both `diagrams.md` and source doc, identical
+- [ ] Diagram in both `14-diagrams.md` (EN + RU) and source doc, identical

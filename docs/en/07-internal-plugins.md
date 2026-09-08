@@ -1,27 +1,47 @@
 # Device plugins
 
-Per-device automations that live **in the platform process** (not Node-RED). Node-RED stays for **cross-device** rules on the MQTT rules bus. Plugins are **one device + one catalog type**: ingest the same events, call RPC back, UI panel on the device page.
+Per-device automations that live **in the platform process**. Not to be confused with Node-RED — that handles **cross-device** rules on the MQTT rules bus.
+
+A plugin is **one device + one catalog type**. It receives device events (status, telemetry, ticks), calls RPC back, and has a UI panel on the device page.
+
+Built-in plugins: `led-garland` (WS2812 strips) and `schedule` (RPC by clock time). Adding your own — one Go file + `init()`.
+
+Related: [External Plugins](08-external-plugins.md), [Automation](06-automation.md), [Product Schema](09-product-schema.md).
 
 ## Architecture
 
 > **Diagram**: [Internal Plugin Architecture](14-diagrams.md#internal-plugin-architecture)
 
 ```mermaid
-flowchart LR
-  Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
-  UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
-  Ing --> PR[publishRules]
-  PR --> Hub[PluginHub]
-  PR -.->|optional| NR[Node-RED]
-  API --> SQ[(device_plugin_bindings)]
-  API --> Hub
-  SQ --> Hub
-  Cat[Catalog Register init] --> Hub
-  Hub --> R[runner per binding]
-  R --> AC[ApplyConfig]
-  AC --> OE[OnEvent]
-  OE --> RPC[InvokeRPC]
+flowchart TB
+  subgraph Ingest["MQTT Ingest"]
+    Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
+  end
+
+  subgraph Core["Plugin Processing"]
+    Ing --> PR[publishRules]
+    PR --> Hub[PluginHub]
+    PR -.->|optional| NR[Node-RED]
+    Cat[Catalog<br/>Register init] --> Hub
+    Hub --> R[runner per binding]
+    R --> AC[ApplyConfig]
+    AC --> OE[OnEvent]
+    OE --> RPC[InvokeRPC]
+  end
+
+  subgraph Management["Dashboard"]
+    UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
+    API --> SQ[(device_plugin_bindings)]
+    API --> Hub
+    SQ --> Hub
+  end
+
+  %% Core → Device
   RPC --> Dev
+
+  style Ingest fill:#0f3460,stroke:#16213e,color:#eee
+  style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
+  style Management fill:#16213e,stroke:#1a1a2e,color:#eee
 ```
 
 | Piece | Where | Role |
@@ -283,114 +303,6 @@ Prefer pure helpers (like `LEDFrame`) without MQTT. Binding CRUD: `internal/serv
 
 ## External Plugins
 
-External plugins run as **separate processes** (any language) and communicate with the platform via four transport modes. They get the same per-device events as in-process plugins but without recompiling the Go binary.
-
-### Transport Modes
-
-| Mode | Direction | When to use |
-|------|-----------|-------------|
-| **Webhook** (HTTP push) | Platform → Plugin | Low latency, plugin has a public IP |
-| **Polling** (HTTP pull) | Plugin → Platform | Plugin behind NAT/firewall |
-| **MQTT** (rules bus) | Plugin subscribes to broker | Cross-device events, Node-RED style |
-| **gRPC** | Platform → Plugin | High throughput, strict typing |
-
-### Registration
-
-```
-POST /api/v1/plugins/external
-Authorization: Bearer <admin JWT>
-
-{
-  "id": "my-plugin",
-  "name": "My Plugin",
-  "description": "...",
-  "endpoint": "http://192.168.1.50:8080/rpc"   // webhook URL, or omit for polling
-}
-```
-
-Response includes API token **and** MQTT credentials:
-
-```json
-{
-  "ok": true,
-  "id": "my-plugin",
-  "token": "ext_plg_abc123…",
-  "mqtt_user": "extplg_my-plugin",
-  "mqtt_pass": "one-time-password…",
-  "mqtt_host": "192.168.1.22",
-  "mqtt_port": 1883,
-  "mqtt_ws": "ws://192.168.1.22:8083/",
-  "rules_bus": "platform/v1"
-}
-```
-
-### MQTT Mode
-
-Every registered external plugin can connect to the embedded MQTT broker using the credentials from registration. This is the simplest mode — no HTTP server or polling needed.
-
-**Connection:** Use `mqtt_user` / `mqtt_pass` from the registration response. Username format: `extplg_{plugin_id}`.
-
-**ACL (what the plugin can do over MQTT):**
-
-| Action | Topic pattern | Description |
-|--------|---------------|-------------|
-| Subscribe | `{rules_bus}/events/#` | All device events: telemetry, status, events, logs, OTA, attributes |
-| Publish | `{rules_bus}/commands/{product}/{device}/{cap}` | Send RPC, set attributes, trigger OTA |
-
-**Event topics** (subscribe):
-```
-platform/v1/events/{product_id}/{device_id}/telemetry
-platform/v1/events/{product_id}/{device_id}/status
-platform/v1/events/{product_id}/{device_id}/event
-platform/v1/events/{product_id}/{device_id}/log
-platform/v1/events/{product_id}/{device_id}/ota
-platform/v1/events/{product_id}/{device_id}/attributes/reported
-platform/v1/events/{product_id}/{device_id}/attributes/desired
-platform/v1/events/{product_id}/{device_id}/rpc/result
-```
-
-**Command topics** (publish):
-```
-platform/v1/commands/{product_id}/{device_id}/rpc
-platform/v1/commands/{product_id}/{device_id}/attributes/desired
-platform/v1/commands/{product_id}/{device_id}/ota
-```
-
-**Example: subscribe to all events (Python):**
-```python
-import paho.mqtt.client as mqtt
-
-def on_message(client, userdata, msg):
-    print(f"[{msg.topic}] {msg.payload.decode()}")
-
-client = mqtt.Client()
-client.username_pw_set("extplg_my-plugin", "one-time-password")
-client.connect("192.168.1.22", 1883)
-client.subscribe("platform/v1/events/#")
-client.on_message = on_message
-client.loop_forever()
-```
-
-**Example: send RPC command (publish):**
-```python
-import json
-client.publish(
-    "platform/v1/commands/esp32-cam/cam-001/rpc",
-    json.dumps({"method": "reboot", "params": {"delayMs": 1000}})
-)
-```
-
-**Advantages:** No HTTP endpoint needed; works behind NAT; sees all devices; can command any device.
-**Limitations:** No per-binding filtering; no tick events; no `plugin.apply_config` / `plugin.detach` notifications.
-
-### API
-
-| Method | Path |
-|--------|------|
-| POST | `/api/v1/plugins/external` | Register (admin JWT) |
-| GET | `/api/v1/plugins/external` | List plugins (auth) |
-| DELETE | `/api/v1/plugins/external/{id}` | Delete (admin) |
-| POST | `/api/v1/plugins/external/{id}/regenerate-mqtt` | Rotate MQTT password (admin) |
-| POST | `/api/plugins/external/rpc` | JSON-RPC endpoint (plugin token) |
+External plugins run as **separate processes** (any language) and communicate with the platform via four transport modes (Webhook, Polling, MQTT, gRPC). They get the same per-device events as in-process plugins but without recompiling the Go binary.
 
 See [08-external-plugins.md](08-external-plugins.md) for the full specification and [examples/plugins/](../../examples/plugins/) for code examples in Python, Go, Java, C++, and gRPC.

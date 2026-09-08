@@ -1,5 +1,11 @@
 # Diagrams
 
+Architecture diagrams and sequence flow diagrams. Rendered with Mermaid — works in GitHub, GitLab, Obsidian, and most Markdown viewers.
+
+Related docs: [01-PRD](01-prd.md), [07-internal-plugins](07-internal-plugins.md), [08-external-plugins](08-external-plugins.md).
+
+---
+
 ## Platform Architecture
 
 High-level system architecture of the Cogitor IoT Platform showing all
@@ -89,31 +95,31 @@ components and an out-of-process plugin communicating over HTTP/gRPC.
 graph TB
     subgraph Platform["IoT Platform (Go)"]
         subgraph Ingest[" "]
-            Bus["Шина устройств<br/>(MQTT ingest)"]
+            Bus["Device Bus<br/>(MQTT ingest)"]
             Hub["PluginHub<br/>(ticker, dispatch)"]
         end
 
         subgraph Support[" "]
             Reg["External Plugin<br/>Registry"]
-            Queue["Event Queue<br/>(для polling)"]
+            Queue["Event Queue<br/>(for polling)"]
             HB["Heartbeat<br/>Monitor"]
         end
 
-        HTTP["HTTP / gRPC клиент"]
+        HTTP["HTTP / gRPC client"]
     end
 
-    subgraph Plugin["Внешний плагин (любой язык)"]
+    subgraph Plugin["External Plugin (any language)"]
         subgraph Receivers[" "]
             EP["HTTP endpoint<br/>(webhook)"]
             Poll["Poller<br/>(polling)"]
             HBClient["Heartbeat Client"]
         end
 
-        Logic["Бизнес-логика плагина"]
+        Logic["Plugin Business Logic"]
     end
 
     %% Ingest pipeline
-    Bus -->|"MQTT события / tick"| Hub
+    Bus -->|"MQTT events / tick"| Hub
 
     %% Platform → Plugin (webhook)
     Hub -->|"webhook: POST"| HTTP
@@ -152,16 +158,16 @@ to an external plugin and back as an RPC command.
 
 ```mermaid
 sequenceDiagram
-    participant D as Устройство
-    participant P as Платформа
-    participant Pl as Плагин
+    participant D as Device
+    participant P as Platform
+    participant Pl as Plugin
 
     D->>P: MQTT telemetry
     P->>P: PluginHub.Dispatch(kind, payload)
     P->>Pl: POST plugin.on_event (JSON-RPC notification)
-    Pl->>Pl: обработка события
+    Pl->>Pl: process event
     Pl->>P: POST platform.invoke_rpc (JSON-RPC request)
-    P->>D: MQTT downlink (RPC команда)
+    P->>D: MQTT downlink (RPC command)
 ```
 
 ## External Plugin Tick Flow
@@ -172,11 +178,11 @@ The platform owns the timer; the plugin only reacts.
 ```mermaid
 sequenceDiagram
     participant Hub as PluginHub
-    participant Pl as Плагин
+    participant Pl as Plugin
 
-    loop каждые interval_ms
+    loop every interval_ms
         Hub->>Pl: POST plugin.on_event {kind: "tick"}
-        Pl->>Pl: обработка
+        Pl->>Pl: process
         Pl-->>Hub: HTTP 200
     end
 ```
@@ -188,17 +194,17 @@ within 90 seconds the plugin is marked offline and event delivery is paused.
 
 ```mermaid
 sequenceDiagram
-    participant Pl as Плагин
-    participant P as Платформа
+    participant Pl as Plugin
+    participant P as Platform
 
-    loop каждые 30 сек
+    loop every 30 sec
         Pl->>P: platform.heartbeat {status: "ok"}
         P-->>Pl: {ok: true, pending_events: 5}
     end
 
-    Note over Pl,P: Если нет heartbeat 90 сек → плагин offline
-    P->>P: помечает плагин offline
-    P->>P: приостанавливает доставку событий
+    Note over Pl,P: No heartbeat for 90 sec → plugin offline
+    P->>P: mark plugin offline
+    P->>P: pause event delivery
 ```
 
 ## External Plugin End-to-End Flow
@@ -208,19 +214,21 @@ config apply, telemetry ingest, threshold check, and RPC dispatch.
 
 ```mermaid
 sequenceDiagram
-    participant Pl as Плагин (Python)
-    participant P as Платформа
-    participant U as Пользователь (UI)
-    participant D as Устройство
+    participant Pl as Plugin (Python)
+    participant P as Platform
+    participant U as User (UI)
+    participant D as Device
 
-    Pl->>P: POST /register → получает token
-    U->>P: Привязать плагин к устройству
+    Note over U: Admin creates plugin in UI / API
+    U->>P: POST /api/v1/plugins/external → token + MQTT creds
+    U-->>Pl: pass credentials to plugin
+    U->>P: Bind plugin to device
     P->>Pl: plugin.apply_config {threshold_c: 30}
     D->>P: MQTT telemetry {temperature: 32.5}
     P->>Pl: plugin.on_event {kind: "telemetry", payload: {...}}
-    Pl->>Pl: 32.5 > 30 → нужно вызвать RPC
+    Pl->>Pl: 32.5 > 30 → need to call RPC
     Pl->>P: platform.invoke_rpc("set_fan", {on: true})
-    P->>D: MQTT downlink → RPC команда
+    P->>D: MQTT downlink → RPC command
 ```
 
 ## External Plugin Lifecycle
@@ -230,50 +238,51 @@ binding, device events, apply, offline detection, and detach.
 
 ```mermaid
 sequenceDiagram
-    participant Pl as Плагин
-    participant P as Платформа
-    participant U as Пользователь
-    participant D as Устройство
+    participant Pl as Plugin
+    participant P as Platform
+    participant U as User
+    participant D as Device
 
-    Note over Pl: Старт процесса
-    Pl->>P: POST /register
-    P-->>Pl: {ok: true, token: "..."}
+    Note over U: Admin creates plugin in UI
+    U->>P: POST /api/v1/plugins/external
+    P-->>U: {ok: true, token: "...", mqtt_user: "...", ...}
+    U-->>Pl: pass token + MQTT creds to plugin
 
-    loop каждые 30 сек
+    loop every 30 sec
         Pl->>P: platform.heartbeat
         P-->>Pl: {ok: true}
     end
 
-    Note over U: Привязка плагина к устройству
-    U->>P: Создать binding
+    Note over U: Bind plugin to device
+    U->>P: Create binding
     P->>Pl: plugin.apply_config
     Pl-->>P: HTTP 200
 
-    Note over D: Устройство подключается
+    Note over D: Device connects
     D->>P: MQTT status {online: true}
     P->>Pl: plugin.on_event {kind: "status", online: true}
 
-    Note over D: Телеметрия
+    Note over D: Telemetry
     D->>P: MQTT telemetry
     P->>Pl: plugin.on_event {kind: "telemetry"}
-    Pl->>P: platform.invoke_rpc (опционально)
+    Pl->>P: platform.invoke_rpc (optional)
 
-    Note over P: Тик (если auto=true)
+    Note over P: Tick (if auto=true)
     P->>Pl: plugin.on_event {kind: "tick"}
 
-    Note over U: Пользователь нажимает «Apply now»
-    U->>P: Обновить binding
+    Note over U: User presses "Apply now"
+    U->>P: Update binding
     P->>Pl: plugin.apply_config
     P->>Pl: plugin.on_event {kind: "apply"}
 
-    Note over Pl: Плагин остановлен
-    Pl->>P: (нет heartbeat 90 сек)
-    P->>P: помечает плагин offline
+    Note over Pl: Plugin stopped
+    Pl->>P: (no heartbeat for 90 sec)
+    P->>P: mark plugin offline
 
-    Note over U: Удаление binding
-    U->>P: Удалить binding
-    P->>Pl: plugin.detach (если online)
-    Pl->>Pl: Освобождение ресурсов
+    Note over U: Remove binding
+    U->>P: Delete binding
+    P->>Pl: plugin.detach (if online)
+    Pl->>Pl: Release resources
 ```
 
 ## Internal Plugin Architecture
@@ -282,21 +291,35 @@ In-process plugin architecture showing how device MQTT events flow through inges
 and PluginHub to per-binding runners, and how the dashboard manages bindings.
 
 ```mermaid
-flowchart LR
-  Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
-  UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
-  Ing --> PR[publishRules]
-  PR --> Hub[PluginHub]
-  PR -.->|optional| NR[Node-RED]
-  API --> SQ[(device_plugin_bindings)]
-  API --> Hub
-  SQ --> Hub
-  Cat[Catalog Register init] --> Hub
-  Hub --> R[runner per binding]
-  R --> AC[ApplyConfig]
-  AC --> OE[OnEvent]
-  OE --> RPC[InvokeRPC]
+flowchart TB
+  subgraph Ingest["MQTT Ingest"]
+    Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
+  end
+
+  subgraph Core["Plugin Processing"]
+    Ing --> PR[publishRules]
+    PR --> Hub[PluginHub]
+    PR -.->|optional| NR[Node-RED]
+    Cat[Catalog<br/>Register init] --> Hub
+    Hub --> R[runner per binding]
+    R --> AC[ApplyConfig]
+    AC --> OE[OnEvent]
+    OE --> RPC[InvokeRPC]
+  end
+
+  subgraph Management["Dashboard"]
+    UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
+    API --> SQ[(device_plugin_bindings)]
+    API --> Hub
+    SQ --> Hub
+  end
+
+  %% Core → Device
   RPC --> Dev
+
+  style Ingest fill:#0f3460,stroke:#16213e,color:#eee
+  style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
+  style Management fill:#16213e,stroke:#1a1a2e,color:#eee
 ```
 
 ## Internal Plugin Lifecycle

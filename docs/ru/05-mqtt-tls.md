@@ -1,7 +1,12 @@
 # MQTT over TLS
 
-MQTT TLS (mqtts) шифрует трафик между устройствами / клиентами и встроенным MQTT-брокером.
-Платформа поддерживает **серверный TLS** (стандартный) и **взаимный TLS** (проверка клиентского сертификата).
+По умолчанию MQTT-трафик между устройствами и платформой идёт **без шифрования** (порт 1883). Для production-развёртываний, особенно через публичные сети, необходимо включить TLS.
+
+Платформа поддерживает два режима:
+- **Серверный TLS** (стандартный) — шифрование трафика, устройство проверяет сертификат сервера
+- **Взаимный TLS** (mTLS) — дополнительно сервер проверяет сертификат каждого устройства
+
+---
 
 ## Быстрый старт
 
@@ -18,6 +23,10 @@ export MQTT_TLS_KEY=./certs/mqtt/key.pem
 ```
 
 TLS-слушатель запускается на `MQTT_TLS_ADDR` (по умолчанию `:8883`).
+
+Обычный MQTT (`:1883`) остаётся работать — устройства без TLS продолжают подключаться как раньше.
+
+---
 
 ## Конфигурация
 
@@ -49,6 +58,8 @@ mqtt:
   # tls_ca: "/etc/iot-platform-go/certs/ca.pem"   # раскомментировать для взаимного TLS
   broker_host_public: "192.168.1.22"
 ```
+
+---
 
 ## Генерация сертификатов
 
@@ -89,10 +100,60 @@ openssl x509 -req -in client.csr -CA ca.pem -CAkey ca-key.pem \
 rm client.csr ca.srl
 ```
 
-## Взаимный TLS
+---
 
-Когда `MQTT_TLS_CA` установлен, платформа требует от каждого MQTT-клиента предъявить действительный
-сертификат, подписанный этим CA. Полезно для deployments с высокими требованиями безопасности.
+## Подключение устройств
+
+Когда TLS включён, API учётных данных устройства (`GET /api/devices/{id}/credentials`) автоматически возвращает TLS-порт:
+
+```json
+{
+  "broker_port": 8883,
+  "provision": {
+    "cogitor": {
+      "host": "192.168.1.22",
+      "port": 8883,
+      "tls": true
+    }
+  }
+}
+```
+
+### ESP32 (стандартный TLS)
+
+```cpp
+#include <WiFiClientSecure.h>
+#include <MQTTClient.h>
+
+WiFiClientSecure net;
+MQTTClient client(2048);
+
+// Проверка серверного сертификата
+net.setCACert(ca_cert_pem);
+
+client.begin("192.168.1.22", 8883, net);
+client.connect("product.device", "product.device", token);
+```
+
+### ESP32 (взаимный TLS)
+
+```cpp
+// Дополнительно — клиентский сертификат + ключ
+net.setCACert(ca_cert_pem);
+net.setCertificate(client_cert_pem);
+net.setPrivateKey(client_key_pem);
+
+client.begin("192.168.1.22", 8883, net);
+client.connect("product.device", "product.device", token);
+```
+
+`ca_cert_pem` (и `client_cert_pem`, `client_key_pem` для mTLS) должны быть встроены в прошивку как C-строки или загружены из partition.
+
+---
+
+## Взаимный TLS (mTLS)
+
+Когда `MQTT_TLS_CA` установлен, платформа требует от каждого MQTT-клиента предъявить действительный сертификат, подписанный этим CA. Полезно для deployments, где токенов недостаточно.
 
 ```bash
 export MQTT_TLS_CERT=./certs/mqtt/cert.pem
@@ -102,13 +163,37 @@ export MQTT_TLS_CA=./certs/mqtt/ca.pem    # включает взаимный TL
 
 Устройства должны быть обеспечены `client.pem` + `client-key.pem`, встроенными в прошивку.
 
+---
+
+## Docker-развёртывание
+
+```bash
+# Положить сертификаты в deploy/certs/
+cp cert.pem key.pem deploy/certs/
+
+# Добавить в deploy/.env
+cat >> deploy/.env <<EOF
+MQTT_TLS_CERT=/etc/iot-platform-go/certs/cert.pem
+MQTT_TLS_KEY=/etc/iot-platform-go/certs/key.pem
+EOF
+
+docker compose up -d --build
+```
+
+`deploy/docker-compose.yml` монтирует `./certs` read-only в контейнер: `/etc/iot-platform-go/certs/`.
+
+Не забудьте открыть порт 8883 наружу, если устройства подключаются через TLS.
+
+---
+
 ## Сводка портов
 
-| Порт | Протокол | Шифрование | По умолчанию |
-|------|----------|-----------|-------------|
-| 1883 | MQTT TCP | нет | всегда включён |
-| 8083 | MQTT WebSocket | нет | включён по умолчанию |
-| 8883 | MQTT TCP + TLS | TLS 1.2+ | включён при настройке cert+key |
+| Порт | Протокол | Шифрование | Когда включён |
+|------|----------|-----------|---------------|
+| 1883 | MQTT TCP | нет | Всегда |
+| 8083 | MQTT WebSocket | нет | По умолчанию |
+| 8883 | MQTT TCP + TLS | TLS 1.2+ | При настройке cert+key |
 
-Обычный MQTT (`:1883`) остаётся доступным вместе с TLS. Устройства без поддержки TLS
-могут продолжать подключаться на обычный порт.
+Обычный MQTT (`:1883`) остаётся доступным вместе с TLS. Устройства без поддержки TLS могут продолжать подключаться на обычный порт.
+
+См. также: [04-mqtt.md](04-mqtt.md) — MQTT-протокол, [12-deploy-vds.md](12-deploy-vds.md) — TLS через nginx.

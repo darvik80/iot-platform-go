@@ -1,15 +1,37 @@
 # Эксплуатация
 
-## Конфигурационные файлы
+Руководство по запуску, конфигурации и обслуживанию платформы.
+
+---
+
+## Конфигурация
 
 Приоритет (первый непустой выигрывает): **OS env → `.env` → `./config.yml` → `/etc/iot-platform-go/config.yml`**.
 
-YAML: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. `.env` / compose: `PUBLIC_BASE_URL`, `HTTP_ADDR` (побеждают yaml). Полные примеры: `config.yml.example`, `.env.example`.
+YAML-ключи: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. Переменные окружения (`.env` / compose) переопределяют YAML.
 
-## Локальный запуск (разработка)
+Полные примеры: `config.yml.example`, `.env.example`.
+
+### Ключевые переменные
+
+| Переменная | По умолчанию | Назначение |
+|-----------|-------------|-----------|
+| `HTTP_ADDR` | `:8080` | HTTP-адрес (дашборд + API) |
+| `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
+| `SQLITE_PATH` | `./data/platform.db` | Файл базы данных SQLite |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL (OTA, email, OAuth) |
+| `JWT_SECRET` | dev-значение | Ключ подписи JWT — **сменить в production** |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Начальный администратор |
+| `TIMEZONE` | `UTC` | Часовая зона для расписаний и тихих часов |
+| `TELEMETRY_RETENTION_DAYS` | `30` | Автоочистка старых данных |
+| `LOG_LEVEL` | `info` | Уровень логов: `debug` \| `info` \| `warn` \| `error` |
+
+---
+
+## Локальный запуск
 
 ```bash
-# Терминал 1 — API + встроенный MQTT
+# Терминал 1 — платформа (API + MQTT)
 export SQLITE_PATH=./data/platform.db
 go run ./cmd/platform
 
@@ -17,62 +39,90 @@ go run ./cmd/platform
 cd deploy && docker compose up -d nodered
 ```
 
-Дашборд: http://localhost:8080
-MQTT: `mqtt://localhost:1883`
+- Дашборд: http://localhost:8080
+- MQTT: `mqtt://localhost:1883`
 
-Если ESP32 выдаёт `transport_read(): EOF` / `mqtt_message_receive() returned -2`, почти наверняка другой брокер уже занял `:1883` (RabbitMQ MQTT, Mosquitto, Windows WinNAT). Платформа теперь эксклюзивно биндится на IPv4 `0.0.0.0:1883` и откажется стартовать, если порт занят. Остановить другой слушатель или установить `MQTT_ADDR=:1884`.
+### Конфликт порта 1883
 
-## SQLite
+Если ESP32 выдаёт `transport_read(): EOF` / `mqtt_message_receive() returned -2` — другой процесс занял `:1883` (RabbitMQ, Mosquitto, Windows WinNAT). Платформа биндится на `0.0.0.0:1883` и откажется стартовать, если порт занят. Решение: остановить другой слушатель или установить `MQTT_ADDR=:1884`.
+
+---
+
+## База данных
+
+SQLite с режимом WAL (параллельное чтение при записи).
 
 - Путь: `SQLITE_PATH` (по умолчанию `./data/platform.db`)
-- Режим WAL включён
-- Ежечасная очистка телеметрии / событий / логов старше `TELEMETRY_RETENTION_DAYS`
+- Ежечасная очистка телеметрии, событий и логов старше `TELEMETRY_RETENTION_DAYS`
+- Миграции в `internal/db/migrations/` — автоприменение при старте
 
-Бэкап: остановить запись или использовать `sqlite3 .backup` на checkpointed-копии.
+**Бэкап**: остановить запись или использовать `sqlite3 .backup` на checkpointed-копии.
+
+---
 
 ## Здоровье
 
-- `GET /healthz` — процесс жив
-- `GET /readyz` — MQTT-слушатель готов
+| Эндпоинт | Назначение |
+|----------|-----------|
+| `GET /healthz` | Процесс жив (liveness probe) |
+| `GET /readyz` | MQTT-слушатель + DB готовы (readiness probe) |
 
-## OTA
+Оба доступны без авторизации — для Kubernetes / Docker healthcheck.
 
-1. На **OTA** загрузить `.bin` (продукт + версия). Платформа сохраняет в `{SQLITE_PATH dir}/firmware` (или `OTA_DIR`) и генерирует публичный URL `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`. ESP скачивает этот URL **без JWT**. Тот же продукт+модуль+версия заменяет образ. Альтернативно — зарегистрировать внешний HTTPS URL.
-2. **Notify product** — MQTT `v1/o/upd` каждому устройству продукта.
-3. **Notify device** — то же, одному устройству.
-4. Включить **Auto-OTA** на продукте (устройство может отключить). Новая прошивка + переподключение / отчёт версии — автоотправка.
-5. Прогресс устройства приходит на `v1/o/p`; задачи показывают статус на OTA-странице.
+---
+
+## OTA-обновления
+
+1. Загрузить `.bin` на странице **OTA** (или зарегистрировать внешний URL)
+2. Платформа сохраняет в `{SQLITE_PATH dir}/firmware` и генерирует публичный URL: `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`
+3. ESP скачивает прошивку **без JWT** по HTTP
+4. Уведомить устройство или весь продукт → MQTT `v1/o/upd`
+5. Включить **Auto-OTA** на продукте — автоотправка при переподключении
 
 `PUBLIC_BASE_URL` должен быть доступен с устройства (NAS/LAN IP, не `localhost`).
 
+---
+
 ## Часовая зона
 
-`TIMEZONE` (IANA, напр. `Asia/Bangkok`) в `.env` / `config.yml`. Используется расписанием и тихими часами LED. По умолчанию `UTC`. Плагин `config.tz` переопределяет для каждого устройства.
+`TIMEZONE` (IANA, напр. `Asia/Bangkok`) — для расписаний и тихих часов LED-гирлянды. По умолчанию `UTC`. Плагин может переопределить через `config.tz`.
 
-## Ротация токена
+---
 
-1. Оператор ротирует токен в UI/API.
-2. Новый хеш сохраняется; живая MQTT-сессия для `{product}.{device}` отключается.
-3. Прошивка устройства должна быть обновлена новым токеном.
+## Ротация токена устройства
+
+1. Оператор ротирует токен в UI или API
+2. Новый хеш сохраняется в SQLite; живая MQTT-сессия для `{product}.{device}` отключается
+3. Прошивка устройства должна быть обновлена новым токеном
+
+---
 
 ## Логирование
 
-Структурированные логи в **stdout** (`slog`). Docker: `docker compose logs -f platform` / `docker logs -f cogitor-platform`. HTTP access log (chi) идёт в stderr.
+Структурированные логи в **stdout** (`slog`):
 
-`LOG_LEVEL` (`debug` | `info` | `warn` | `error`, по умолчанию `info`). Телеметрия ingest — **debug**. Connect / ACL / RPC / OTA остаются info.
+- `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe` — info
+- `ingest` (кроме телеметрии), `command`, downlink `publish` — info
+- Телеметрия ingest — **debug**
+
+Docker: `docker compose logs -f platform`
 
 ```bash
-# compose
+# Включить debug-логи
 LOG_LEVEL=debug docker compose up -d
 docker compose logs -f platform
 ```
 
-Дашборд → **MQTT** показывает живые сессии и ленту событий брокера (`GET /api/v1/mqtt`).
+Дашборд → **MQTT** показывает живые сессии и ленту событий брокера.
 
-## Production-заметки
+---
 
-- Сменить `JWT_SECRET`, `ADMIN_PASSWORD`
-- Предпочитать MQTT TLS (front proxy / listener) и HTTPS перед `:8080`
-- Не экспортировать MQTT `:1883` в публичный интернет без auth + firewall
-- Если Synology (или другой хост) всё ещё держит RabbitMQ MQTT на `:1883`, остановить или привязать платформу к другому порту (`MQTT_ADDR`)
-- Включить Node-RED `adminAuth` в `deploy/nodered/settings.js`
+## Production-чеклист
+
+- [ ] Сменить `JWT_SECRET` на случайное значение
+- [ ] Сменить `ADMIN_PASSWORD`
+- [ ] Установить `PUBLIC_BASE_URL` на реальный хост (не `localhost`)
+- [ ] Включить MQTT TLS или reverse proxy с HTTPS
+- [ ] Не экспортировать MQTT `:1883` в публичный интернет без firewall
+- [ ] Включить `adminAuth` в Node-RED (`deploy/nodered/settings.js`)
+- [ ] Настроить бэкап SQLite

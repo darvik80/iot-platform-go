@@ -2,12 +2,23 @@
 
 ## 1. Overview
 
-External plugins extend IoT Platform logic without recompiling the Go binary.
+External plugins extend IoT Platform logic **without recompiling the Go binary**.
 They run as separate processes (any language) and communicate with the platform
 via **HTTP** (webhook/polling), **MQTT** (rules bus subscription), or **gRPC**.
 
 The external plugin contract mirrors the internal `plugins.Instance` —
 behavior is identical, only the transport changes.
+
+**When to use external plugins:**
+- Logic that should run independently of the platform process
+- Code in Python, Java, C++, or any language with HTTP/MQTT/gRPC
+- Cross-device rules that don't fit Node-RED
+- Integration with third-party services
+
+**When to use internal plugins instead:**
+- Simple per-device automation (LED effects, schedules)
+- Minimum latency (in-process, no network hop)
+- See [07-internal-plugins.md](07-internal-plugins.md)
 
 | Transport | Direction | When to use |
 |-----------|-----------|-------------|
@@ -1047,3 +1058,14 @@ sequenceDiagram
 - **`platform.set_attributes`**: allow plugins to set device desired attributes.
 - **`platform.get_device`**: allow plugins to query device state.
 - **Rate limiting**: 100 calls/sec per plugin token.
+
+---
+
+## Related documentation
+
+| Doc | What |
+|-----|------|
+| [07-internal-plugins.md](07-internal-plugins.md) | In-process device plugins |
+| [06-automation.md](06-automation.md) | Node-RED & rules bus |
+| [04-mqtt.md](04-mqtt.md) | MQTT protocol & topics |
+| [examples/plugins/](../../examples/plugins/) | Code examples (Python, Go, Java, C++, gRPC) |

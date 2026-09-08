@@ -1,89 +1,170 @@
-# MQTT-протокол (вид платформы)
+# MQTT-протокол
 
-Канонический контракт устройства: **протокол v1** (см. embed-framework `docs/iot-platform-mqtt-spec.md`).
-Go-имена: [`internal/protocol`](../internal/protocol/topics.go) (`UpTelemetry` / `ShortTelemetry`, downlink-и, шина правил).
+Платформа **встроена** в процесс и является MQTT-брокером ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Внешнего RabbitMQ нет.
 
-Платформа **является** MQTT-брокером ([mochi-mqtt](https://github.com/mochi-mqtt/server)). Устройства и Node-RED подключаются к `MQTT_ADDR` (по умолчанию `:1883`). Опционально MQTT-over-WebSocket на `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, подпротокол `mqtt`). Установить `MQTT_WS_ADDR=off` для отключения. MQTT-over-TLS на `MQTT_TLS_ADDR` (по умолчанию `:8883`) — см. [05-mqtt-tls.md](05-mqtt-tls.md). Внешнего RabbitMQ нет.
+### Подключение
 
-## Стили топиков
+| Параметр | Значение |
+|----------|----------|
+| TCP | `MQTT_ADDR` (по умолчанию `:1883`) |
+| WebSocket | `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, подпротокол `mqtt`). `MQTT_WS_ADDR=off` — отключить |
+| TLS | `MQTT_TLS_ADDR` (по умолчанию `:8883`) — см. [05-mqtt-tls.md](05-mqtt-tls.md) |
+| Username | `{product_id}.{device_id}` |
+| Password | access token (генерируется в дашборде) |
+| Client ID | произвольный, платформа определяет устройство по username |
 
-Стиль **определяется**, не настраивается. Платформа определяет его из Will / subscribe / publish (идентификатор сессии, аналог ThingsBoard `/me/`):
+После CONNECT платформа определяет устройство по username и проверяет токен (SHA-256 хранится в SQLite). ACL ограничен топиками этого устройства.
 
-| Префикс | Стиль |
-|---------|-------|
-| `iot/v1/{product}/{device}/…` | **полный** |
-| `v1/me/…` (алиас `v1/dev/me/…`) | **короткий** |
-| `v1/t`, `v1/r/req`, … | **короткий** |
+---
 
-Downlink использует последний определённый стиль. До первого MQTT-пакета downlink по умолчанию короткий.
+## Адресация
 
-**Полный**
+Каждое устройство идентифицируется парой **product_id / device_id**. Платформа поддерживает два формата топиков — **полный** и **короткий**. Устройство выбирает формат первым опубликованным пакетом; downlink отвечает в том же формате. До первого пакета от устройства downlink идёт в коротком формате.
+
+### Полный формат
+
+Топик явно содержит product_id и device_id. Используется, когда один клиент (например, Node-RED или шлюз) работает с разными устройствами.
 
 ```
 iot/v1/{product_id}/{device_id}/{up|down}/{capability}/{operation}
 ```
 
-**Короткий** (идентификатор из сессии: `client_id=username={product}.{device}`, `password=access_token`)
+Пример: `iot/v1/sensors/temp-01/up/telemetry/data`
 
-| Короткий | Направление | Полный |
-|----------|-------------|--------|
-| `v1/s` | up | `…/up/status` (только LWT) |
-| `v1/t` | up | `…/up/telemetry/data` |
-| `v1/e` | up | `…/up/events/post` |
-| `v1/a` | up | `…/up/attributes/report` |
-| `v1/a/req` | up | `…/up/attributes/request` |
-| `v1/a/res` | down | `…/down/attributes/response` |
-| `v1/a/upd` | down | `…/down/attributes/update` |
-| `v1/r/req` | down | `…/down/rpc/request` |
-| `v1/r/res` | up | `…/up/rpc/response` |
-| `v1/r/creq` | up | `…/up/rpc/request` |
-| `v1/r/cres` | down | `…/down/rpc/response` |
-| `v1/n/req` | up | `…/up/ntp/request` |
-| `v1/n/res` | down | `…/down/ntp/response` |
-| `v1/o/ver` | up | `…/up/ota/version` |
-| `v1/o/q` | up | `…/up/ota/query` |
-| `v1/o/upd` | down | `…/down/ota/update` (`url` обычно `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`) |
-| `v1/o/can` | down | `…/down/ota/cancel` |
-| `v1/o/p` | up | `…/up/ota/progress` |
-| `v1/l` | up | `…/up/logs/report` |
+### Короткий формат
 
-Корреляция: JSON-поле `"id"` (uint32). RPC успех: `"code": 0`.
+Топик не содержит идентификатор устройства — платформа определяет его по username из MQTT-сессии. Удобно для прошивки: не нужно знать свои product_id/device_id в каждом топике.
 
-Встроенный firmware RPC **`rpc-list`** (алиас `rpc_list`) возвращает каталог методов. Каждый параметр: `{ type, required, default? }` (`int` / `bool` / `string` / `number`). Дашборд вызывает его при онлайн-устройстве.
+```
+v1/{mnemonic}
+```
 
-## Присутствие
+Пример: `v1/t` — телеметрия от текущего устройства.
 
-- **Онлайн**: MQTT-сессия установлена (и первый принятый uplink).
-- **Офлайн**: отключение, или LWT на статус-топике (`online: false`, `reason: "lwt"`).
+Алиас `v1/me/{mnemonic}` эквивалентен `v1/{mnemonic}`.
 
-## Ingest платформы
+### Список топиков
 
-PUBLISH от не-inline клиентов обрабатывается в процессе:
+| Полный топик | Короткий | Направление | Назначение |
+|---|---|---|---|
+| `…/up/status` | `v1/s` | ↑ устройство | Статус (только LWT) |
+| `…/up/telemetry/data` | `v1/t` | ↑ устройство | Телеметрия |
+| `…/up/events/post` | `v1/e` | ↑ устройство | События |
+| `…/up/attributes/report` | `v1/a` | ↑ устройство | Атрибуты (отчёт) |
+| `…/up/attributes/request` | `v1/a/req` | ↑ устройство | Запрос атрибутов |
+| `…/down/attributes/response` | `v1/a/res` | ↓ платформа | Ответ на запрос атрибутов |
+| `…/down/attributes/update` | `v1/a/upd` | ↓ платформа | Обновление desired-атрибутов |
+| `…/down/rpc/request` | `v1/r/req` | ↓ платформа | RPC-вызов на устройство |
+| `…/up/rpc/response` | `v1/r/res` | ↑ устройство | Результат RPC |
+| `…/up/rpc/request` | `v1/r/creq` | ↑ устройство | RPC-вызов от устройства |
+| `…/down/rpc/response` | `v1/r/cres` | ↓ платформа | Ответ на RPC от устройства |
+| `…/up/ntp/request` | `v1/n/req` | ↑ устройство | Запрос времени (NTP) |
+| `…/down/ntp/response` | `v1/n/res` | ↓ платформа | Ответ времени |
+| `…/up/ota/version` | `v1/o/ver` | ↑ устройство | Текущая версия прошивки |
+| `…/up/ota/query` | `v1/o/q` | ↑ устройство | Запрос обновления |
+| `…/down/ota/update` | `v1/o/upd` | ↓ платформа | Команда обновления |
+| `…/down/ota/cancel` | `v1/o/can` | ↓ платформа | Отмена обновления |
+| `…/up/ota/progress` | `v1/o/p` | ↑ устройство | Прогресс обновления |
+| `…/up/logs/report` | `v1/l` | ↑ устройство | Логи устройства |
 
-- `iot/v1/{product}/{device}/up/#`
-- `v1/#`
-- `platform/v1/commands/#` (Node-RED → RPC / desired / OTA)
+Полный топик: `iot/v1/{product_id}/{device_id}/{up|down}/…`. В колонке «Полный топик» показано окончание после `up/` или `down/`.
 
-Сообщения коротких топиков атрибутируются по MQTT-username (`{product}.{device}`). Платформа републикует на шине правил через inline-клиент, и эти публикации **не** обрабатываются повторно.
+---
+
+## Что делает устройство
+
+### Телеметрия
+
+Публикация на `v1/t` (или `iot/v1/{p}/{d}/up/telemetry/data`):
+
+```json
+{"temperature": 23.5, "humidity": 60}
+```
+
+### Статус (LWT)
+
+При CONNECT устройство публикует на `v1/s` retained-сообщение:
+
+```json
+{"online": true}
+```
+
+В Last Will and Testament — `{"online": false, "reason": "lwt"}`. Платформа считает устройство офлайн при разрыве сессии или получении LWT.
+
+### Атрибуты
+
+- **Отчёт** (`v1/a`): устройство сообщает текущие атрибуты — `{"firmware": "1.2.3", "model": "A"}`
+- **Запрос** (`v1/a/req`): устройство запрашивает desired-атрибуты у платформы
+- **Обновление** (`v1/a/upd`, downlink): платформа отправляет желаемые атрибуты
+
+### RPC
+
+Платформа вызывает метод на устройстве:
+
+**Downlink** (`v1/r/req`):
+```json
+{"id": 1, "method": "reboot", "params": {"delay": 5}}
+```
+
+**Ответ устройства** (`v1/r/res`):
+```json
+{"id": 1, "code": 0, "data": {}}
+```
+
+`code: 0` — успех. Поле `id` связывает запрос и ответ.
+
+Устройство тоже может вызвать RPC на платформу через `v1/r/creq` (ответ придёт на `v1/r/cres`).
+
+Встроенный метод **`rpc-list`** (алиас `rpc_list`) возвращает каталог методов устройства. Каждый параметр: `{ type, required, default? }` (`int` / `bool` / `string` / `number`). Дашборд вызывает его автоматически при онлайн-устройстве.
+
+### OTA (обновление прошивки)
+
+1. Устройство публикует версию: `v1/o/ver` → `{"version": "1.2.3"}`
+2. Или запрашивает обновление: `v1/o/q`
+3. Платформа отвечает командой: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin"}`
+4. Устройство загружает прошивку и публикует прогресс: `v1/o/p` → `{"percent": 45}`
+5. Отмена: `v1/o/can`
+
+### События и логи
+
+- **Событие** (`v1/e`): произвольное событие от устройства
+- **Логи** (`v1/l`): лог-сообщения устройства
+
+### NTP
+
+Устройство запрашивает время: `v1/n/req` → платформа отвечает `v1/n/res` с текущим timestamp.
+
+---
+
+## Команды от внешних клиентов (Node-RED, плагины)
+
+Внешние клиенты публикуют в топик `platform/v1/commands/{product_id}/{device_id}/{kind}`:
+
+| Kind | Назначение |
+|------|------------|
+| `rpc` | RPC-вызов на устройство |
+| `attributes/desired` | Установить desired-атрибуты |
+| `ota` | Запустить OTA-обновление |
+
+Подписка на события: `platform/v1/events/#`
+
+---
 
 ## Авторизация устройств
 
-1. Дашборд создаёт устройство → генерирует токен → SHA-256 сохраняется.
-2. MQTT CONNECT: `username={product}.{device}`, `password=token`. ACL ограничен для этого устройства (`up`/`down` + `v1/#`).
-3. Ротация → новый хеш в SQLite; живая сессия для этого username отключается.
-4. Отключение / удаление → сессия отключена; авторизация не проходит при переподключении.
+1. Дашборд создаёт устройство → генерирует access token → SHA-256 сохраняется в SQLite
+2. MQTT CONNECT: `username={product}.{device}`, `password=token`
+3. Ротация токена → новый хеш в базе; активная сессия отключается
+4. Отключение / удаление устройства → сессия отключена, переподключение невозможно
 
 ## Мониторинг
 
-Страница **MQTT** в дашборде (`GET /api/v1/mqtt`): живые сессии (client id, username, remote IP, подписки) и in-memory лента событий (авторизация, connect/disconnect, ACL deny, ingest, publish).
+Страница **MQTT** в дашборде (`GET /api/v1/mqtt`): активные сессии (client id, username, IP, подписки) и лента событий (авторизация, connect/disconnect, ACL deny, ingest, publish).
 
-Stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (не телеметрия), `command`, downlink `publish`. Телеметрия ingest — Debug. Docker: `docker compose logs -f platform`.
+Логи в stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (кроме телеметрии), `command`, downlink `publish`. Телеметрия — Debug. Docker: `docker compose logs -f platform`.
 
 WebSocket-событие `mqtt` транслируется при connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 
-## Node-RED
+## Внешние клиенты (Node-RED, плагины)
 
-Node-RED подключается как **внешний плагин** (Дашборд → Settings → External Plugins). Создать плагин, взять сгенерированные `MQTT User` (`extplg_…`) и `MQTT Password`, и использовать в MQTT-нодах Node-RED:
-
-- подписка `platform/v1/events/#`
-- публикация `platform/v1/commands/#`
+Внешние клиенты работают через шину правил — топики `platform/v1/events/#` и `platform/v1/commands/#`. Настройка описана в [06-automation.md](06-automation.md).

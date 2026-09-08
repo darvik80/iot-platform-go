@@ -4,6 +4,10 @@
 > **Status**: Active  
 > **Last updated**: August 2026
 
+This document defines what the platform does, for whom, and why. It is the source of truth for feature scope and acceptance criteria.
+
+Related docs: [API](02-api.md), [Auth](03-auth.md), [MQTT](04-mqtt.md), [Automation](06-automation.md), [Operations](11-operations.md).
+
 ---
 
 ## 1. Vision
@@ -444,3 +448,20 @@ A device deployment is considered successful when:
 - [ ] Node-RED receives events on `platform/v1/events/...`
 - [ ] Auto-OTA pushes firmware to device on reconnect when enabled
 - [ ] MCP client can list devices and invoke RPC via `/mcp`
+
+---
+
+## Related documentation
+
+| Doc | What |
+|-----|------|
+| [02-api.md](02-api.md) | REST API reference |
+| [03-auth.md](03-auth.md) | Authentication & roles |
+| [04-mqtt.md](04-mqtt.md) | MQTT protocol & topics |
+| [05-mqtt-tls.md](05-mqtt-tls.md) | MQTT over TLS |
+| [06-automation.md](06-automation.md) | Node-RED & rules bus |
+| [07-internal-plugins.md](07-internal-plugins.md) | In-process device plugins |
+| [08-external-plugins.md](08-external-plugins.md) | Out-of-process plugins |
+| [09-product-schema.md](09-product-schema.md) | Product schema (RPC, telemetry, attributes) |
+| [10-mcp.md](10-mcp.md) | MCP (LLM integration) |
+| [11-operations.md](11-operations.md) | Deployment & configuration |

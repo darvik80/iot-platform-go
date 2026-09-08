@@ -1,8 +1,14 @@
-# Product schema (methods / metrics / attributes)
+# Product schema
 
-Each product stores JSON schemas used by the device UI.
+A product defines **what a device can do** — which RPC methods it supports, which telemetry metrics it sends, which attributes it stores. All devices of the same product share one schema.
 
-## Methods (RPC)
+The schema is stored as JSON within the product and used by the dashboard to render the device page UI.
+
+---
+
+## RPC methods
+
+Define commands that can be invoked on the device. Displayed as buttons on the device page.
 
 ```json
 [
@@ -17,9 +23,9 @@ Each product stores JSON schemas used by the device UI.
 ]
 ```
 
-Shown as buttons on the device page; click fills method/params and invokes RPC.
+### Built-in `rpc-list`
 
-Firmware always exposes built-in **`rpc-list`** (alias **`rpc_list`**). It cannot be registered in the SDK (`iot->rpc().add`) or added as a custom product method. The platform injects it into every product schema. When the device is online, the RPC console calls `rpc-list` and builds forms from the live catalog:
+Every device automatically provides the **`rpc-list`** method (alias `rpc_list`). The platform injects it into every product schema. When the device is online, the RPC console calls `rpc-list` and builds forms from the **live firmware catalog**:
 
 ```json
 [
@@ -46,7 +52,13 @@ Firmware always exposes built-in **`rpc-list`** (alias **`rpc_list`**). It canno
 ]
 ```
 
-## Metrics (telemetry)
+`rpc-list` cannot be registered manually or added as a custom method.
+
+---
+
+## Telemetry metrics
+
+Define how telemetry keys are displayed in the dashboard — labels, units, grouping.
 
 ```json
 [
@@ -61,13 +73,22 @@ Firmware always exposes built-in **`rpc-list`** (alias **`rpc_list`**). It canno
 ]
 ```
 
-`format`: `bytes` | `percent` | `duration` | `bool` | `rssi` | `number` | `text`
+| Field | Description |
+|-------|-------------|
+| `key` | Key name in telemetry JSON |
+| `label` | Display name |
+| `group` | Group for visual grouping |
+| `unit` | Measurement unit |
+| `format` | Display format: `bytes` \| `percent` \| `duration` \| `bool` \| `rssi` \| `number` \| `text` |
+| `description` | Description (optional) |
 
-New products get ESP defaults automatically (`rpc-list`, `reboot` + system metrics including DRAM/heap/PSRAM/storage). Firmware methods (LED, echo, …) come from live `rpc-list`, or can be added as custom product methods. Use **Reset to ESP presets** on the product page to restore predefined entries while keeping your custom methods/metrics.
+New products receive **ESP presets** automatically (`rpc-list`, `reboot` + system metrics: DRAM, heap, PSRAM, storage). **Reset to ESP presets** button on the product page restores these values.
 
-Methods support multiple parameters via the UI parameter rows (`+ Add parameter`).
+---
 
 ## Attributes
+
+Define fields for the attributes tab on the device page.
 
 ```json
 [
@@ -82,13 +103,20 @@ Methods support multiple parameters via the UI parameter rows (`+ Add parameter`
 ]
 ```
 
-`scope`: `reported` | `desired` | `both`
+| Field | Description |
+|-------|-------------|
+| `key` | Attribute name |
+| `scope` | `reported` (device reports) \| `desired` (platform sends) \| `both` |
+| `type` | Type: `number` \| `string` \| `bool` |
+| `writable` | Can be changed via UI |
+
+---
 
 ## API
 
-| Method | Path |
-|--------|------|
-| PUT | `/api/v1/products/{id}` — body may include `methods`, `metrics`, `attributes` |
-| POST | `/api/v1/products/{id}/esp-defaults` |
-| DELETE | `/api/v1/products/{id}` — fails if devices still exist |
-| GET | `/api/v1/devices/{id}` — includes `product` with schemas |
+| Method | Path | Description |
+|--------|------|-------------|
+| PUT | `/api/v1/products/{id}` | Update product; body may include `methods`, `metrics`, `attributes` |
+| POST | `/api/v1/products/{id}/esp-defaults` | Restore ESP presets |
+| DELETE | `/api/v1/products/{id}` | Delete product (error if devices exist) |
+| GET | `/api/v1/devices/{id}` | Includes `product` with schemas |

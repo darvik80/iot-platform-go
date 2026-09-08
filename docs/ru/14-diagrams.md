@@ -1,5 +1,11 @@
 # Диаграммы
 
+Архитектурные диаграммы и sequence-диаграммы потоков. Используют Mermaid — рендерятся в GitHub, GitLab, Obsidian и большинстве Markdown-просмотрщиков.
+
+Связанные доки: [01-PRD](01-prd.md), [07-внутренние плагины](07-internal-plugins.md), [08-внешние плагины](08-external-plugins.md).
+
+---
+
 ## Архитектура платформы
 
 Высокоуровневая архитектура Cogitor IoT Platform со всеми встроенными компонентами и внешними клиентами.
@@ -108,15 +114,28 @@ graph TB
         Logic["Бизнес-логика плагина"]
     end
 
+    %% Ingest pipeline
     Bus -->|"MQTT события / tick"| Hub
+
+    %% Platform → Plugin (webhook)
     Hub -->|"webhook: POST"| HTTP
     HTTP -->|"plugin.on_event"| EP
+
+    %% Polling
     Hub -->|"polling: queue"| Queue
     Poll -->|"poll_events"| HTTP
+
+    %% Plugin internal
     EP --> Logic
     Poll --> Logic
+
+    %% Plugin → Platform (RPC)
     Logic -->|"invoke_rpc"| HTTP
+
+    %% Registry
     Reg -.->|"endpoint URL"| HTTP
+
+    %% Heartbeat
     HBClient -->|"heartbeat"| HTTP
     HTTP --> HB
     HB -.->|"online/offline"| Reg
@@ -184,9 +203,10 @@ sequenceDiagram
     participant U as Пользователь
     participant D as Устройство
 
-    Note over Pl: Старт процесса
-    Pl->>P: POST /register
-    P-->>Pl: {ok: true, token: "..."}
+    Note over U: Админ создаёт плагин в UI
+    U->>P: POST /api/v1/plugins/external
+    P-->>U: {ok: true, token: "...", mqtt_user: "...", ...}
+    U-->>Pl: передаёт токен и MQTT-креды плагину
 
     loop каждые 30 сек
         Pl->>P: platform.heartbeat
@@ -228,21 +248,35 @@ sequenceDiagram
 ## Архитектура внутренних плагинов
 
 ```mermaid
-flowchart LR
-  Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
-  UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
-  Ing --> PR[publishRules]
-  PR --> Hub[PluginHub]
-  PR -.->|optional| NR[Node-RED]
-  API --> SQ[(device_plugin_bindings)]
-  API --> Hub
-  SQ --> Hub
-  Cat[Catalog Register init] --> Hub
-  Hub --> R[runner per binding]
-  R --> AC[ApplyConfig]
-  AC --> OE[OnEvent]
-  OE --> RPC[InvokeRPC]
+flowchart TB
+  subgraph Ingest["MQTT Ingest"]
+    Dev[Device MQTT] -->|status / telemetry / rpc result| Ing[ingest]
+  end
+
+  subgraph Core["Plugin Processing"]
+    Ing --> PR[publishRules]
+    PR --> Hub[PluginHub]
+    PR -.->|optional| NR[Node-RED]
+    Cat[Catalog<br/>Register init] --> Hub
+    Hub --> R[runner per binding]
+    R --> AC[ApplyConfig]
+    AC --> OE[OnEvent]
+    OE --> RPC[InvokeRPC]
+  end
+
+  subgraph Management["Dashboard"]
+    UI[Dashboard Plugins] -->|Save / Apply now| API["REST /devices/id/plugins"]
+    API --> SQ[(device_plugin_bindings)]
+    API --> Hub
+    SQ --> Hub
+  end
+
+  %% Core → Device
   RPC --> Dev
+
+  style Ingest fill:#0f3460,stroke:#16213e,color:#eee
+  style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
+  style Management fill:#16213e,stroke:#1a1a2e,color:#eee
 ```
 
 ## Жизненный цикл внутреннего плагина

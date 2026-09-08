@@ -1,15 +1,37 @@
 # Operations
 
-## Config files
+Guide for running, configuring, and maintaining the platform.
+
+---
+
+## Configuration
 
 Priority (first non-empty wins): **OS env → `.env` → `./config.yml` → `/etc/iot-platform-go/config.yml`**.
 
-YAML: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. `.env` / compose: `PUBLIC_BASE_URL`, `HTTP_ADDR` (win over yaml). Full examples: `config.yml.example`, `.env.example`.
+YAML keys: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. Environment variables (`.env` / compose) override YAML.
 
-## Run locally (dev)
+Full examples: `config.yml.example`, `.env.example`.
+
+### Key variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HTTP_ADDR` | `:8080` | HTTP listen address (dashboard + API) |
+| `MQTT_ADDR` | `:1883` | MQTT TCP listener |
+| `SQLITE_PATH` | `./data/platform.db` | SQLite database file |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL (OTA, email, OAuth) |
+| `JWT_SECRET` | dev default | JWT signing key — **change in production** |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin |
+| `TIMEZONE` | `UTC` | Timezone for schedules and quiet hours |
+| `TELEMETRY_RETENTION_DAYS` | `30` | Auto-cleanup of old data |
+| `LOG_LEVEL` | `info` | Log level: `debug` \| `info` \| `warn` \| `error` |
+
+---
+
+## Local run
 
 ```bash
-# Terminal 1 — API + embedded MQTT
+# Terminal 1 — platform (API + MQTT)
 export SQLITE_PATH=./data/platform.db
 go run ./cmd/platform
 
@@ -17,62 +39,90 @@ go run ./cmd/platform
 cd deploy && docker compose up -d nodered
 ```
 
-Dashboard: http://localhost:8080  
-MQTT: `mqtt://localhost:1883`
+- Dashboard: http://localhost:8080
+- MQTT: `mqtt://localhost:1883`
 
-If ESP32 fails with `transport_read(): EOF` / `mqtt_message_receive() returned -2`, another broker almost always already owns `:1883` (RabbitMQ MQTT, Mosquitto, Windows WinNAT). On Windows Go used to share the port (`SO_REUSEADDR`); the platform now binds **exclusively** on IPv4 `0.0.0.0:1883` and will refuse to start if the port is taken. Stop the other listener or set `MQTT_ADDR=:1884` (and the same port in firmware).
+### Port 1883 conflict
 
-## SQLite
+If ESP32 gets `transport_read(): EOF` / `mqtt_message_receive() returned -2` — another process occupies `:1883` (RabbitMQ, Mosquitto, Windows WinNAT). Platform binds to `0.0.0.0:1883` and refuses to start if port is busy. Fix: stop the other listener or set `MQTT_ADDR=:1884`.
+
+---
+
+## Database
+
+SQLite with WAL mode (concurrent reads during ingest).
 
 - Path: `SQLITE_PATH` (default `./data/platform.db`)
-- WAL mode enabled
-- Hourly retention deletes telemetry / events / logs older than `TELEMETRY_RETENTION_DAYS`
+- Hourly cleanup of telemetry, events, and logs older than `TELEMETRY_RETENTION_DAYS`
+- Migrations in `internal/db/migrations/` — auto-applied at startup
 
-Backup: stop writes or use `sqlite3 .backup` against a checkpointed copy.
+**Backup**: stop writes or use `sqlite3 .backup` on a checkpointed copy.
+
+---
 
 ## Health
 
-- `GET /healthz` — process up
-- `GET /readyz` — embedded MQTT listener up
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /healthz` | Process is alive (liveness probe) |
+| `GET /readyz` | MQTT listener + DB ready (readiness probe) |
 
-## OTA
+Both are unauthenticated — for Kubernetes / Docker healthcheck.
 
-1. On **OTA**, upload a `.bin` (product + version). Platform stores it under `{SQLITE_PATH dir}/firmware` (or `OTA_DIR`) and generates a public URL `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`. ESP downloads that URL **without JWT**. Same product+module+version replaces the image (new token/URL). Alternatively register an external HTTPS URL.
-2. **Notify product** — MQTT `v1/o/upd` / `…/down/ota/update` to every device of that product (`url` + `sha256` + `size`).
-3. **Notify device** — same, one device (also on the device page).
-4. Enable **Auto-OTA** on the product (device can opt out). New firmware + reconnect / version report push automatically.
-5. Device progress arrives on `v1/o/p`; jobs show status/step on the OTA page.
+---
+
+## OTA firmware updates
+
+1. Upload `.bin` on the **OTA** page (or register an external URL)
+2. Platform stores in `{SQLITE_PATH dir}/firmware` and generates a public URL: `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`
+3. ESP downloads firmware **without JWT** via HTTP
+4. Notify device or whole product → MQTT `v1/o/upd`
+5. Enable **Auto-OTA** on the product — auto-push on reconnect
 
 `PUBLIC_BASE_URL` must be reachable from the device (NAS/LAN IP, not `localhost`).
 
+---
+
 ## Timezone
 
-`TIMEZONE` (IANA, e.g. `Asia/Bangkok`) in `.env` / `config.yml`. Used by schedule and LED quiet hours / night-light. Default `UTC`. Plugin `config.tz` overrides per device. Shown on Settings.
+`TIMEZONE` (IANA, e.g. `Asia/Bangkok`) — for schedules and LED garland quiet hours. Default `UTC`. A plugin can override via `config.tz`.
 
-## Token rotation
+---
 
-1. Operator rotates token in UI/API.
-2. New hash is stored; the live MQTT session for `{product}.{device}` is disconnected.
-3. Device firmware must be updated with the new token.
+## Device token rotation
+
+1. Operator rotates token in UI or API
+2. New hash stored in SQLite; live MQTT session for `{product}.{device}` is disconnected
+3. Device firmware must be updated with the new token
+
+---
 
 ## Logging
 
-Structured logs to **stdout** (`slog`). Docker: `docker compose logs -f platform` / `docker logs -f cogitor-platform` (stdout+stderr). HTTP access log (chi) goes to stderr — same `docker logs`.
+Structured logs to **stdout** (`slog`):
 
-`LOG_LEVEL` (`debug` | `info` | `warn` | `error`, default `info`). MQTT telemetry ingest is **debug**. Connect / ACL / RPC / OTA stay info.
+- `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe` — info
+- `ingest` (except telemetry), `command`, downlink `publish` — info
+- Telemetry ingest — **debug**
+
+Docker: `docker compose logs -f platform`
 
 ```bash
-# compose
+# Enable debug logs
 LOG_LEVEL=debug docker compose up -d
 docker compose logs -f platform
 ```
 
-Dashboard → **MQTT** shows live sessions and a recent broker event trail (`GET /api/v1/mqtt`).
+Dashboard → **MQTT** shows live sessions and broker event trail.
 
-## Production notes
+---
 
-- Change `JWT_SECRET`, `ADMIN_PASSWORD`
-- Prefer MQTT TLS (front proxy / listener) and HTTPS in front of `:8080`
-- Do not expose MQTT `:1883` to the public internet without auth + firewall
-- If Synology (or another host) still runs RabbitMQ MQTT on `:1883`, stop it or bind the platform to another port (`MQTT_ADDR`)
-- Enable Node-RED `adminAuth` in `deploy/nodered/settings.js`
+## Production checklist
+
+- [ ] Change `JWT_SECRET` to a random value
+- [ ] Change `ADMIN_PASSWORD`
+- [ ] Set `PUBLIC_BASE_URL` to the real host (not `localhost`)
+- [ ] Enable MQTT TLS or reverse proxy with HTTPS
+- [ ] Don't expose MQTT `:1883` to public internet without firewall
+- [ ] Enable `adminAuth` in Node-RED (`deploy/nodered/settings.js`)
+- [ ] Set up SQLite backup

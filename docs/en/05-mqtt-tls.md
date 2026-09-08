@@ -1,7 +1,12 @@
 # MQTT over TLS
 
-MQTT TLS (mqtts) encrypts traffic between devices / clients and the embedded MQTT broker.
-The platform supports both **server-side TLS** (standard) and **mutual TLS** (client certificate verification).
+By default, MQTT traffic between devices and the platform is **unencrypted** (port 1883). For production deployments — especially over public networks — TLS should be enabled.
+
+The platform supports two modes:
+- **Server-side TLS** (standard) — encrypts traffic, device verifies the server certificate
+- **Mutual TLS** (mTLS) — server additionally verifies each device's certificate
+
+---
 
 ## Quick start
 
@@ -18,6 +23,10 @@ export MQTT_TLS_KEY=./certs/mqtt/key.pem
 ```
 
 The TLS listener starts on `MQTT_TLS_ADDR` (default `:8883`).
+
+Plain MQTT (`:1883`) remains available — devices without TLS continue connecting as before.
+
+---
 
 ## Configuration
 
@@ -49,6 +58,8 @@ mqtt:
   # tls_ca: "/etc/iot-platform-go/certs/ca.pem"   # uncomment for mutual TLS
   broker_host_public: "192.168.1.22"
 ```
+
+---
 
 ## Certificate generation
 
@@ -89,24 +100,12 @@ openssl x509 -req -in client.csr -CA ca.pem -CAkey ca-key.pem \
 rm client.csr ca.srl
 ```
 
-## Mutual TLS
-
-When `MQTT_TLS_CA` is set, the platform requires every MQTT client to present a valid
-certificate signed by that CA. This is useful for high-security deployments where
-token-based auth alone is not sufficient.
-
-```bash
-export MQTT_TLS_CERT=./certs/mqtt/cert.pem
-export MQTT_TLS_KEY=./certs/mqtt/key.pem
-export MQTT_TLS_CA=./certs/mqtt/ca.pem    # enables mutual TLS
-```
-
-Devices must be provisioned with `client.pem` + `client-key.pem` embedded in firmware.
+---
 
 ## Device provisioning
 
 When TLS is enabled, the device credentials API (`GET /api/devices/{id}/credentials`)
-automatically returns:
+automatically returns the TLS port:
 
 ```json
 {
@@ -121,7 +120,7 @@ automatically returns:
 }
 ```
 
-### ESP32 firmware
+### ESP32 (standard TLS)
 
 ```cpp
 #include <WiFiClientSecure.h>
@@ -130,19 +129,44 @@ automatically returns:
 WiFiClientSecure net;
 MQTTClient client(2048);
 
-// Server CA verification (standard TLS)
+// Server CA verification
 net.setCACert(ca_cert_pem);
-
-// For mutual TLS — also set client cert + key
-// net.setCertificate(client_cert_pem);
-// net.setPrivateKey(client_key_pem);
 
 client.begin("192.168.1.22", 8883, net);
 client.connect("product.device", "product.device", token);
 ```
 
-The `ca_cert_pem` (and optionally `client_cert_pem`, `client_key_pem`) must be embedded
+### ESP32 (mutual TLS)
+
+```cpp
+// Additionally — client cert + key
+net.setCACert(ca_cert_pem);
+net.setCertificate(client_cert_pem);
+net.setPrivateKey(client_key_pem);
+
+client.begin("192.168.1.22", 8883, net);
+client.connect("product.device", "product.device", token);
+```
+
+The `ca_cert_pem` (and `client_cert_pem`, `client_key_pem` for mTLS) must be embedded
 in the firmware as C strings or loaded from a partition.
+
+---
+
+## Mutual TLS
+
+When `MQTT_TLS_CA` is set, the platform requires every MQTT client to present a valid
+certificate signed by that CA. Useful for deployments where token-based auth alone is not sufficient.
+
+```bash
+export MQTT_TLS_CERT=./certs/mqtt/cert.pem
+export MQTT_TLS_KEY=./certs/mqtt/key.pem
+export MQTT_TLS_CA=./certs/mqtt/ca.pem    # enables mutual TLS
+```
+
+Devices must be provisioned with `client.pem` + `client-key.pem` embedded in firmware.
+
+---
 
 ## Docker deployment
 
@@ -162,13 +186,19 @@ docker compose up -d --build
 The `deploy/docker-compose.yml` mounts `./certs` read-only into the container at
 `/etc/iot-platform-go/certs/`.
 
+Don't forget to expose port 8883 if devices connect over TLS.
+
+---
+
 ## Ports summary
 
-| Port | Protocol | Encryption | Default |
-|------|----------|------------|---------|
-| 1883 | MQTT TCP | none | always on |
-| 8083 | MQTT WebSocket | none | on by default |
-| 8883 | MQTT TCP + TLS | TLS 1.2+ | on when cert+key configured |
+| Port | Protocol | Encryption | When enabled |
+|------|----------|------------|--------------|
+| 1883 | MQTT TCP | none | Always |
+| 8083 | MQTT WebSocket | none | On by default |
+| 8883 | MQTT TCP + TLS | TLS 1.2+ | When cert+key configured |
 
 Plain MQTT (`:1883`) remains available alongside TLS. Devices that do not support TLS
 can continue connecting on the plain port.
+
+See also: [04-mqtt.md](04-mqtt.md) — MQTT protocol, [12-deploy-vds.md](12-deploy-vds.md) — TLS via nginx.

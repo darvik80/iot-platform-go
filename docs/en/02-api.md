@@ -1,14 +1,16 @@
-# REST API (`/api/v1`)
+# REST API
 
-Auth: `Authorization: Bearer <jwt>` after `POST /auth/login`, or a personal API token.
+All endpoints on `/api/v1`. Auth: `Authorization: Bearer <JWT>` or `Bearer <API token>`.
 
-WebSocket: `GET /api/v1/ws?token=<jwt>` — JSON messages `{ "event", "data" }`.
+WebSocket for real-time updates: `GET /api/v1/ws?token=<jwt>` — JSON messages `{ "event", "data" }`.
 
-## Auth
+---
+
+## Authentication
 
 ### `GET /auth/config`
 
-Public flags: `register_enabled`, `require_email_verify`, `google_enabled`.
+Public. Returns flags: `register_enabled`, `require_email_verify`, `google_enabled`.
 
 ### `POST /auth/register`
 
@@ -16,29 +18,39 @@ Public flags: `register_enabled`, `require_email_verify`, `google_enabled`.
 { "login": "jdoe", "email": "jdoe@example.com", "password": "secret123", "display_name": "Jane" }
 ```
 
+Login: `^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`. Default role: `REGISTER_DEFAULT_ROLE` (usually `viewer`).
+
 ### `POST /auth/login`
 
 ```json
 { "email": "admin@cogitor.local", "password": "admin" }
 ```
 
-`email` accepts login **or** email. See [03-auth.md](03-auth.md) for Google OAuth and verification.
+The `email` field accepts **login or email**. Returns `{ "token": "<jwt>" }`.
+
+Details: [03-auth.md](03-auth.md).
 
 ### `GET /me`
 
-Current user.
+Current user (profile, role).
+
+---
 
 ## Overview & health
 
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/healthz` | liveness (no auth) |
-| GET | `/readyz` | DB + embedded MQTT ready (no auth); includes `mqtt_clients` |
-| GET | `/overview` | online/offline counts, MQTT flag + client count |
-| GET | `/mqtt` | live MQTT sessions + recent broker events |
-| GET | `/settings` | retention, broker host, Node-RED URL, timezone |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/healthz` | Liveness — process is alive (no auth) |
+| GET | `/readyz` | Readiness — DB + MQTT ready (no auth); includes `mqtt_clients` |
+| GET | `/overview` | Online/offline counts, MQTT status, client count |
+| GET | `/mqtt` | Live MQTT sessions + recent broker events |
+| GET | `/settings` | Retention, broker host, Node-RED URL, timezone |
+
+---
 
 ## Products
+
+A product is a device archetype. Defines RPC methods, telemetry metrics, and attributes for all devices of this type.
 
 | Method | Path |
 |--------|------|
@@ -48,6 +60,8 @@ Current user.
 | PUT | `/products/{id}` |
 | DELETE | `/products/{id}` |
 
+Request body:
+
 ```json
 {
   "product_id": "esp32-cam",
@@ -56,30 +70,35 @@ Current user.
 }
 ```
 
+Product schema details (methods, metrics, attributes): [09-product-schema.md](09-product-schema.md).
+
+---
+
 ## Devices
 
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/devices?product_id=&status=&q=` | list |
-| POST | `/devices` | returns `credentials` **once**. Topic style is detected from MQTT (`v1/…` / `v1/me/…` → short, `iot/v1/…` → full). |
-| GET | `/devices/{id}` | detail + attrs + latest telemetry |
-| PUT | `/devices/{id}` | metadata |
-| DELETE | `/devices/{id}` | |
-| POST | `/devices/{id}/token/rotate` | new credentials once |
-| POST | `/devices/{id}/enable` | |
-| POST | `/devices/{id}/disable` | |
-| GET | `/plugins` | builtin plugin catalog |
-| GET | `/devices/{id}/plugins` | bindings for this device |
-| POST | `/devices/{id}/plugins` | `{ "plugin_id", "config"?, "enabled"? }` |
-| PUT | `/devices/{id}/plugins/{bindingId}` | update config / enabled |
-| DELETE | `/devices/{id}/plugins/{bindingId}` | |
-| POST | `/devices/{id}/plugins/{bindingId}/apply` | run one plugin frame now |
+### CRUD
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/devices?product_id=&status=&q=` | List with filtering |
+| POST | `/devices` | Create. Returns `credentials` **once** |
+| GET | `/devices/{id}` | Detail + attributes + latest telemetry |
+| PUT | `/devices/{id}` | Update metadata |
+| DELETE | `/devices/{id}` | Delete |
+
+### State management
+
+| Method | Path |
+|--------|------|
+| POST | `/devices/{id}/token/rotate` | Rotate token; returns new credentials **once**. Old MQTT session is disconnected |
+| POST | `/devices/{id}/enable` | Enable device |
+| POST | `/devices/{id}/disable` | Disable; MQTT session is dropped |
 
 ### Create response
 
 ```json
 {
-  "device": { "id": 1, "product_id": "esp32-cam", "device_id": "cam-001", "status": "offline", "...": "..." },
+  "device": { "id": 1, "product_id": "esp32-cam", "device_id": "cam-001", "status": "offline" },
   "credentials": {
     "product_id": "esp32-cam",
     "device_id": "cam-001",
@@ -89,7 +108,6 @@ Current user.
     "broker_host": "localhost",
     "broker_port": 1883,
     "topic_style": "auto",
-    "snippet": "CogitorCredentials::createAccessToken(...);",
     "provision": {
       "wifi": { "ssid": "", "password": "" },
       "cogitor": {
@@ -104,22 +122,41 @@ Current user.
     }
   }
 }
-
-Dashboard create/rotate modal can fill `wifi` and **Copy JSON** / download `{product}-{device}.json` for firmware provisioning. Wi‑Fi is not stored on the platform.
 ```
+
+Dashboard shows a modal with these credentials on create/rotate. Wi-Fi is not stored on the platform — only passed to firmware.
+
+### Device plugins
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/plugins` | Builtin plugin catalog |
+| GET | `/devices/{id}/plugins` | Bindings for the device |
+| POST | `/devices/{id}/plugins` | Create binding: `{ "plugin_id", "config"?, "enabled"? }` |
+| PUT | `/devices/{id}/plugins/{bindingId}` | Update config / enabled |
+| DELETE | `/devices/{id}/plugins/{bindingId}` | Delete binding |
+| POST | `/devices/{id}/plugins/{bindingId}/apply` | Run one plugin frame now (device must be online) |
+
+Details: [07-internal-plugins.md](07-internal-plugins.md).
+
+---
 
 ## Telemetry & attributes
 
 | Method | Path |
 |--------|------|
-| GET | `/devices/{id}/telemetry?keys=a,b&from=&to=&limit=` |
-| GET | `/devices/{id}/telemetry/latest` |
-| GET | `/devices/{id}/attributes` |
-| PATCH | `/devices/{id}/attributes/desired` |
+| GET | `/devices/{id}/telemetry?keys=a,b&from=&to=&limit=` | Historical telemetry |
+| GET | `/devices/{id}/telemetry/latest` | Latest samples |
+| GET | `/devices/{id}/attributes` | Reported + desired attributes |
+| PATCH | `/devices/{id}/attributes/desired` | Set desired attributes |
 
-Desired body is a flat JSON object; platform persists and publishes `attributes/update`.
+PATCH body is a flat JSON object. Platform persists and publishes `attributes/update` to the device via MQTT.
+
+---
 
 ## RPC
+
+### Invoke method
 
 `POST /devices/{id}/rpc?wait=1`
 
@@ -127,33 +164,78 @@ Desired body is a flat JSON object; platform persists and publishes `attributes/
 { "method": "reboot", "params": { "delayMs": 1000 }, "timeout_ms": 30000 }
 ```
 
-`GET /devices/{id}/rpc` — history.
+`wait=1` — wait for device response. Without `wait` — fire-and-forget.
 
-## Events / logs / OTA
+### History
+
+`GET /devices/{id}/rpc` — previous RPC calls.
+
+---
+
+## Events & logs
 
 | Method | Path |
 |--------|------|
-| GET | `/events?device_id=&severity=&from=&to=&limit=` |
-| GET | `/logs?device_id=&level=&from=&to=&limit=` |
-| GET | `/ota/firmwares?product_id=` |
-| POST | `/ota/firmwares` | register an **external** URL `{ product_id, version, url, sha256?, size?, module? }` |
-| POST | `/ota/firmwares/upload` | multipart: `file` + `product_id` + `version` + optional `module` / `sha256` / `sign` — stores the image and returns a public download URL. Same product+module+version **replaces** the previous image |
-| DELETE | `/ota/firmwares/{id}` | remove image, hosted file, and OTA jobs for that firmware |
-| POST | `/ota/firmwares/{id}/notify` | `{ "device_id"?: pk, "force"?: bool }` — omit `device_id` to notify the whole product |
-| POST | `/devices/{id}/ota` | `{ "firmware_id": 1, "force"?: false }` |
-| POST | `/devices/{id}/ota/cancel` |
-| GET | `/ota/jobs?device_id=` |
+| GET | `/events?device_id=&severity=&from=&to=&limit=` | Device events |
+| GET | `/logs?device_id=&level=&from=&to=&limit=` | Device log messages |
 
-Public (no JWT — ESP HTTP GET): `GET /ota/fw/{token}.bin` — hosted firmware download. URL is `{PUBLIC_BASE_URL}/ota/fw/{token}.bin` and is what MQTT `v1/o/upd` sends as `url`. Set `PUBLIC_BASE_URL` to a host the device can reach (LAN IP, not `localhost`). Images live under `OTA_DIR` or `{sqlite dir}/firmware`. Max upload 32MB.
+---
 
-Product `auto_ota` + device `auto_ota` (default on): when a device comes online or reports `ota/version`, platform pushes the latest firmware if versions differ. Device `ota/query` always gets an update if a newer image exists (pull). Offline notify creates a **pending** job; it is pushed on reconnect.
+## OTA firmware updates
+
+### Firmware management
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/ota/firmwares?product_id=` | List firmwares |
+| POST | `/ota/firmwares/upload` | Multipart: `file` + `product_id` + `version` + optional `module` / `sha256` |
+| POST | `/ota/firmwares` | Register external URL: `{ product_id, version, url, sha256?, size?, module? }` |
+| DELETE | `/ota/firmwares/{id}` | Remove image and related OTA jobs |
+
+### Triggering updates
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/ota/firmwares/{id}/notify` | Notify device or whole product: `{ "device_id"?, "force"? }` |
+| POST | `/devices/{id}/ota` | Start OTA: `{ "firmware_id", "force"? }` |
+| POST | `/devices/{id}/ota/cancel` | Cancel active update |
+| GET | `/ota/jobs?device_id=` | List OTA jobs |
+
+### Public download (no JWT)
+
+`GET /ota/fw/{token}.bin` — ESP downloads firmware via HTTP without auth. URL: `{PUBLIC_BASE_URL}/ota/fw/{token}.bin`.
+
+`PUBLIC_BASE_URL` must be reachable from the device (LAN IP, not `localhost`).
+
+### Auto-OTA
+
+When `auto_ota` is enabled on the product (and not disabled on the device): on connect or version report, platform pushes the latest firmware if versions differ. Offline notifications create a **pending** job — pushed on reconnect.
+
+---
+
+## External plugins (admin)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/plugins/external` | List external plugins |
+| POST | `/plugins/external` | Register; returns `token`, `mqtt_user`, `mqtt_pass` |
+| DELETE | `/plugins/external/{id}` | Delete |
+| POST | `/plugins/external/{id}/regenerate-mqtt` | Rotate MQTT credentials |
+
+JSON-RPC endpoint for external plugins: `POST /api/plugins/external/rpc` (auth by plugin token).
+
+Methods: `platform.heartbeat`, `platform.poll_events`, `platform.ack_events`, `platform.invoke_rpc`.
+
+Details: [08-external-plugins.md](08-external-plugins.md).
+
+---
 
 ## Roles
 
 | Role | Read | Write (devices, RPC, OTA, …) |
 |------|------|------------------------------|
-| `admin` | yes | yes |
+| `admin` | yes | yes + user management |
 | `operator` | yes | yes |
 | `viewer` | yes | no |
 
-Bootstrap user is `admin`.
+Bootstrap user is `admin` (from env `ADMIN_LOGIN` / `ADMIN_PASSWORD`).

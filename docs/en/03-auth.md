@@ -1,31 +1,42 @@
 # Authentication & users
 
-## Features
+## Login methods
 
-- Login by **login** or **email** + password
-- Self-registration with **email confirmation**
-- **Google OAuth** sign-in / sign-up
-- Admin **Users** page (roles, disable, delete)
-- Bootstrap admin from env (`ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD`)
+- **Login or email** + password
+- **Self-registration** with email verification (optional)
+- **Google OAuth** — sign-in / sign-up / link to existing account
 
-Default role for new users: `viewer` (`REGISTER_DEFAULT_ROLE`).
+Bootstrap admin is created from environment variables: `ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+
+Default role for new users: `viewer` (configurable via `REGISTER_DEFAULT_ROLE`).
+
+---
 
 ## Endpoints
 
-| Method | Path | Auth |
-|--------|------|------|
-| GET | `/api/v1/auth/config` | public |
-| POST | `/api/v1/auth/register` | public |
-| POST | `/api/v1/auth/login` | public |
-| GET | `/api/v1/auth/verify-email?token=` | public (HTML) |
-| POST | `/api/v1/auth/resend-verification` | public |
-| GET | `/api/v1/auth/google` | public → redirect |
-| GET | `/api/v1/auth/google/callback` | public → SPA `#auth=jwt` |
-| GET | `/api/v1/users` | admin |
-| PATCH | `/api/v1/users/{id}` | admin |
-| DELETE | `/api/v1/users/{id}` | admin |
+### Public (no auth)
 
-### Register
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/auth/config` | Flags: `register_enabled`, `require_email_verify`, `google_enabled` |
+| POST | `/api/v1/auth/register` | Register new user |
+| POST | `/api/v1/auth/login` | Login — returns JWT |
+| GET | `/api/v1/auth/verify-email?token=` | Email verification (HTML page) |
+| POST | `/api/v1/auth/resend-verification` | Resend verification email |
+| GET | `/api/v1/auth/google` | Start Google OAuth (redirect) |
+| GET | `/api/v1/auth/google/callback` | Google callback → redirect to SPA with `#auth=<jwt>` |
+
+### Admin only
+
+| Method | Path |
+|--------|------|
+| GET | `/api/v1/users` |
+| PATCH | `/api/v1/users/{id}` |
+| DELETE | `/api/v1/users/{id}` |
+
+---
+
+## Registration
 
 ```json
 {
@@ -36,50 +47,79 @@ Default role for new users: `viewer` (`REGISTER_DEFAULT_ROLE`).
 }
 ```
 
-Login: `^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`.
+Login requirements: `^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`.
 
-Until email is verified (if `REQUIRE_EMAIL_VERIFY=true`), password login returns `email not verified`.
+If `REQUIRE_EMAIL_VERIFY=true`, password login returns `email not verified` until email is confirmed.
 
-### Login
+## Login
 
 ```json
 { "email": "jdoe", "password": "secret123" }
 ```
 
-`email` field accepts login **or** email address.
+The `email` field accepts **login or email**.
 
-## Email (verification)
+---
 
-| Env | Default | Notes |
-|-----|---------|-------|
-| `EMAIL_MODE` | `log` | `log` prints the link in server logs; `smtp` sends mail |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | | required for `smtp` |
-| `PUBLIC_BASE_URL` | `http://localhost:8080` | verification links, Google callback, OTA download URLs |
-| `REQUIRE_EMAIL_VERIFY` | `true` | |
-| `REGISTER_ENABLED` | `true` | |
+## Email verification
+
+| Env | Default | Description |
+|-----|---------|-------------|
+| `EMAIL_MODE` | `log` | `log` — link in stdout; `smtp` — send email |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | — | Required for `smtp` mode |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Verification links, Google callback, OTA URLs |
+| `REQUIRE_EMAIL_VERIFY` | `true` | Require verification for login |
+| `REGISTER_ENABLED` | `true` | Allow self-registration |
+
+---
 
 ## Google OAuth
 
-1. Create OAuth client in Google Cloud Console (Web application).
+### Setup
+
+1. Create OAuth client in Google Cloud Console (type: Web application)
 2. Authorized redirect URI: `{PUBLIC_BASE_URL}/api/v1/auth/google/callback`
-3. Set:
+3. Set environment variables:
 
 ```
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-# optional override:
-# GOOGLE_REDIRECT_URL=http://localhost:8080/api/v1/auth/google/callback
 PUBLIC_BASE_URL=http://localhost:8080
 ```
 
-Flow: dashboard → Continue with Google → Google → callback → redirect `/#auth=<jwt>`.
+### Flow
 
-If a local account with the same email exists, Google is **linked** (`google_sub`). New Google users get an auto login derived from email.
+Dashboard → **Continue with Google** → Google → callback → redirect to `/#auth=<jwt>`.
+
+### Account linking
+
+If a local account with the same email already exists, Google is **linked** to it (`google_sub`). New Google users get an auto-generated login from email.
+
+---
 
 ## Roles
 
 | Role | Capabilities |
-|------|----------------|
-| `admin` | everything + users admin |
-| `operator` | write devices/RPC/OTA |
-| `viewer` | read-only |
+|------|-------------|
+| `admin` | Full access + user management |
+| `operator` | Write devices, RPC, OTA, attributes |
+| `viewer` | Read-only |
+
+---
+
+## API tokens
+
+For MCP and scripts — long-lived API tokens instead of JWT. Created in dashboard (**Settings → API tokens**), shown once (`cip_…`).
+
+```bash
+# Create token via API
+JWT=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin","password":"admin"}' | jq -r .token)
+
+curl -s -X POST http://localhost:8080/api/v1/me/tokens \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"mcp"}'
+# → { "token": "cip_…", "token_prefix": "cip_…", … }
+```
