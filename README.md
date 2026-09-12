@@ -651,6 +651,7 @@ See [docs/README_en.md](docs/README_en.md) for the full index.
 | Deploy VDS | [12-deploy-vds.md](docs/en/12-deploy-vds.md) | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) |
 | Deploy Docker | [13-deploy-docker.md](docs/en/13-deploy-docker.md) | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) |
 | Diagrams | [14-diagrams.md](docs/en/14-diagrams.md) | [14-diagrams.md](docs/ru/14-diagrams.md) |
+| Multi-Account & Monitoring | [16-multi-account.md](docs/en/16-multi-account.md) | [16-multi-account.md](docs/ru/16-multi-account.md) |
 
 ---
 

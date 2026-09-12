@@ -521,6 +521,7 @@ make build-linux
 | Развёртывание VDS | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) | [12-deploy-vds.md](docs/en/12-deploy-vds.md) |
 | Развёртывание Docker | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) | [13-deploy-docker.md](docs/en/13-deploy-docker.md) |
 | Диаграммы | [14-diagrams.md](docs/ru/14-diagrams.md) | [14-diagrams.md](docs/en/14-diagrams.md) |
+| Multi-Account и мониторинг | [16-multi-account.md](docs/ru/16-multi-account.md) | [16-multi-account.md](docs/en/16-multi-account.md) |
 
 ---
 

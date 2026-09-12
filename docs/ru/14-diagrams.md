@@ -308,3 +308,292 @@ sequenceDiagram
   Hub->>P: OnEvent(apply)
   P->>RPC: led_attach then paint / run jobs now
 ```
+
+## Архитектура Multi-Account
+
+> Источник: [16-multi-account.md](16-multi-account.md#71-общая-схема)
+
+Высокоуровневая схема релиза: общий брокер с per-username ACL, account-scope ресурсы, каталожные плагины (включая новые `prometheus-exporter` и `metrics-dashboard`), и таблица per-account политик для каталожных плагинов.
+
+```mermaid
+graph TB
+    subgraph Clients["Клиенты"]
+        U1["Пользователь A<br/>(admin в acme)"]
+        U2["Пользователь B<br/>(operator в beta, viewer в acme)"]
+        P1["External Plugin<br/>acme/telegram-bot"]
+        P2["External Plugin<br/>beta/zapier"]
+    end
+
+    subgraph Platform["Cogitor IoT Platform (single binary)"]
+        subgraph Auth["Auth и Tenancy"]
+            JWT["JWT<br/>(active_account_id)"]
+            IAM["AccountMembership<br/>Middleware"]
+        end
+
+        subgraph Broker["MQTT Broker"]
+            B1["mochi-mqtt<br/>per-username ACL"]
+        end
+
+        subgraph Core["Ядро"]
+            ACL["Device ACL<br/>(product.device)"]
+            ING["Ingest + publishRules"]
+            HUB["PluginHub<br/>(per-account policy)"]
+        end
+
+        subgraph Catalog["Каталожные плагины"]
+            LG["led-garland"]
+            SCH["schedule"]
+            PRO["prometheus-exporter<br/>HTTP :9100"]
+            MD["metrics-dashboard<br/>UI tab"]
+        end
+
+        subgraph DB["SQLite (WAL)"]
+            ACC[("accounts")]
+            MEM[("account_memberships")]
+            INV[("account_invitations")]
+            POL[("account_plugin_policies")]
+            PR[("products<br/>UNIQUE(account_id, product_id)")]
+            DV[("devices")]
+            EP[("external_plugins")]
+        end
+
+        subgraph Bus["Rules Bus"]
+            EV["platform/v1/events/{slug}/..."]
+            CM["platform/v1/commands/{slug}/..."]
+        end
+    end
+
+    %% Клиенты → Auth
+    U1 & U2 -->|"Bearer JWT"| JWT
+    P1 & P2 -->|"Bearer token"| JWT
+
+    %% Auth → Core
+    JWT --> IAM
+    IAM --> ACL
+    IAM --> ING
+    IAM --> HUB
+
+    %% Брокер
+    B1 --> ACL
+    ACL --> ING
+    ING --> HUB
+    HUB --> LG & SCH & PRO & MD
+    ING --> EV
+    CM --> B1
+
+    %% DB
+    IAM --> MEM
+    IAM --> ACC
+    IAM --> INV
+    IAM --> POL
+    ING --> DV
+    ING --> PR
+    HUB --> POL
+
+    %% Внешние плагины → брокер
+    P1 -->|"MQTT extplg_acme_telegram-bot"| B1
+    P2 -->|"MQTT extplg_beta_zapier"| B1
+
+    style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
+    style Auth fill:#0f3460,stroke:#16213e,color:#eee
+    style Broker fill:#0f3460,stroke:#16213e,color:#eee
+    style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Catalog fill:#16213e,stroke:#1a1a2e,color:#eee
+    style DB fill:#16213e,stroke:#1a1a2e,color:#eee
+    style Bus fill:#0f3460,stroke:#16213e,color:#eee
+    style Clients fill:#16213e,stroke:#1a1a2e,color:#eee
+```
+
+## Поток приглашений
+
+> Источник: [16-multi-account.md](16-multi-account.md#53-приглашения)
+
+Полный цикл приглашения: admin создаёт, получатель принимает (залогинен или свежая регистрация), membership появляется, JWT несёт новый active account.
+
+```mermaid
+sequenceDiagram
+    participant A as Admin (UI)
+    participant P as Платформа
+    participant M as Mail (SMTP/log)
+    participant R as Получатель
+    participant DB as SQLite
+
+    Note over A: Активный аккаунт = acme
+    A->>P: POST /api/v1/accounts/{id}/invitations {email, role}
+    P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
+    P-->>A: {token: "raw-once", link: "/invite/{token}"}
+    P->>M: отправить email со ссылкой
+    M-->>R: письмо доставлено
+
+    R->>P: GET /api/v1/invitations/{token}
+    P->>DB: поиск по token_hash
+    P-->>R: {account_name: "acme", role: "operator"}
+
+    alt Получатель уже залогинен
+        R->>P: POST /invitations/{token}/accept (с JWT)
+        P->>DB: INSERT account_memberships(user_id, account_id, role)
+        P-->>R: {ok: true, account_id}
+        R->>P: POST /auth/switch-account {account_id}
+        P-->>R: {token: новый JWT с active=acme}
+    else Новый пользователь
+        R->>P: GET /auth/register?invite=...&email=...
+        R->>P: POST /auth/register (email подставлен, создан user)
+        R->>P: POST /invitations/{token}/accept (с новым JWT)
+        P->>DB: INSERT account_memberships
+        P-->>R: {ok: true, account_id}
+    end
+
+    Note over P: Resend / Revoke
+    A->>P: POST /accounts/{id}/invitations/{id}/resend
+    P->>DB: UPDATE old.status='revoked', INSERT new
+    P->>M: отправить новое письмо
+```
+
+## Account ACL внешнего плагина
+
+> Источник: [16-multi-account.md](16-multi-account.md#56-внешние-плагины-account-scoping)
+
+Регистрация внешнего плагина, выдача MQTT-креда и ACL-проверка, запрещающая кросс-аккаунтный subscribe/publish.
+
+```mermaid
+sequenceDiagram
+    participant Adm as Admin (UI)
+    participant P as Платформа
+    participant Pl as Внешний плагин
+    participant Br as MQTT Broker
+
+    Note over Adm: Активный аккаунт = acme
+    Adm->>P: POST /api/v1/plugins/external {id: "telegram-bot"}
+    P->>P: mqtt_user = "extplg_acme_telegram-bot"
+    P->>P: mqtt_pass = random, token = random
+    P->>P: хешируем, сохраняем в external_plugins (account_id=acme)
+    P-->>Adm: {token, mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
+    Adm->>Pl: передаёт креды
+
+    Pl->>Br: CONNECT mqtt_user=extplg_acme_telegram-bot, mqtt_pass=...
+    Br->>P: OnConnectAuthenticate
+    P->>P: ValidateMQTTCreds -> plugin.account_id=acme
+    Br-->>Pl: CONNACK ok
+
+    Note over Pl: Subscribe на свой аккаунт (OK)
+    Pl->>Br: SUBSCRIBE platform/v1/events/acme/+/+/telemetry
+    Br->>P: OnACLCheck(user, topic, write=false)
+    P->>P: account_slug топика совпадает с plugin.account_id
+    P-->>Br: allow
+    Br-->>Pl: SUBACK
+
+    Note over Pl: Subscribe на чужой аккаунт (DENY)
+    Pl->>Br: SUBSCRIBE platform/v1/events/beta/+/+/telemetry
+    Br->>P: OnACLCheck
+    P->>P: topic slug "beta" != plugin.account_id
+    P-->>Br: deny
+    Br-->>Pl: SUBACK fail, "acl_deny"
+
+    Note over Pl: Publish команды на свой device (OK)
+    Pl->>Br: PUBLISH platform/v1/commands/acme/esp32-cam/cam-001/rpc
+    Br->>P: OnACLCheck(user, topic, write=true)
+    P-->>Br: allow
+    P->>P: парсим команду, ищем device, проверяем device.account_id == plugin.account_id
+    P-->>D: MQTT downlink RPC
+
+    Note over Pl: Publish на чужой device (DENY)
+    Pl->>Br: PUBLISH platform/v1/commands/beta/sensor/sensor-01/rpc
+    Br->>P: OnACLCheck
+    P-->>Br: deny
+    Br-->>Pl: PUBACK fail
+```
+
+## Жизненный цикл Prometheus Exporter
+
+> Источник: [16-multi-account.md](16-multi-account.md#59-внутренний-плагин-prometheus-exporter)
+
+Как каталожный плагин `prometheus-exporter` поднимает HTTP-сервер, отдаёт Prometheus-метрики с лейблом `account` и останавливается, когда per-account policy отключает плагин.
+
+```mermaid
+sequenceDiagram
+    participant Adm as Admin (UI)
+    participant H as PluginHub
+    participant EX as prometheus-exporter runner
+    participant Pr as Prometheus (внешний)
+    participant DB as SQLite
+
+    Note over Adm: Settings → Integrations → prometheus-exporter enabled
+    Adm->>H: PATCH /accounts/{id}/plugins/policies/prometheus-exporter {enabled:true}
+    H->>DB: UPSERT account_plugin_policies
+    H->>H: пересборка runners аккаунта
+
+    Note over H: binding создан на устройстве (или hub стартует с существующим)
+    Adm->>H: POST /devices/{d}/plugins {plugin_id: "prometheus-exporter"}
+    H->>EX: ApplyConfig({port: 9100, bind: 0.0.0.0, bearer_token: ...})
+    EX->>EX: http.Server.ListenAndServe на 0.0.0.0:9100
+
+    loop каждые update_interval_ms
+        EX->>DB: SELECT counts grouped by account/product/device/status
+        EX->>EX: refresh atomic gauges
+    end
+
+    Pr->>EX: GET /metrics (Authorization: Bearer <token>)
+    EX->>EX: проверка bearer (если задан)
+    EX-->>Pr: 200 text/plain (Prometheus exposition, account=acme labels)
+    EX->>EX: counter cogitor_device_telemetry_samples_total{account=acme,...}++ на StoreTelemetry (in-process hook)
+    EX->>EX: counter cogitor_device_rpc_calls_total{...}++ на InvokeRPC
+
+    Note over Adm: Отключаем exporter для аккаунта
+    Adm->>H: PATCH ... {enabled:false}
+    H->>H: перебор bindings аккаунта, остановка runners
+    H->>EX: detach -> http.Server.Shutdown
+    EX-->>Pr: connection refused (на следующем scrape)
+```
+
+## Policy внутренних плагинов
+
+> Источник: [16-multi-account.md](16-multi-account.md#58-управление-внутренними-плагинами)
+
+Как `account_plugin_policies` управляет каталожными плагинами per-account: dispatch, tick и очистка при удалении аккаунта.
+
+```mermaid
+flowchart TB
+    subgraph Catalog["Каталожные плагины (init)"]
+        LG["led-garland"]
+        SCH["schedule"]
+        PRO["prometheus-exporter"]
+        MD["metrics-dashboard"]
+    end
+
+    subgraph Policy["account_plugin_policies"]
+        T1["(acme, led-garland, enabled=true)"]
+        T2["(acme, schedule, enabled=false)"]
+        T3["(beta, led-garland, enabled=true)"]
+    end
+
+    subgraph Hub["PluginHub"]
+        D["Dispatch(product, device, kind, payload)"]
+        AR["ApplyConfig(binding)"]
+        TI["Tick loop"]
+    end
+
+    subgraph Accounts["Аккаунты"]
+        AC1["acme<br/>devices[]"]
+        AC2["beta<br/>devices[]"]
+    end
+
+    AR -->|"lookup policy"| Policy
+    TI -->|"lookup policy"| Policy
+    D -->|"lookup policy"| Policy
+
+    Policy -->|enabled=true| LG
+    Policy -->|enabled=true| SCH
+    Policy -->|enabled=false| SKIP["skip runner (no OnEvent)"]
+
+    LG -->|bind/apply/tick| AC1
+    SCH -->|bind/apply/tick| AC2
+    SKIP -.-> AC1
+
+    %% UI control
+    UI["Admin UI<br/>Settings → Integrations"] -->|"PATCH policy"| Policy
+
+    style Catalog fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Policy fill:#0f3460,stroke:#16213e,color:#eee
+    style Hub fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Accounts fill:#16213e,stroke:#1a1a2e,color:#eee
+```

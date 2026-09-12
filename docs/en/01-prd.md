@@ -412,7 +412,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 
 ## 13. Out of Scope (v1)
 
-- Multi-tenancy / team workspaces
+- ~~Multi-tenancy / team workspaces~~ — implemented, see [16-multi-account.md](16-multi-account.md)
 - Cloud relay / hybrid cloud-edge
 - Mobile native apps (responsive web is sufficient)
 - Video streaming from ESP32-CAM
@@ -424,6 +424,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 
 ## 14. Future Considerations (v2+)
 
+- **Multi-account / IAM**: see [16-multi-account.md](16-multi-account.md) — implemented release: tenants, per-account roles, account-scoped rules, built-in monitoring
 - **MQTT 5 features**: shared subscriptions, message expiry
 - **TimescaleDB / InfluxDB**: swap SQLite for high-volume telemetry
 - **Plugin marketplace**: user-contributed plugins with web-based install
@@ -465,3 +466,4 @@ A device deployment is considered successful when:
 | [09-product-schema.md](09-product-schema.md) | Product schema (RPC, telemetry, attributes) |
 | [10-mcp.md](10-mcp.md) | MCP (LLM integration) |
 | [11-operations.md](11-operations.md) | Deployment & configuration |
+| [16-multi-account.md](16-multi-account.md) | Multi-account, IAM, monitoring, plugin policies |

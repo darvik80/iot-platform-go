@@ -21,3 +21,4 @@
 | [Deploy Docker](en/13-deploy-docker.md) | Docker Compose deployment |
 | [Diagrams](en/14-diagrams.md) | Mermaid architecture and flow diagrams |
 | [Diagram Style Guide](en/15-diagram-style.md) | Style guide for Mermaid diagrams (for agents) |
+| [Multi-Account & Monitoring](en/16-multi-account.md) | Tenants, IAM, invitations, Prometheus exporter, plugin policies |

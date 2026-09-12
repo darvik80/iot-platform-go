@@ -412,7 +412,7 @@ make build        # web UI + Go binary → bin/platform.exe
 
 ## 13. Вне скобки (v1)
 
-- Multi-tenancy / рабочие пространства
+- ~~Multi-tenancy / рабочие пространства~~ — реализовано, см. [16-multi-account.md](16-multi-account.md)
 - Облачный relay / hybrid cloud-edge
 - Нативные мобильные приложения
 - Видеостриминг с ESP32-CAM
@@ -424,6 +424,7 @@ make build        # web UI + Go binary → bin/platform.exe
 
 ## 14. Будущие улучшения (v2+)
 
+- **Multi-account / IAM**: см. [16-multi-account.md](16-multi-account.md) — реализованный релиз, тенанты, роли per-account, account-scope правил, встроенный мониторинг
 - **MQTT 5**: shared subscriptions, message expiry
 - **TimescaleDB / InfluxDB**: замена SQLite для высоконагруженной телеметрии
 - **Маркетплейс плагинов**: пользовательские плагины с веб-установкой
@@ -463,3 +464,4 @@ make build        # web UI + Go binary → bin/platform.exe
 | [09-product-schema.md](09-product-schema.md) | Схема продукта (RPC, телеметрия, атрибуты) |
 | [10-mcp.md](10-mcp.md) | MCP (LLM-интеграция) |
 | [11-operations.md](11-operations.md) | Развёртывание и конфигурация |
+| [16-multi-account.md](16-multi-account.md) | Multi-account, IAM, monitoring, plugin policies |
