@@ -23,8 +23,8 @@
 - **Управление внутренними плагинами** на уровне аккаунта через `account_plugin_policies`.
 - **БД**: поддержка двух драйверов — `sqlite` (default) и `postgres`. Драйвер выбирается через `DATABASE_DRIVER` + `DATABASE_DSN`.
 - **Мастер первой установки** (полный) — `/setup` доступен, пока `accounts` пуста; `.env` опционален.
-- **Версионирование**: релиз разбит на этапы v1.0…v1.6 + явный v2 (см. [§4.5](#45-план-релиза--этапы)).
-- **HA / кластеризация** — явно v2; v1 проектируется с учётом будущей HA, но реализует только single-instance (см. [§7.7](#77-архитектурные-ограничения-v1-для-будущей-кластеризации)).
+- **Версионирование**: релиз разбит на этапы v1.0…v1.6 (single mode). HA/clustering — отдельный релиз v2.x, см. [17-ha-architecture.md](17-ha-architecture.md).
+- **HA / кластеризация** — явно v2, не в скоупе этого документа. v1 проектируется с учётом будущей HA (см. NF-19), но реализует только single-instance. Подробности — [17-ha-architecture.md](17-ha-architecture.md).
 - **Automation page** — депрекейс; замена на документацию по интеграции с Node-RED + inline help в UI.
 - **UI modernization** — обновление визуального стиля, сохранение mobile-first подхода.
 
@@ -103,8 +103,8 @@
 | **v1.4** | **Catalog plugin management** | F-801…F-806 | `account_plugin_policies` управляет hub; `PATCH /policies/{pluginId}` применяется «на лету»; UI Settings → Integrations |
 | **v1.5** | **Monitoring** | F-901…F-908, F-1001…F-1010 | `prometheus-exporter` отдаёт метрики; `metrics-dashboard` рисует таб в device page; scrape-конфиг опубликован |
 | **v1.6** | **Polish + docs + UI** | F-107, F-1101…F-1106, F-1201…F-1205, F-1501…F-1505, NF-10…NF-12, NF-22…NF-24 | `audit_log` с `actor_kind`; UI-страницы (Members, Invitations, Account Settings) полированы; Automation page удалена, заменена документацией + inline help; UI modernized (NF-22..24); 02/03/04/06/07/08/11 обновлены; examples/plugins/* под новые топики |
-| **v2.0** | **HA / Clustering** *(вне v1)* | (см. [§14](#14-будущие-улучшения)) | Multi-instance: N инстансов за L7-балансировщиком; внешний MQTT broker; Redis pub/sub для WS; leader election для plugin runners; Postgres — обязательный драйвер |
-| **v2.1** | **rabbitmq-bridge** *(вне v1)* | (см. [§14](#14-будущие-улучшения)) | Каталожный плагин `rabbitmq-bridge` публикует события в RabbitMQ exchanges с лейблом `account` |
+
+**HA/Clustering (v2.x)** — отдельный релиз, не в скоупе этого документа. См. [17-ha-architecture.md](17-ha-architecture.md).
 
 **Правила перехода между этапами:**
 
@@ -112,7 +112,7 @@
 2. **Документация обновляется в том же PR**, что и код (NF-12).
 3. **Тесты растут вместе с фичей**: unit (изоляция, ACL, валидаторы) + integration (смоук обоих драйверов БД) + ручной чеклист.
 4. **Никакого carry-over**: если что-то из этапа не вошло — задача переходит в `Backlog / v1.x+1`, а не блокирует релиз.
-5. **v2 не планируется до завершения v1.6** — после v1.6 делаем retro и пишем отдельный PRD под v2.
+5. **v1.6 завершает single mode**. После v1.6 делаем retro и пишем/обновляем отдельный PRD под v2 (см. [17-ha-architecture.md](17-ha-architecture.md)).
 
 **Backlog / кандидаты на v1.x+1 (между v1.6 и v2.0):**
 
@@ -662,31 +662,16 @@ flowchart TB
     style Accounts fill:#16213e,stroke:#1a1a2e,color:#eee
 ```
 
-### 7.7 Архитектурные ограничения v1 для будущей кластеризации
+### 7.7 HA-readiness (контракт с v2)
 
-v1 — single instance (см. [§4.5](#45-план-релиза--этапы), v2.0). Но ряд архитектурных решений v1 уже сейчас делается так, чтобы не заблокировать переход к HA в v2. Этот раздел — **контракт** между v1 и v2.
+v1 — single instance. Но ряд архитектурных решений v1 уже сейчас делается так, чтобы не заблокировать переход к HA в v2. Полный список — в [17-ha-architecture.md](17-ha-architecture.md#5-функциональные-требования-ha-specific).
 
-| # | Решение v1 | Что это значит для v2 (HA) |
-|---|------------|-----------------------------|
-| 1 | DB-доступ только через `db.DB` интерфейс + `ScopeAccount(db, accountID)` | Замена `database/sql` на connection pool с per-account sharding не сломает код: интерфейс стабилен |
-| 2 | `golang-migrate` как единственный механизм миграций | Миграции одинаковы для sqlite и postgres; добавление нового драйвера в v2 — это вопрос конфигурации, не кода |
-| 3 | `mqtt_user` для external plugins — `extplg_{account_slug}_{plugin_id}` | Уникальность имени работает и в shared external broker — broker будет видеть те же имена, ACL в нём будет идентичен нашему |
-| 4 | System topics содержат `account_slug` сразу после корня | В shared broker namespace не пересекается между аккаунтами — fan-out по slug'у остаётся корректным |
-| 5 | Все `account_id` — `INTEGER`, без UUID, без per-tenant схем | Postgres row-level security и partition by account работают на этом столбце из коробки |
-| 6 | Кэши `ScopeAccount`, `productForToken`, `membershipForUser` — обёрнуты в интерфейс `services.Cache` с `Invalidate(key)` | В v2 меняется in-memory реализация на Redis-backed, интерфейс остаётся |
-| 7 | `prometheus-exporter` слушает на отдельном порту per binding | В v2 multi-instance — каждая реплика экспозит свой `/metrics` на своём порту; Prometheus scrape через service discovery (Consul/K8s) — известный паттерн |
-| 8 | `audit_log` пишется синхронно в текущей транзакции | В v2 на Postgres это работает сразу; на sqlite — деградирует (один writer), но v1 это и так single-instance |
-| 9 | WebSocket hub — per-instance in-memory, фильтр по `account_id` | В v2 — Redis pub/sub: `account:{id}:events` канал, hub-инстансы подписываются только на нужные каналы; интерфейс `Hub.Publish(accountID, event)` не меняется |
-| 10 | Plugin runners — in-process goroutine, на каждый binding | В v2 — leader election: только лидер-инстанс запускает runner; followers принимают `OnEvent` через Redis stream; контракт `Plugin.OnEvent(ctx, evt)` не меняется |
-| 11 | `MQTT` — in-process `mochi-mqtt` | В v2 — внешний broker; код не знает, какой именно брокер — `internal/mqtt.Broker` интерфейс остаётся |
-| 12 | Все SQL-запросы идут через `db.DB` — нет прямого `sql.DB` в хендлерах | В v2 — read replica routing (read из `accounts` пишут в master, telemetry queries идут в read replica) — возможно точечно добавить `ReadDB()` метод, не ломая существующий код |
-
-**Что точно НЕЛЬЗЯ делать в v1**, чтобы не заблокировать v2:
+**Ключевые инварианты v1 для v2 (нельзя нарушать):**
 
 - ❌ Писать `db.QueryRow(... fmt.Sprintf("WHERE id=%d", id) ...)` — должен быть `Rebind`/параметризованные запросы
-- ❌ Использовать `goroutine + time.Sleep` для retry без контекста — всё через `context.Context`, чтобы лидер-election в v2 корректно отменял
-- ❌ Хранить `account_id` в JWT без `accounts[]` claim — нужен полный список, чтобы при v2 multi-instance не делать round-trip к БД на каждый запрос
-- ❌ Глобальные мьютексы на per-account данные (например `sync.Mutex` поверх `account.ID`) — сломает горизонтальное масштабирование; используем локальные `sync.Map` / channel
+- ❌ Использовать `goroutine + time.Sleep` для retry без контекста — всё через `context.Context`
+- ❌ Хранить `account_id` в JWT без `accounts[]` claim — нужен полный список
+- ❌ Глобальные мьютексы на per-account данные
 - ❌ Считать, что `mochi-mqtt` — единственный брокер. `Broker` интерфейс с самого начала
 
 **Документированные компромиссы v1** (явно):
@@ -917,15 +902,17 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Wizard работает по HTTPS, а `PUBLIC_BASE_URL=http://...` | UI подсвечивает несоответствие; invite-ссылки генерируются по PUBLIC_BASE_URL, не по текущему origin (важно для реверс-прокси) |
 | SMTP Step пропустили (`Skip`), но `EMAIL_MODE=smtp` в env | При попытке отправить invite (F-301) — `500 smtp_not_configured`; UI инструктирует «Run setup again to configure SMTP» (но `/setup` уже выключен — manual fix через SQL: `UPDATE accounts.settings_json SET...`) |
 
-### 11.8 Будущая HA (что мы закладываем уже сейчас)
+### 11.8 HA-readiness bad cases (контракт с v2)
 
-| Кейс | Поведение в v1 | Как поведёт в v2 (дизайн) |
-|------|----------------|-----------------------------|
-| Два инстанса стартуют с одной SQLite БД | v1 это запрещает (см. NF-19: инвариант «single instance»); если кто-то нарушит — `database is locked` | Не применимо (HA на Postgres) |
-| Два инстанса стартуют с одной Postgres БД | v1 формально не запрещает (один writer в postgres OK), но в WebSocket будет дублирование | Будет требоваться `instance_id` per pod, leader election, sticky session |
-| Один инстанс упал, второй подхватил | Не работает (WebSocket-клиенты переподключатся и потеряют события за время простоя) | WebSocket-клиенты реконнектятся; события за downtime теряются (v2.x: добавление persistent buffer) |
-| External plugin подключился, инстанс перезапустился | MQTT-сессия теряется; плагин переподключается; за время downtime — пропущенные события | Через external broker + persistent sessions (`cleansession=false`); broker хранит сообщения пока плагин не вернётся |
-| Cache (membership, productForToken) изменился на инстансе A, запрос пришёл на B | v1: stale data до следующего reload (per-request check на критичных путях ловит) | Через Redis pub/sub invalidate; cache читает с TTL 5s |
+Большинство HA-сценариев описаны в [17-ha-architecture.md](17-ha-architecture.md). В v1 (single mode) они не применимы, но **закладываются архитектурно**:
+
+| Кейс | v1 поведение | v2 поведение |
+|------|--------------|--------------|
+| Два инстанса с одной SQLite БД | v1 запрещает (NF-19: инвариант «single instance») | Не применимо (HA на Postgres) |
+| Два инстанса с одной Postgres БД | v1 формально не запрещает, но WebSocket дублирует | Будет требоваться `instance_id`, sticky session, SSE вместо WS |
+| Один инстанс упал, второй подхватил | Не работает (WS-клиенты теряют события) | SSE auto-reconnect; события за downtime теряются (v2.x: persistent buffer) |
+| External plugin подключился, инстанс перезапустился | MQTT-сессия теряется; плагин переподключается | Через external broker + persistent sessions |
+| Cache изменился на инстансе A, запрос пришёл на B | v1: stale data до reload (per-request check) | Через PostgreSQL LISTEN/NOTIFY или cache TTL |
 | Postgres failover во время миграции | v1 не применимо (только sqlite) | `golang-migrate` retry + advisory lock; failed migration → manual recovery |
 
 ### 11.9 Известные ограничения
@@ -1038,63 +1025,27 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 
 ---
 
-## 14. Будущие улучшения (v2+)
+## 14. Будущие улучшения
 
-Этот раздел — не «идеи на салфетке», а **зафиксированный backlog** с критериями приёмки. Каждый пункт имеет версию-целевую, scope, exit-критерий и явное «не делаем в v1, потому что…».
+**HA/Clustering (v2.x)** — полностью вынесен в отдельный документ [17-ha-architecture.md](17-ha-architecture.md). Включает:
 
-### 14.1 v2.0 — HA / Кластеризация
+- **v2.0** — HA Foundation (cluster instance, worker, RabbitMQ, PostgreSQL, SSE)
+- **v2.1** — `rabbitmq-bridge` plugin
+- **v2.2** — Account-level features (custom RBAC, rate limiting, retention override)
+- **v2.3+** — Multi-region DR, SSO, SIEM, plugin marketplace
 
-**Scope:** переход от single-instance к multi-instance деплою. Postgres становится обязательным драйвером.
+**Backlog / кандидаты на v1.x+1 (после v1.6):**
 
-| ID | Фича | Exit-критерий |
-|----|------|----------------|
-| F2-01 | **External MQTT broker**: `MQTT_EXTERNAL_URL` (через `paho.mqtt.golang` или EMQX client) — платформа подключается к внешнему broker'у вместо поднятия `mochi-mqtt`. ACL реализуется на broker'е через `$CONTEXT/clientid`-style auth | `docker-compose` с одним EMQX + двумя инстансами платформы; device, подключённый к инстансу A, получает downlink от REST API на инстансе B |
-| F2-02 | **Redis pub/sub для WebSocket**: hub fan-out через каналы `account:{id}:events`. Каждый инстанс подписывается только на каналы своих активных WS-соединений | Событие от инстанса A доходит до пользователя, подключённого к инстансу B, в пределах 100 мс |
-| F2-03 | **Leader election** для plugin runners: только лидер-инстанс запускает `Plugin.OnEvent`. Followers подписываются на Redis stream `plugin:events:{account_id}:{plugin_id}` | External plugin получает ровно одну копию события при наличии ≥2 инстансов платформы |
-| F2-04 | **Read replica routing**: telemetry queries (тяжёлые `SELECT * FROM telemetry_samples WHERE...`) идут в `pg_read_replica`, запись — в master. `services.ScopeAccount` получает опциональный параметр `ReadDB()` | Dashboard с 1M точек telemetry не нагружает master; p95 latency dashboard /graphs < 500 мс |
-| F2-05 | **Object storage для OTA firmware**: `OTA_STORAGE=s3` (или `minio`), прошивки хранятся в S3-совместимом storage. `OTA_STORAGE=local` — legacy | Загрузка 100MB прошивки не блокирует основной процесс; quota per-account |
-| F2-06 | **Instance ID + Prometheus labels**: каждый инстанс экспозит `cogitor_instance_info{instance_id="...", version="...", started_at="..."}`. Prometheus service discovery через Consul или K8s | В Grafana видно, какой инстанс с какой версией; rolling deploy без потери метрик |
-| F2-07 | **DB connection pool per-account sharding** (опционально): для крупных деплоев — отдельный postgres schema per account. Через `db.Conn(accountID)` | БД 1 аккаунта с 10k устройств не мешает другому аккаунту с 10k |
+- Custom RBAC (per-account кастомные роли)
+- Account-level feature flags
+- Account import/export (JSON)
+- Per-account API rate limiting (локально, без Redis)
+- Webhook signing per-account (HMAC)
+- Per-account data retention override
+- Simple migration utility (single → cluster, devices/users/default plugins) — отложено
+- Git labels/tags для маркировки задач по версиям — отложено
 
-**Почему не в v1:** каждый из этих пунктов сам по себе — большой объём работы (F2-01 — отдельный PR на 500-1000 строк). Совокупно — это 2-3 месяца. v1 закладывает интерфейсы, чтобы v2 не ломал API.
-
-### 14.2 v2.1 — Catalog plugin `rabbitmq-bridge`
-
-**Scope:** новый каталожный плагин, публикующий события платформы в RabbitMQ exchange'и.
-
-| ID | Фича | Exit-критерий |
-|----|------|----------------|
-| F2-11 | **Plugin `rabbitmq-bridge`** в `internal/plugins/rabbitmq_bridge.go` | Каталожный, регистрируется в `init()`, подчиняется `account_plugin_policies` |
-| F2-12 | **Binding config**: `url` (AMQP), `exchange` (default `cogitor.events`), `routing_key_template` (default `{account_slug}.{product}.{device}.{kind}`), `tls` (off by default) | Конфиг через `device_plugin_bindings.config_json`; форма валидируется через `Descriptor.Form` |
-| F2-13 | **Account scope**: каждый аккаунт может создать binding; плагин держит одно соединение с broker'ом per account (свой vhost, если задан) | Broker admin видит разные connections от разных аккаунтов |
-| F2-14 | **Backpressure**: при недоступности broker'а — буферизация 10k событий в памяти (per-account), при переполнении — отбрасывание с метрикой `cogitor_rabbitmq_dropped_total` | При выключении broker'а на 5 мин и его возврате — все события доставлены, метрика показывает 0 dropped |
-| F2-15 | **Sample consumer** в `examples/plugins/rabbitmq/python_consumer.py` — пример consumer, который подписывается и печатает события | Пример запускается через `make example-rabbitmq` и получает live-события |
-
-**Почему не в v1:** внешняя зависимость (RabbitMQ), нужен отдельный deployment story. Кандидат после v2.0, когда HA уже есть и можно думать о federation'е между несколькими инсталляциями.
-
-### 14.3 v2.2 — Account-level features
-
-| ID | Фича | Exit-критерий |
-|----|------|----------------|
-| F2-21 | **Custom RBAC**: per-account кастомные роли поверх встроенных admin/operator/viewer | `POST /accounts/{id}/roles {name, permissions: [...]}`; permission check через `auth.Can(action, claims)` |
-| F2-22 | **Per-account API rate limiting**: `RATE_LIMIT_PER_MINUTE` per account; реализация — token bucket в Redis | Превышение → `429` с `Retry-After` |
-| F2-23 | **Per-account retention override**: `accounts.settings_json.retention_days` уже есть, но пока single-value; v2.2 — отдельные `telemetry_retention`, `events_retention`, `audit_retention` | Admin меняет retention для одного типа, остальные не трогаются |
-| F2-24 | **Account import/export (JSON)**: `GET /accounts/{id}/export` (platform-admin) — полный дамп products/devices/credentials (без secrets) в JSON; `POST /accounts/import` восстанавливает | Round-trip: export → import даёт идентичную конфигурацию |
-| F2-25 | **Webhook signing per-account**: каждый account может загрузить свой `webhook_signing_secret` (HMAC-SHA256); заголовок `X-Cogitor-Signature` в каждом webhook | Sample webhook receiver верифицирует подпись |
-| F2-26 | **Per-account Prometheus remote_write**: вместо локального `/metrics` — отправка в account-specific Prometheus/VictoriaMetrics | `prometheus-exporter` отправляет через `remote_write` API, локальный endpoint отключается |
-
-### 14.4 v2.3+ — Более далёкое будущее
-
-| ID | Фича | Заметка |
-|----|------|---------|
-| F2-31 | **SSO providers per account** (OIDC, SAML) | Заменяет local auth для конкретного account'а; default behavior остаётся |
-| F2-32 | **Audit log streaming в SIEM** (Kafka, Loki, Splunk) | Через отдельный sink в `audit_log` writer'е |
-| F2-33 | **Account transfer / merge** | «Передать аккаунт другому владельцу» — сложный flow с подтверждением обоих сторон |
-| F2-34 | **Cross-account dashboards** (агрегация данных нескольких аккаунтов) | Только для platform-admin; не нарушает изоляцию |
-| F2-35 | **Multi-region / DR** (active-passive через Postgres streaming replication) | Требует F2-05 (object storage) |
-| F2-36 | **Plugin marketplace** (подписанные каталожные плагины) | Отдельный реестр; сейчас каталог = код |
-
-### 14.5 Принцип «не делаем» (явный список)
+**Принцип «не делаем» (явный список):**
 
 Эти идеи **отвергнуты** после обсуждения, фиксируем чтобы не возвращаться:
 
@@ -1102,6 +1053,8 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 - ❌ **Per-account sub-domain (`acme.platform.local`)** — DNS-конфигурация лежит на пользователе; платформа не в праве это навязывать
 - ❌ **Custom CSS / white-label** для account'а — out of product scope, лежит на уровне reverse proxy
 - ❌ **Account-level плагин-каталог** (свой набор плагинов) — пока каталожные плагины общие; custom plugins = external plugins (уже есть)
+- ❌ **Embedded NATS** в binary — добавляет complexity, отвергнут
+- ❌ **Redis как middleware** — отвергнут, RabbitMQ покрывает все needs (см. [17-ha-architecture.md](17-ha-architecture.md))
 
 ---
 
@@ -1118,3 +1071,4 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | [08-external-plugins.md](08-external-plugins.md) | Account-scoped external plugins (mqtt_user формат, ACL) |
 | [11-operations.md](11-operations.md) | Эксплуатация (конверсия, конфигурация) |
 | [14-diagrams.md](14-diagrams.md) | Все диаграммы релиза (5 новых) |
+| [17-ha-architecture.md](17-ha-architecture.md) | **HA/Clustering архитектура (v2.x)** — multi-instance, RabbitMQ, PostgreSQL, 3 бинарника, SSE вместо WebSocket |

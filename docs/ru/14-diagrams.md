@@ -597,3 +597,315 @@ flowchart TB
     style Hub fill:#1a1a2e,stroke:#0f3460,color:#eee
     style Accounts fill:#16213e,stroke:#1a1a2e,color:#eee
 ```
+
+---
+
+# HA / Clustering диаграммы (v2.x)
+
+> **Источник**: [17-ha-architecture.md](17-ha-architecture.md)
+>
+> **Статус**: v2.x (вне v1). Диаграммы описывают архитектуру multi-instance deployment, которая появится в v2.0+.
+
+## HA Architecture Overview
+
+Общая архитектура HA-кластера: 3 бинарника, RabbitMQ, PostgreSQL, device registry.
+
+```mermaid
+graph TB
+    subgraph Clients["Клиенты"]
+        U1["UI (браузер)"]
+        D1["Device A"]
+        D2["Device B"]
+        EP1["External Plugin<br/>(AMQP)"]
+    end
+
+    subgraph Edge["L7 Load Balancer"]
+        LB["LB<br/>(round-robin)"]
+    end
+
+    subgraph Cluster["Cluster instances (stateless)"]
+        CI_A["platform-cluster A<br/>UI/API + SSE + Prometheus"]
+        CI_B["platform-cluster B<br/>UI/API + SSE + Prometheus"]
+    end
+
+    subgraph Workers["Workers (stateless)"]
+        W1["platform-worker 1<br/>internal plugins"]
+        W2["platform-worker 2<br/>internal plugins"]
+    end
+
+    subgraph Bus["RabbitMQ (обязательный)"]
+        MQ_MQTT["MQTT plugin<br/>:1883"]
+        MQ_AMQP["AMQP<br/>:5672"]
+    end
+
+    subgraph DB["PostgreSQL (обязательный)"]
+        PG[("platform DB")]
+        DI[("device_instances<br/>(device → instance)")]
+    end
+
+    U1 -->|"HTTPS / SSE"| LB
+    LB --> CI_A
+    LB --> CI_B
+    
+    D1 -->|"MQTT"| MQ_MQTT
+    D2 -->|"MQTT"| MQ_MQTT
+    EP1 -->|"AMQP"| MQ_AMQP
+
+    MQ_MQTT -->|"iot.devices"| MQ_AMQP
+    MQ_AMQP -->|"iot.cluster.events"| CI_A
+    MQ_AMQP -->|"iot.cluster.events"| CI_B
+    MQ_AMQP -->|"iot.events"| W1
+    MQ_AMQP -->|"iot.events"| W2
+
+    CI_A -->|"command routing"| DI
+    CI_B -->|"command routing"| DI
+    CI_A -->|"HTTP API"| PG
+    CI_B -->|"HTTP API"| PG
+    W1 --> PG
+    W2 --> PG
+
+    W1 -->|"publish cmd"| MQ_AMQP
+    W2 -->|"publish cmd"| MQ_AMQP
+    MQ_AMQP -->|"downlink"| MQ_MQTT
+
+    style Clients fill:#16213e,stroke:#1a1a2e,color:#eee
+    style Edge fill:#0f3460,stroke:#16213e,color:#eee
+    style Cluster fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Workers fill:#16213e,stroke:#1a1a2e,color:#eee
+    style Bus fill:#0f3460,stroke:#16213e,color:#eee
+    style DB fill:#16213e,stroke:#1a1a2e,color:#eee
+```
+
+## Single vs Cluster
+
+Сравнение архитектуры single mode (v1.x) и cluster mode (v2.x).
+
+```mermaid
+graph LR
+    subgraph Single["Single Mode (v1.x)"]
+        S_DEV["Device"] -->|"MQTT"| S_BROKER["Встроенный<br/>mochi-mqtt"]
+        S_BROKER --> S_APP["platform-single<br/>(всё in-process)"]
+        S_APP --> S_DB[("SQLite/Postgres")]
+        S_UI["UI"] -->|"WebSocket"| S_APP
+        S_EP["External Plugin"] -->|"MQTT/gRPC/webhook"| S_BROKER
+    end
+
+    subgraph Cluster["Cluster Mode (v2.x)"]
+        C_DEV["Device"] -->|"MQTT"| C_MQ["RabbitMQ"]
+        C_MQ -->|"AMQP"| C_CI["platform-cluster<br/>UI/API + SSE"]
+        C_MQ -->|"AMQP"| C_W["platform-worker<br/>internal plugins"]
+        C_CI --> C_PG[("PostgreSQL")]
+        C_W --> C_PG
+        C_UI["UI"] -->|"SSE"| C_CI
+        C_EP["External Plugin"] -->|"AMQP"| C_MQ
+    end
+
+    style Single fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Cluster fill:#16213e,stroke:#0f3460,color:#eee
+```
+
+## RabbitMQ Topology
+
+Топология exchanges и queues для HA-кластера.
+
+```mermaid
+graph TB
+    subgraph Producers["Producers"]
+        D1["Device A"]
+        D2["Device B"]
+        EP1["External Plugin"]
+        W1["Worker 1"]
+        W2["Worker 2"]
+    end
+
+    subgraph Exchanges["RabbitMQ Exchanges"]
+        EX_DEV["iot.devices<br/>(topic)"]
+        EX_CMD["iot.commands<br/>(direct)"]
+        EX_CLU["iot.cluster<br/>(fanout)"]
+        EX_EXT["iot.external<br/>(topic)"]
+    end
+
+    subgraph Queues["Queues (per instance/worker)"]
+        Q_CI_A["iot.instance.cluster-A.commands"]
+        Q_CI_B["iot.instance.cluster-B.commands"]
+        Q_W1["iot.worker.worker-1.events"]
+        Q_W2["iot.worker.worker-2.events"]
+        Q_EXT["iot.external.consumers"]
+    end
+
+    subgraph Consumers["Consumers"]
+        CI_A["platform-cluster A"]
+        CI_B["platform-cluster B"]
+        WORK1["platform-worker 1"]
+        WORK2["platform-worker 2"]
+        EXTC["External Plugin<br/>(AMQP client)"]
+    end
+
+    D1 -->|"iot/v1/..."| EX_DEV
+    D2 -->|"iot/v1/..."| EX_DEV
+    
+    W1 -->|"commands.instance.cluster-A"| EX_CMD
+    W2 -->|"commands.instance.cluster-B"| EX_CMD
+    
+    EX_DEV -->|"fanout"| EX_CLU
+    EX_DEV -->|"routing key"| EX_EXT
+    
+    EX_CLU --> Q_CI_A
+    EX_CLU --> Q_CI_B
+    EX_EXT --> Q_EXT
+    EX_CMD --> Q_CI_A
+    EX_CMD --> Q_CI_B
+    EX_DEV --> Q_W1
+    EX_DEV --> Q_W2
+    
+    Q_CI_A --> CI_A
+    Q_CI_B --> CI_B
+    Q_W1 --> WORK1
+    Q_W2 --> WORK2
+    Q_EXT --> EXTC
+    
+    EP1 -->|"publish"| EX_CMD
+
+    style Producers fill:#16213e,stroke:#1a1a2e,color:#eee
+    style Exchanges fill:#0f3460,stroke:#16213e,color:#eee
+    style Queues fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Consumers fill:#16213e,stroke:#1a1a2e,color:#eee
+```
+
+## Telemetry Flow (cluster mode)
+
+Поток данных от устройства через RabbitMQ к cluster instances, SSE-клиентам и workers.
+
+```mermaid
+sequenceDiagram
+    participant D as Device
+    participant MQ as RabbitMQ<br/>(MQTT plugin)
+    participant EX as Exchange<br/>iot.devices
+    participant Q as Queue<br/>iot.cluster.events
+    participant CIA as Cluster A
+    participant CIB as Cluster B
+    participant W1 as Worker 1
+    participant W2 as Worker 2
+    participant U1 as SSE client A
+    participant U2 as SSE client B
+
+    D->>MQ: PUBLISH iot/v1/{product}/{device}/telemetry
+    MQ->>EX: пересылает в exchange
+    EX->>Q: routing по account_slug
+    Q->>CIA: fanout (instance A)
+    Q->>CIB: fanout (instance B)
+    Q->>W1: routing по worker
+    Q->>W2: routing по worker
+    
+    CIA->>CIA: фильтр по account_id пользователя
+    CIA->>U1: SSE event
+    CIB->>CIB: фильтр по account_id пользователя
+    CIB->>U2: SSE event
+    
+    W1->>W1: run internal plugins
+    W2->>W2: run internal plugins
+```
+
+## Command Flow (cluster mode)
+
+Маршрутизация команды от UI/API через RabbitMQ к нужному cluster instance, который отправляет команду устройству через MQTT.
+
+```mermaid
+sequenceDiagram
+    participant U as UI/API
+    participant CIB as Cluster B
+    participant DB as PostgreSQL<br/>device_instances
+    participant EX as Exchange<br/>iot.commands
+    participant Q as Queue<br/>iot.instance.cluster-A.commands
+    participant CIA as Cluster A
+    participant MQ as RabbitMQ<br/>(MQTT plugin)
+    participant D as Device
+
+    U->>CIB: POST /api/v1/devices/{id}/rpc
+    CIB->>DB: SELECT device_instances<br/>WHERE device_pk=?
+    DB-->>CIB: instance_id = "cluster-A"
+    CIB->>EX: PUBLISH routing_key=commands.instance.cluster-A
+    EX->>Q: routing по instance_id
+    Q->>CIA: deliver to instance A
+    CIA->>MQ: PUBLISH iot/v1/{product}/{device}/rpc/{method}
+    MQ->>D: downlink (через MQTT)
+    D-->>MQ: PUBACK
+    MQ-->>CIA: подтверждение
+    CIA-->>CIB: status (через отдельный канал)
+    CIB-->>U: 200 OK
+```
+
+## SSE Event Flow
+
+SSE-соединение между UI и cluster instance: подписка, фильтрация, auto-reconnect.
+
+```mermaid
+sequenceDiagram
+    participant U as UI (браузер)
+    participant CI as Cluster Instance
+    participant MQ as RabbitMQ
+    participant DB as PostgreSQL
+
+    Note over U,DB: Установка SSE-соединения
+    U->>CI: GET /api/v1/events/stream<br/>(Authorization: Bearer JWT)
+    CI->>DB: SELECT memberships WHERE user_id=?
+    DB-->>CI: account_ids пользователя
+    CI->>MQ: subscribe to events.{account_slug}.#<br/>для всех accounts пользователя
+    CI-->>U: 200 OK<br/>text/event-stream
+    
+    Note over U,DB: Передача событий
+    MQ->>CI: event {account_slug, device_id, kind}
+    CI->>CI: фильтр по account_id пользователя
+    alt event для account пользователя
+        CI->>U: data: {event JSON}\n\n
+    else event для чужого account
+        CI->>CI: skip
+    end
+    
+    Note over U,DB: Auto-reconnect при разрыве
+    U->>CI: GET /api/v1/events/stream<br/>(Last-Event-ID: ...)
+    CI->>MQ: resubscribe
+    CI-->>U: 200 OK
+```
+
+## External Plugin SDK Architecture
+
+Архитектура Plugin SDK: абстракция transport для разработчиков плагинов.
+
+```mermaid
+graph TB
+    subgraph Plugin["External Plugin (код разработчика)"]
+        CODE["p.Subscribe(pattern, handler)<br/>p.Publish(topic, payload)"]
+    end
+
+    subgraph SDK["Plugin SDK (pkg/plugin-sdk)"]
+        API["API layer<br/>(Subscribe/Publish/Run)"]
+        TRANS["Transport abstraction"]
+        SER["Serialization<br/>(JSON/protobuf)"]
+        CONN["Connection management<br/>(reconnect, heartbeat)"]
+    end
+
+    subgraph Impl["Transport implementations"]
+        MQTT["MQTT transport<br/>(single)"]
+        AMQP["AMQP transport<br/>(cluster)"]
+    end
+
+    subgraph Brokers["Brokers"]
+        MB["Встроенный<br/>mochi-mqtt<br/>(single)"]
+        RB["RabbitMQ<br/>(cluster)"]
+    end
+
+    CODE --> API
+    API --> TRANS
+    TRANS --> SER
+    TRANS --> CONN
+    TRANS --> MQTT
+    TRANS --> AMQP
+    MQTT --> MB
+    AMQP --> RB
+
+    style Plugin fill:#16213e,stroke:#1a1a2e,color:#eee
+    style SDK fill:#0f3460,stroke:#16213e,color:#eee
+    style Impl fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style Brokers fill:#16213e,stroke:#1a1a2e,color:#eee
+```
