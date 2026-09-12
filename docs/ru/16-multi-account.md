@@ -25,6 +25,8 @@
 - **Мастер первой установки** (полный) — `/setup` доступен, пока `accounts` пуста; `.env` опционален.
 - **Версионирование**: релиз разбит на этапы v1.0…v1.6 + явный v2 (см. [§4.5](#45-план-релиза--этапы)).
 - **HA / кластеризация** — явно v2; v1 проектируется с учётом будущей HA, но реализует только single-instance (см. [§7.7](#77-архитектурные-ограничения-v1-для-будущей-кластеризации)).
+- **Automation page** — депрекейс; замена на документацию по интеграции с Node-RED + inline help в UI.
+- **UI modernization** — обновление визуального стиля, сохранение mobile-first подхода.
 
 ---
 
@@ -100,7 +102,7 @@
 | **v1.3** | **IAM + Invitations** | F-301…F-308 | `POST /invitations` → письмо → `accept` → membership; resend/revoke работают; last-admin защита |
 | **v1.4** | **Catalog plugin management** | F-801…F-806 | `account_plugin_policies` управляет hub; `PATCH /policies/{pluginId}` применяется «на лету»; UI Settings → Integrations |
 | **v1.5** | **Monitoring** | F-901…F-908, F-1001…F-1010 | `prometheus-exporter` отдаёт метрики; `metrics-dashboard` рисует таб в device page; scrape-конфиг опубликован |
-| **v1.6** | **Polish + docs** | F-107, F-1101…F-1106, F-1201…F-1205, NF-10…NF-12 | `audit_log` с `actor_kind`; UI-страницы (Members, Invitations, Account Settings) полированы; 02/03/04/07/08/11 обновлены; examples/plugins/* под новые топики |
+| **v1.6** | **Polish + docs + UI** | F-107, F-1101…F-1106, F-1201…F-1205, F-1501…F-1505, NF-10…NF-12, NF-22…NF-24 | `audit_log` с `actor_kind`; UI-страницы (Members, Invitations, Account Settings) полированы; Automation page удалена, заменена документацией + inline help; UI modernized (NF-22..24); 02/03/04/06/07/08/11 обновлены; examples/plugins/* под новые топики |
 | **v2.0** | **HA / Clustering** *(вне v1)* | (см. [§14](#14-будущие-улучшения)) | Multi-instance: N инстансов за L7-балансировщиком; внешний MQTT broker; Redis pub/sub для WS; leader election для plugin runners; Postgres — обязательный драйвер |
 | **v2.1** | **rabbitmq-bridge** *(вне v1)* | (см. [§14](#14-будущие-улучшения)) | Каталожный плагин `rabbitmq-bridge` публикует события в RabbitMQ exchanges с лейблом `account` |
 
@@ -237,7 +239,7 @@
 | F-803 | API: `PATCH /api/v1/accounts/{id}/plugins/policies/{pluginId}` (admin) — тело `{enabled?: bool, settings?: json}`. Изменения применяются «на лету» — hub перебирает bindings аккаунта и останавливает/запускает runners | P0 | ☐ |
 | F-804 | Hub `services.PluginHub.Dispatch` и `ApplyConfig` скипают bindings отключённых плагинов (не вызывают `OnEvent`); device-tick их не будит | P0 | ☐ |
 | F-805 | Каталожные плагины (led-garland, schedule) уважают policy; внешние плагины (зарегистрированные через API) — **не** управляются этой таблицей (у них свой account-scope) | P0 | ☐ |
-| F-806 | UI: Settings → Account → **Integrations**: список плагинов с тумблером и кнопкой «Settings» (открывает form-driven редактор `Descriptor.Form`) | P0 | ☐ |
+| F-806 | UI: Settings → Account → **Integrations** (доступно **только admin**): список каталожных плагинов с тумблером enabled/disabled и кнопкой «Settings» (открывает form-driven редактор `Descriptor.Form`). Текущая реализация: в `SettingsPage.tsx` уже есть секция External Plugins (admin-only); секция Integrations для каталожных плагинов — **новая**, добавляется в v1.4 | P0 | ☐ |
 
 ### 5.9 Внутренний плагин `prometheus-exporter`
 
@@ -327,6 +329,20 @@
 | F-1413 | Конфиг сохраняется в `accounts.settings_json` (для runtime-параметров визарда) и в `.env` (опционально, через блок `WIZARD_WRITE_ENV=true` если хочется persistent). По умолчанию `.env` **не** модифицируется | P1 | ☐ |
 | F-1414 | `CLI fallback`: команда `platform setup --from-yaml=config.yml` — неинтерактивный Apply для CI/CD. YAML-формат — отдельная схема в `11-operations.md` | P1 | ☐ |
 
+### 5.15 Automation page: депрекейс + документация Node-RED
+
+Текущая страница `/automation` — это iframe, встроенный Node-RED. Такой подход имеет проблемы: Node-RED не всегда доступен по URL из контейнера платформы, iframe не даёт контекста пользователю, а сама страница не несёт функциональной нагрузки сверх «открыть Node-RED в новой вкладке».
+
+**Решение:** убрать Automation page из навигации, заменить на документацию по интеграции с Node-RED + inline help в UI.
+
+| ID | Требование | Приоритет | Статус |
+|----|-----------|-----------|--------|
+| F-1501 | Убрать маршрут `/automation` и `AutomationPage.tsx` из роутера (`App.tsx`) и навигации (`AppShell.tsx` NAV-массив). Ссылка «Automation» в sidebar удаляется | P1 | ☐ |
+| F-1502 | Новая страница `/docs/automation` (или раздел в Settings) — **руководство по интеграции с Node-RED**: как подключить Node-RED к MQTT broker, какие топики использовать (`platform/v1/events/{account_slug}/...`, `platform/v1/commands/{account_slug}/...`), примеры flows.json, troubleshooting. Контент — на русском и английском | P1 | ☐ |
+| F-1503 | **Inline help в UI**: на странице Settings (для admin) — раздел «Automation & Integrations» с кратким описанием rules bus, ссылкой на полную документацию (`/docs/automation`), кнопкой «Copy MQTT topics» (копирует шаблон топиков для текущего аккаунта в clipboard). Для operator/viewer — раздел скрыт (automation — admin-only функциональность) | P1 | ☐ |
+| F-1504 | **Frontend documentation**: в самом UI — tooltips и help-иконки (ⓘ) рядом с ключевыми действиями: создание external plugin, настройка rules bus, привязка устройства к плагину. Текст tooltip — краткий (1-2 предложения), со ссылкой на полную документацию. Реализация — через `title` attribute или Bootstrap tooltip | P2 | ☐ |
+| F-1505 | Обновить `06-automation.md` / `06-automation.ru.md`: убрать описание iframe-страницы, добавить пошаговое руководство по настройке Node-RED с учётом multi-account (новые топики с `{account_slug}`, ACL для external plugins) | P1 | ☐ |
+
 ---
 
 ## 6. Нефункциональные требования
@@ -344,7 +360,7 @@
 | NF-09 | **Совместимость** | Новая установка стартует сразу на multi-account схеме; БД пересоздаётся вручную при переходе (миграционных утилит нет). Миграции — только forward, через `golang-migrate` |
 | NF-10 | **Observability** | `audit_log` уже есть — добавляем `account_id` и `actor_kind` (`user`/`platform_admin`/`api_token`/`setup`); structured logs включают `account_id` где возможно |
 | NF-11 | **UI** | Account switcher, Members, Invitations, Account Settings, Integrations, Setup Wizard — новые страницы в SPA, добавлены в роутер |
-| NF-12 | **Документация** | Обновить `02-api.md`, `03-auth.md`, `04-mqtt.md`, `07-internal-plugins.md`, `08-external-plugins.md`, `11-operations.md`, `06-automation.md` (правила bus) и `examples/plugins/*` (MQTT subscribe/put под новые топики) |
+| NF-12 | **Документация** | Обновить `02-api.md`, `03-auth.md`, `04-mqtt.md`, `06-automation.md` (убрать iframe, добавить руководство по Node-RED + multi-account), `07-internal-plugins.md`, `08-external-plugins.md`, `11-operations.md` и `examples/plugins/*` (MQTT subscribe/put под новые топики) |
 | NF-13 | **DB** | `golang-migrate` версия: `>=4.17`. Все миграции должны быть reversible (иметь `down`); CI проверяет `make migrate-down && make migrate-up` на пустой БД обоих драйверов |
 | NF-14 | **DB** | Плейсхолдеры: только через `db.Rebind()` или `?` с явным `?`-style (если пишем чисто для sqlite, ставим `// driver:sqlite` в комментарии). Линтер `go vet` + `staticcheck` ловит прямые `fmt.Sprintf` в SQL |
 | NF-15 | **DB** | Транзакции: пишем `db.WithTx(ctx, func(tx) {...})` — helper, который корректно откатывает при panic и логирует при ошибке. Не использовать `db.Begin()` напрямую в хендлерах |
@@ -354,6 +370,9 @@
 | NF-19 | **HA-readiness** | Все SQL-запросы — параметризованные. Все `goroutine` — `context.Context`-aware. Все `account_id` — `INTEGER`, не UUID. Никаких глобальных `sync.Mutex` на per-account ресурсы. Подробности — [§7.7](#77-архитектурные-ограничения-v1-для-будущей-кластеризации) |
 | NF-20 | **Тесты** | Integration-смоук (devices publish → telemetry stored → ACL scope check → audit log written) запускается на **обоих** драйверах. Покрытие ACL-кейсов (positive + negative) — 100% в `internal/mqtt/acl_test.go` |
 | NF-21 | **UI/UX** | Любой `4xx` от сервера, связанный с `account_id` (mismatch / not found / suspended), даёт **читаемое** сообщение в UI («Это устройство принадлежит другому аккаунту — переключите аккаунт»), а не сырой JSON |
+| NF-22 | **UI/Modern** | Визуальное обновление UI: пересмотр цветовой схемы, типографики, отступов и компонентов в `theme.scss`. Цель — современный, чистый вид при сохранении Bootstrap 5 как основы. Конкретика: карточки с тенями/скруглениями, улучшенные контрасты для dark theme, консистентные размеры кнопок и инпутов, иконки (SVG inline или icon font) вместо текстовых лейблов где уместно |
+| NF-23 | **UI/Mobile** | Mobile-first подход сохраняется и усиливается: все новые страницы (Setup Wizard, Members, Invitations, Integrations, Account Settings) обязаны корректно отображаться на экранах ≥360px. Таблицы — responsive (горизонтальный скролл или card-view на мобильных). Формы — одноколоночные на мобильных, многоколоночные на desktop. Offcanvas-навигация уже работает — новые пункты добавляются в `NAV`-массив `AppShell.tsx` |
+| NF-24 | **UI/Inline help** | Все admin-only действия (создание external plugin, управление internal plugins, приглашения, account settings) имеют tooltips или help-иконки (ⓘ) с кратким описанием (1-2 предложения) и ссылкой на полную документацию. Реализация — Bootstrap tooltip или `title` attribute. Текст — на русском и английском |
 
 ---
 
@@ -1001,6 +1020,16 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 - [ ] `services.ScopeAccount` — единственная точка фильтрации per-account (grep по `WHERE account_id` показывает только этот helper)
 - [ ] `prometheus-exporter` `cogitor_sqlite_wal_bytes`, `cogitor_db_open_connections`, `cogitor_db_in_use` экспозятся
 
+### 13.9 UI: Automation депрекейс + modernization + inline help
+
+- [ ] Маршрут `/automation` удалён из `App.tsx` и `AppShell.tsx` NAV-массива; `AutomationPage.tsx` удалён
+- [ ] Страница/раздел `/docs/automation` (или в Settings) содержит руководство по интеграции с Node-RED: подключение к MQTT broker, топики `platform/v1/events/{account_slug}/...`, примеры flows.json, troubleshooting
+- [ ] Settings → «Automation & Integrations» (admin-only): краткое описание rules bus, ссылка на документацию, кнопка «Copy MQTT topics»
+- [ ] Tooltips / help-иконки (ⓘ) присутствуют на admin-only действиях: создание external plugin, управление internal plugins (Integrations), приглашения, account settings
+- [ ] UI прошёл визуальное обновление (NF-22): пересмотрена `theme.scss` — карточки с тенями/скруглениями, улучшенные контрасты, консистентные размеры
+- [ ] Все новые страницы (Setup Wizard, Members, Invitations, Integrations, Account Settings) корректно отображаются на экранах ≥360px (NF-23)
+- [ ] `06-automation.md` обновлён: убрано описание iframe, добавлено пошаговое руководство по Node-RED с multi-account
+
 ---
 
 ## 14. Будущие улучшения (v2+)
@@ -1078,7 +1107,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | [02-api.md](02-api.md) | REST API reference (будет дополнен новыми эндпоинтами) |
 | [03-auth.md](03-auth.md) | Аутентификация (JWT claims, active account) |
 | [04-mqtt.md](04-mqtt.md) | MQTT-протокол (правила bus — новый формат) |
-| [06-automation.md](06-automation.md) | Node-RED / rules bus (обновить flows.json под новые топики) |
+| [06-automation.md](06-automation.md) | Node-RED / rules bus (**обновить**: убрать iframe-описание, добавить пошаговое руководство по интеграции с multi-account, новые топики с `{account_slug}`, ACL для external plugins) |
 | [07-internal-plugins.md](07-internal-plugins.md) | Catalog + новые плагины (prometheus-exporter, metrics-dashboard) |
 | [08-external-plugins.md](08-external-plugins.md) | Account-scoped external plugins (mqtt_user формат, ACL) |
 | [11-operations.md](11-operations.md) | Эксплуатация (конверсия, конфигурация) |
