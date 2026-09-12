@@ -140,14 +140,19 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket (дашборд real-time)
-    location /api/v1/ws {
+    # SSE (дашборд real-time) — HTTP-based, не WebSocket
+    location /api/v1/events/stream {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        # SSE не использует Upgrade/Connection: upgrade — оставляем обычный HTTP/1.1
         proxy_set_header Host $host;
-        proxy_read_timeout 86400;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Критично для SSE: выключаем буферизацию и увеличиваем таймаут
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 86400s;
     }
 
     # MQTT over WebSocket
@@ -179,7 +184,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | Порт | Протокол | Назначение |
 |------|----------|-----------|
 | 80 | TCP | HTTP → redirect на HTTPS |
-| 443 | TCP | HTTPS (дашборд + API + WSS) |
+| 443 | TCP | HTTPS (дашборд + API + SSE + MQTT-over-WebSocket) |
 | 1883 | TCP | MQTT TCP (для устройств) |
 
 ---
@@ -257,7 +262,7 @@ SQLite-база и данные сохраняются в `/opt/iot-platform-go/
 | Сервис | URL |
 |--------|-----|
 | Дашборд / API | `https://iot.cogitor.dev` |
-| WebSocket | `wss://iot.cogitor.dev/api/v1/ws` |
+| SSE (real-time) | `https://iot.cogitor.dev/api/v1/events/stream` |
 | MQTT TCP | `iot.cogitor.dev:1883` |
 | MQTT WebSocket | `wss://iot.cogitor.dev/mqtt` |
 | Healthcheck | `https://iot.cogitor.dev/healthz` |

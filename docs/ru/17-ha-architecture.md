@@ -26,11 +26,11 @@
 - **HA = альтернативный deployment**, не миграция с single. Single mode остаётся полностью поддерживаемым.
 - **3 бинарника** в одном monorepo:
   - `platform-single` — single mode (v1.x, как сейчас)
-  - `platform-cluster` — UI/API/WebSocket (SSE) + Prometheus + RabbitMQ client
+  - `platform-cluster` — UI/API/SSE (HTTP-based, не WebSocket) + Prometheus + RabbitMQ client
   - `platform-worker` — stateless execution of internal plugins
 - **RabbitMQ** — обязательный middleware для cluster mode: MQTT broker для устройств, AMQP для inter-instance и external plugins
 - **PostgreSQL** — обязательная БД (SQLite не поддерживается в cluster)
-- **SSE вместо WebSocket** в cluster mode — проще, HTTP-based, не требует sticky sessions
+- **SSE (Server-Sent Events)** для real-time UI в **обоих** режимах — HTTP-based, не WebSocket, не требует sticky sessions, единый эндпоинт `GET /api/v1/events/stream`
 - **External Plugin SDK** — единый API; Transport выбирается режимом деплоя: `mqtt` в single, `amqp` в cluster. Один код плагина работает в обоих режимах.
 - **Device registry** (`device_instances` table) — для видимости device → instance mapping
 - **Встроенный MQTT broker остаётся** в single mode; в cluster не используется
@@ -47,7 +47,7 @@
 | **MQTT broker** | Встроенный (`mochi-mqtt`) | RabbitMQ (с MQTT plugin) |
 | **БД** | SQLite или PostgreSQL | Только PostgreSQL |
 | **External plugins** | Только MQTT | Только AMQP (RabbitMQ) |
-| **Real-time UI** | WebSocket | SSE (Server-Sent Events) |
+| **Real-time UI** | SSE (Server-Sent Events) | SSE (Server-Sent Events) |
 | **Internal plugins** | In-process | В workers (stateless) |
 | **Dependencies** | Только БД | RabbitMQ + PostgreSQL |
 | **Use case** | Малые/средние деплои (≤1k devices) | Большие деплои (1k+ devices) |
@@ -157,7 +157,7 @@ graph LR
         S_DEV["Device"] -->|"MQTT"| S_BROKER["Встроенный<br/>mochi-mqtt"]
         S_BROKER --> S_APP["platform-single<br/>(всё in-process)"]
         S_APP --> S_DB[("SQLite/Postgres")]
-        S_UI["UI"] -->|"WebSocket"| S_APP
+        S_UI["UI"] -->|"SSE"| S_APP
         S_EP["External Plugin"] -->|"MQTT"| S_BROKER
     end
 
@@ -325,14 +325,14 @@ CREATE INDEX idx_device_instances_instance ON device_instances(instance_id);
 
 **Роль:**
 - UI/API server (HTTP REST)
-- SSE server (вместо WebSocket)
+- SSE server (HTTP-based, не WebSocket)
 - Prometheus exporter (simple, no embedded TSDB)
 - RabbitMQ client (consume events, publish commands)
 
 **НЕ имеет:**
 - Встроенного MQTT broker
 - Internal plugins (они в workers)
-- WebSocket server
+- WebSocket server (заменён на SSE)
 
 **Stateless:** может быть запущено N instance'ов за L7 LB. Каждый instance обрабатывает свои HTTP-запросы и SSE-соединения.
 
@@ -407,6 +407,42 @@ internal_plugins:
 **Разработка плагинов:**
 - Используют `pkg/plugin-sdk` (публичный Go модуль)
 - SDK абстрагирует transport — код плагина одинаковый для всех режимов
+
+### 2.5.1 Node-RED: переход с MQTT на AMQP
+
+Node-RED — самый популярный external plugin. В single mode он подключается к платформе через **MQTT-ноды** (`node-red-contrib-mqtt-broker`). В cluster mode MQTT-ноды **не работают** — платформа не даёт external plugins доступ к MQTT-порту, только AMQP. Это значит, что flow нужно переписать на **AMQP-ноды** (`node-red-contrib-amqp` или `@iiot-rabbitmq/amqp`).
+
+**Сравнение транспортов для Node-RED:**
+
+| Аспект | Single mode (MQTT) | Cluster mode (AMQP) |
+|--------|---------------------|---------------------|
+| **Нода** | `mqtt in` / `mqtt out` | `amqp in` / `amqp out` |
+| **Палетт** | `node-red-contrib-mqtt-broker` (встроен) | `node-red-contrib-amqp` (установить) |
+| **Connection URL** | `mqtt://<platform>:1883` | `amqp://<rabbitmq>:5672` |
+| **Subscribe events** | Topic: `platform/v1/events/{slug}/{product}/{device}/#` | Exchange `iot.external` (topic) + routing key `events.{slug}.#` |
+| **Publish commands** | Topic: `platform/v1/commands/{slug}/{product}/{device}/rpc` | Exchange `iot.commands` (topic) + routing key `commands.{slug}.{product}.{device}.{kind}` |
+| **Username** | `extplg_{slug}_{id}` (тот же) | `extplg_{slug}_{id}` (тот же) |
+| **Пароль** | одноразовый из дашборда | **тот же** (не пересоздаётся) |
+| **Payload** | JSON | JSON (тот же) |
+
+**Credentials (`extplg_*`) не меняются при переходе single → cluster** — это один и тот же plugin account. Разный только transport.
+
+**Пошагово для существующего flow:**
+
+1. Установить палетт: меню → Manage palette → Install `node-red-contrib-amqp`.
+2. Создать `amqp-broker` config-ноду:
+   - Host: `rabbitmq` (в docker-compose) или `<rabbitmq-host>` (bare-metal)
+   - Port: `5672`
+   - Username: `extplg_<account_slug>_<plugin_id>` (из дашборда, поле «MQTT User»)
+   - Password: сохранённый пароль из дашборда (тот же, что использовался в MQTT-нодах)
+3. В flow заменить `mqtt in` → `amqp in`, `mqtt out` → `amqp out`:
+   - **Subscribe events**: exchange = `iot.external`, exchange type = `topic`, routing key = `events.{account_slug}.#`
+   - **Publish RPC**: exchange = `iot.commands`, exchange type = `topic`, routing key = `commands.{account_slug}.{product_id}.{device_id}.rpc`
+4. **Deploy** — connection должен стать зелёным (статус `connect` на ноде).
+
+**Куда положить Node-RED:** в cluster mode Node-RED должен иметь **сетевой доступ к RabbitMQ** (порт 5672), а не к MQTT-порту платформы. В docker-compose — `networks: [cluster_net]` на обоих сервисах. `NODERED_URL` остаётся как раньше (URL для iframe в дашборде).
+
+**Полная инструкция с JSON-примерами нод:** см. [06-automation.md → HA / Cluster mode (RabbitMQ)](06-automation.md#ha--cluster-mode-rabbitmq).
 
 ---
 
@@ -671,41 +707,20 @@ graph TB
 
 ## 5. Функциональные требования (HA-specific)
 
-### 5.1 F2-01..F2-07: HA Foundation (v2.0)
+Детальные таблицы F2-xxx вынесены в отдельный документ: **[17-ha-architecture-requirements.md](17-ha-architecture-requirements.md)**. Здесь — только навигация по группам, чтобы было видно, какие ID покрывают какие подсистемы.
 
-| ID | Требование | Приоритет |
-|----|-----------|-----------|
-| F2-01 | **Cluster instance** (`platform-cluster`): UI/API + SSE + Prometheus + RabbitMQ client. Без встроенного MQTT | P0 |
-| F2-02 | **Worker** (`platform-worker`): stateless execution of internal plugins. Подписан на RabbitMQ events | P0 |
-| F2-03 | **RabbitMQ integration**: подключение к RabbitMQ, consume events, publish commands. Auto-reconnect, heartbeat | P0 |
-| F2-04 | **Device registry**: таблица `device_instances`. Обновление при MQTT connect/disconnect через RabbitMQ MQTT plugin events | P0 |
-| F2-05 | **Command routing**: API → lookup device_instances → publish в `iot.commands` с routing key `commands.instance.{instance_id}` | P0 |
-| F2-06 | **SSE endpoint**: `GET /api/v1/events/stream` — HTTP-based, не требует sticky session. Auto-reconnect | P0 |
-| F2-07 | **Prometheus exporter**: простой exporter без embedded TSDB. Метрики с лейблом `instance_id` | P1 |
+| Подсистема | Секция в sub-doc | ID-диапазон |
+|------------|------------------|-------------|
+| HA Foundation (v2.0): cluster instance, worker, RabbitMQ, device registry, command routing, SSE, Prometheus | [§5.1](17-ha-architecture-requirements.md#51-f2-01f2-07-ha-foundation-v20) | F2-01…F2-07 |
+| Account-level features (v2.2): RBAC, rate limiting, retention, import/export, signing, remote_write | [§5.2](17-ha-architecture-requirements.md#52-f2-21f2-26-account-level-features-v22) | F2-21…F2-26 |
+| Future (v2.3+): SSO, SIEM, transfer, dashboards, DR, marketplace | [§5.3](17-ha-architecture-requirements.md#53-f2-31f2-36-future-v23) | F2-31…F2-36 |
 
-> **Примечание:** F2-11..F2-15 (`rabbitmq-bridge` plugin) **удалены** — см. §7.6. External apps подключаются к RabbitMQ напрямую через SDK.
+**Соглашения по ID:**
 
-### 5.2 F2-21..F2-26: Account-level features (v2.2)
+- `F2-0xx` — HA Foundation (v2.0); `F2-1xx` — *(удалённый диапазон, бывший `rabbitmq-bridge` plugin; см. §7.6 в main)*; `F2-2xx` — Account-level features (v2.2); `F2-3xx` — Future (v2.3+).
+- Удалённые ID: `F2-11..F2-15` (v2.1, отменены вместе с `rabbitmq-bridge`) — указаны явно в sub-doc.
 
-| ID | Требование | Приоритет |
-|----|-----------|-----------|
-| F2-21 | **Custom RBAC**: per-account кастомные роли поверх встроенных admin/operator/viewer | P1 |
-| F2-22 | **Per-account API rate limiting**: token bucket в PostgreSQL (без Redis) | P1 |
-| F2-23 | **Per-account retention override**: отдельные retention для telemetry/events/audit | P1 |
-| F2-24 | **Account import/export (JSON)**: полный дамп products/devices/credentials в JSON | P1 |
-| F2-25 | **Webhook signing per-account**: HMAC-SHA256 в заголовке `X-Cogitor-Signature` | P2 |
-| F2-26 | **Per-account Prometheus remote_write**: отправка метрик в account-specific Prometheus | P2 |
-
-### 5.3 F2-31..F2-36: Future (v2.3+)
-
-| ID | Требование | Заметка |
-|----|-----------|--------|
-| F2-31 | **SSO providers per account** (OIDC, SAML) | Заменяет local auth для конкретного account'а |
-| F2-32 | **Audit log streaming в SIEM** (Kafka, Loki, Splunk) | Через отдельный sink |
-| F2-33 | **Account transfer / merge** | Сложный flow с подтверждением |
-| F2-34 | **Cross-account dashboards** | Только для platform-admin |
-| F2-35 | **Multi-region / DR** (Postgres streaming replication) | Требует F2-05 (object storage) |
-| F2-36 | **Plugin marketplace** (подписанные каталожные плагины) | Отдельный реестр |
+**Правило для PR:** новые F2-IDs добавляются в sub-doc; в main-документе упоминается только диапазон (например, `F2-4xx` для новой HA-фичи). Это держит основной HA-PRD компактным и читаемым.
 
 ### 5.4 Принцип «не делаем» (явный список)
 
@@ -826,7 +841,7 @@ graph TB
 
 **Контекст:** §5.2 описывает `rabbitmq-bridge` как каталожный internal plugin, который публикует события в RabbitMQ exchange. Но в cluster mode (v2.0+) платформа **уже подключена к RabbitMQ** — plugin-мост не нужен.
 
-**Решение:** ✅ **Удалить F2-11..F2-15** (см. §5.2). External apps подключаются к тому же RabbitMQ напрямую через SDK (Transport=`amqp`).
+**Решение:** ✅ **Удалить F2-11..F2-15** (см. [§5.1](17-ha-architecture-requirements.md#51-f2-01f2-07-ha-foundation-v20)). External apps подключаются к тому же RabbitMQ напрямую через SDK (Transport=`amqp`).
 
 **Что делаем:**
 - ❌ Не реализуем `internal/plugins/rabbitmq_bridge.go`

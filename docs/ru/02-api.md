@@ -2,7 +2,7 @@
 
 Все эндпоинты на `/api/v1`. Авторизация: `Authorization: Bearer <JWT>` или `Bearer <API-токен>`.
 
-WebSocket для real-time обновлений: `GET /api/v1/ws?token=<jwt>` — JSON-сообщения `{ "event", "data" }`.
+SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt>` — `Content-Type: text/event-stream`, JSON-сообщения `{ "event", "data" }`, auto-reconnect через `Last-Event-ID`. HTTP-based, не требует sticky sessions; один endpoint в single и cluster mode.
 
 ---
 

@@ -55,7 +55,7 @@ Cogitor IoT Platform is a **single-process IoT backend** that runs on your NAS, 
 - **RPC console** — call device methods (reboot, custom) with auto-populated forms from live device catalog
 - **OTA updates** — upload `.bin` firmware, host download URLs, auto-push on reconnect (Auto-OTA)
 - **Embedded MQTT broker** — no external broker needed; device ACL scoped per identity
-- **Real-time dashboard** — WebSocket-powered live updates for device status, telemetry, MQTT sessions
+- **Real-time dashboard** — SSE-powered live updates for device status, telemetry, MQTT sessions (HTTP-based, no WebSocket)
 - **Automation** — Node-RED rules bus for cross-device logic; in-process plugins for per-device behavior (LED garland, schedule)
 - **MCP endpoint** — AI clients (Cursor, Claude, etc.) can list devices, read telemetry, invoke RPC
 - **Auth & roles** — JWT login, Google OAuth, self-registration, admin / operator / viewer roles
@@ -145,7 +145,7 @@ The dashboard is a React SPA embedded into the Go binary. It provides a dark-the
 
 ### Real-Time Updates
 
-The dashboard uses WebSocket (`GET /api/v1/ws?token=<jwt>`) for live updates. When a device connects, sends telemetry, or changes status, the dashboard refreshes automatically — no manual reload needed.
+The dashboard uses SSE (`GET /api/v1/events/stream?token=<jwt>`) for live updates. When a device connects, sends telemetry, or changes status, the dashboard refreshes automatically — no manual reload needed. SSE is HTTP-based (no WebSocket), works through any reverse proxy without sticky sessions, and the browser auto-reconnects on network blips via `Last-Event-ID`.
 
 ---
 
@@ -221,7 +221,7 @@ If a token is compromised:
 Devices publish telemetry on `v1/t` (short) or `iot/v1/.../up/telemetry/data` (full). The platform:
 - Parses the JSON payload
 - Stores it in SQLite with timestamps
-- Broadcasts it via WebSocket to the dashboard
+- Broadcasts it via SSE to the dashboard
 - Publishes it to the rules bus for Node-RED
 
 **Query telemetry** via REST:
@@ -661,7 +661,7 @@ See [docs/README_en.md](docs/README_en.md) for the full index.
 Verify your deployment is working:
 
 - [ ] Device connects with token and appears **online** in dashboard
-- [ ] Telemetry shows in device detail and updates via WebSocket
+- [ ] Telemetry shows in device detail and updates via SSE
 - [ ] Desired attribute patch reaches device (`v1/a/upd`)
 - [ ] RPC round-trip with matching `id` and `code: 0`
 - [ ] NTP request gets `serverRecvTime` / `serverSendTime`
