@@ -99,7 +99,7 @@
 | **v1.0** | **DB foundation + bootstrap** | F-101, F-102, F-104…F-106, F-1301…F-1306, F-1401…F-1412 | Чистая установка через визард поднимает платформу; SQLite и Postgres проходят одинаковый smoke; в БД есть один аккаунт `default` с admin |
 | **v1.1** | **Auth + Tenancy** | F-201…F-208, F-401…F-407, F-501…F-507, F-108 | Все listing-эндпоинты фильтруют по `account_id`; кросс-аккаунтный доступ = `404`; account switcher в UI работает; JWT содержит `active_account_id` |
 | **v1.2** | **External plugin ACL + system topics** | F-601…F-606, F-701…F-703, F-705, F-706 | `mqtt_user = extplg_{slug}_{id}`; ACL в `internal/mqtt/hook.go` сужен до `platform/v1/{events\|commands}/{slug}/#`; cross-account → `acl_deny`; `flows.json` обновлён |
-| **v1.3** | **IAM + Invitations** | F-301…F-308 | `POST /invitations` → письмо → `accept` → membership; resend/revoke работают; last-admin защита |
+| **v1.3** | **IAM + Invitations** | F-301…F-311 | `POST /invitations` → письмо → `accept` → membership; resend/revoke работают; last-admin защита; **ручное создание пользователя** (без email); **shareable link** (расшаривание через мессенджер) |
 | **v1.4** | **Catalog plugin management** | F-801…F-806 | `account_plugin_policies` управляет hub; `PATCH /policies/{pluginId}` применяется «на лету»; UI Settings → Integrations |
 | **v1.5** | **Monitoring** | F-901…F-908, F-1001…F-1010 | `prometheus-exporter` отдаёт метрики; `metrics-dashboard` рисует таб в device page; scrape-конфиг опубликован |
 | **v1.6** | **Polish + docs + UI** | F-107, F-1101…F-1106, F-1201…F-1205, F-1501…F-1505, NF-10…NF-12, NF-22…NF-24 | `audit_log` с `actor_kind`; UI-страницы (Members, Invitations, Account Settings) полированы; Automation page удалена, заменена документацией + inline help; UI modernized (NF-22..24); 02/03/04/06/07/08/11 обновлены; examples/plugins/* под новые топики |
@@ -165,6 +165,9 @@
 | F-306 | Resend: `POST /api/v1/accounts/{id}/invitations/{id}/resend` (admin) — генерирует новый токен, помечает старый `revoked` | P1 | ☐ |
 | F-307 | Revoke: `DELETE /api/v1/accounts/{id}/invitations/{id}` (admin) | P1 | ☐ |
 | F-308 | Audit: `invite.create`, `invite.accept`, `invite.resend`, `invite.revoke` пишутся в `audit_log` с `entity_type='invitation'`, `entity_id=token_prefix` | P0 | ☐ |
+| F-309 | **Ручное создание пользователя** (без email): `POST /api/v1/accounts/{id}/members` (admin) — тело `{login, email, password, role}`. Платформа создаёт `users` + `account_memberships` напрямую, не генерируя invitation. Email-верификация пропускается (admin подтверждает email вручную). Пароль должен соответствовать policy (min 8, буква+цифра). Если `email` уже занят — `409 user_exists`. UI: кнопка «Create user manually» в Settings → Members | P0 | ☐ |
+| F-310 | **Shareable link** (альтернатива email): при создании приглашения (`POST /invitations`) админ может выбрать `delivery_method ∈ {email, link}`. Если `link` — платформа **не отправляет письмо**, а возвращает ссылку `{PUBLIC_BASE_URL}/invite/{token}` в ответе. Админ копирует ссылку и расшаривает её через любой канал (мессенджер, телефон, лично). UI: radio «Send via email» / «Generate shareable link» в диалоге приглашения | P0 | ☐ |
+| F-311 | **UI для альтернативных методов**: в Settings → Members — три кнопки: «Invite via email» (открывает диалог с email-полем), «Create shareable link» (генерирует ссылку с выбором роли), «Create user manually» (форма с login/email/password/role). Для operator/viewer — только «Invite via email» (остальные — admin-only) | P0 | ☐ |
 
 ### 5.4 Изоляция ресурсов
 
@@ -967,6 +970,9 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 - [ ] После `accept` пользователь сразу видит аккаунт в switcher
 - [ ] Resend revoke'ит старый токен и шлёт новый
 - [ ] TTL по умолчанию 72h; expired токен → `404 invite_not_found`
+- [ ] **Ручное создание**: `POST /accounts/{id}/members` с `{login, email, password, role}` создаёт пользователя напрямую (без invitation); email-верификация пропущена
+- [ ] **Shareable link**: при создании invitation с `delivery_method=link` — письмо не отправляется, ссылка возвращается в ответе; админ копирует и расшаривает через мессенджер
+- [ ] UI Settings → Members: три кнопки — «Invite via email», «Create shareable link», «Create user manually» (admin-only)
 
 ### 13.3 Внешние плагины и ACL
 
