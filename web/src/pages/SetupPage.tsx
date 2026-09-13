@@ -357,7 +357,7 @@ export function SetupPage() {
               <label className="form-label">TLS Key Path</label>
               <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/etc/iot-platform/server.key" />
             </div>
-            <div className="form-text">Leave empty to disable MQTT-over-TLS. Can be configured later via environment variables.</div>
+            <div className="form-text">Leave empty to disable MQTT-over-TLS. Can be configured later via config.yml.</div>
           </StepForm>
         )}
 
@@ -402,7 +402,7 @@ export function SetupPage() {
               </button>
             </div>
             <p className="muted small mt-2">
-              This will create the database, admin user, and default account. The application should be restarted after setup.
+              This will create the database, admin user, default account, and save configuration to config.yml. The application should be restarted after setup.
             </p>
           </div>
         )}

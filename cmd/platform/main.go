@@ -21,16 +21,31 @@ import (
 )
 
 func main() {
-	config.LoadDotEnv(".env")
+	// Load configuration from YAML only (no .env)
 	config.LoadYAML("./config.yml")
 	config.LoadYAML("/etc/iot-platform-go/config.yml")
 	cfg := config.Load()
+
+	// Use defaults if not configured
+	if cfg.DatabaseDriver == "" {
+		cfg.DatabaseDriver = "sqlite"
+	}
+	if cfg.DatabaseDSN == "" {
+		cfg.DatabaseDSN = "./data/platform.db"
+	}
+	if cfg.HTTPAddr == "" {
+		cfg.HTTPAddr = ":8080"
+	}
+	if cfg.MQTTAddr == "" {
+		cfg.MQTTAddr = ":1883"
+	}
+
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	slog.SetDefault(log)
 	if cfg.GoogleEnabled() {
 		log.Info("google oauth enabled", "redirect", cfg.GoogleCallbackURL())
 	} else {
-		log.Info("google oauth disabled — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env")
+		log.Info("google oauth disabled — configure via setup wizard or config.yml")
 	}
 
 	database, err := db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
@@ -45,13 +60,13 @@ func main() {
 	// Check if setup wizard is needed BEFORE EnsureAdmin
 	var setupService *services.SetupService
 	var userCount, accountCount int
-	
+
 	// Check if users table exists and has entries
 	if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
 		log.Warn("users table check failed", "err", err)
 		userCount = 0
 	}
-	
+
 	// Check if accounts table exists and has entries
 	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
 		log.Warn("accounts table check failed, enabling setup wizard", "err", err)
@@ -61,7 +76,7 @@ func main() {
 	// Setup wizard is needed if there are no users AND no accounts
 	if userCount == 0 && accountCount == 0 {
 		log.Info("fresh database detected, enabling setup wizard")
-		setupService = services.NewSetupService(log)
+		setupService = services.NewSetupService(database, log)
 	} else {
 		// Database already has data — ensure admin exists (migration case)
 		if err := plat.EnsureAdmin(); err != nil {

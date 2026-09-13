@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"cogitor-iot-platform/internal/auth"
@@ -60,12 +61,15 @@ type SetupState struct {
 
 // SetupService manages the setup wizard state.
 type SetupService struct {
-	state *SetupState
-	log   *slog.Logger
+	state    *SetupState
+	log      *slog.Logger
+	database *db.DB // existing database connection from main app
 }
 
 // NewSetupService creates a new setup service.
-func NewSetupService(log *slog.Logger) *SetupService {
+// It uses the existing database connection from the main app initially,
+// but the wizard can configure a different database connection.
+func NewSetupService(database *db.DB, log *slog.Logger) *SetupService {
 	return &SetupService{
 		state: &SetupState{
 			CurrentStep:    1,
@@ -79,7 +83,8 @@ func NewSetupService(log *slog.Logger) *SetupService {
 			JWTSecret:      generateSecret(),
 			PublicBaseURL:  "http://localhost:8080",
 		},
-		log: log,
+		log:      log,
+		database: database,
 	}
 }
 
@@ -167,7 +172,8 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 	return nil
 }
 
-// Apply executes the setup wizard and creates the initial database.
+// Apply executes the setup wizard and creates the initial data.
+// Opens a connection to the database specified in the wizard state.
 func (s *SetupService) Apply() error {
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
@@ -178,8 +184,24 @@ func (s *SetupService) Apply() error {
 
 	s.log.Info("applying setup wizard",
 		"driver", s.state.DatabaseDriver,
+		"dsn", s.state.DatabaseDSN,
 		"admin_email", s.state.AdminEmail,
 		"account_slug", s.state.AccountSlug)
+
+	// Open connection to the database specified in the wizard
+	database, err := db.Open(s.state.DatabaseDriver, s.state.DatabaseDSN)
+	if err != nil {
+		s.state.Error = fmt.Sprintf("database open failed: %v", err)
+		return err
+	}
+	defer database.Close()
+
+	// Check if accounts already exist (setup already done)
+	var accountCount int
+	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err == nil && accountCount > 0 {
+		s.state.Completed = true
+		return errors.New("setup already completed: accounts exist")
+	}
 
 	// Build config from wizard state
 	cfg := config.Config{
@@ -201,21 +223,6 @@ func (s *SetupService) Apply() error {
 		PublicBaseURL:        s.state.PublicBaseURL,
 	}
 
-	// Open database and run migrations
-	database, err := db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
-	if err != nil {
-		s.state.Error = fmt.Sprintf("database open failed: %v", err)
-		return err
-	}
-	defer database.Close()
-
-	// Check if accounts already exist (setup already done)
-	var accountCount int
-	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err == nil && accountCount > 0 {
-		s.state.Completed = true
-		return errors.New("setup already completed: accounts exist")
-	}
-
 	// Create bootstrap admin and default account
 	if err := bootstrapSetup(database, cfg); err != nil {
 		s.state.Error = fmt.Sprintf("bootstrap failed: %v", err)
@@ -226,6 +233,12 @@ func (s *SetupService) Apply() error {
 	if err := storeSettings(database, cfg); err != nil {
 		s.state.Error = fmt.Sprintf("store settings failed: %v", err)
 		return err
+	}
+
+	// Write configuration to config.yml for persistence
+	if err := writeConfigYAML(cfg); err != nil {
+		s.log.Warn("failed to write config.yml", "err", err)
+		// Not fatal - settings are already in the database
 	}
 
 	s.state.Completed = true
@@ -310,4 +323,53 @@ func generateSecret() string {
 		return "dev-jwt-secret-change-me"
 	}
 	return hex.EncodeToString(b)
+}
+
+// writeConfigYAML writes the configuration to config.yml for persistence.
+func writeConfigYAML(cfg config.Config) error {
+	// Build a minimal config structure for YAML
+	data := map[string]any{
+		"jwt_secret":      cfg.JWTSecret,
+		"public_base_url": cfg.PublicBaseURL,
+	}
+	if cfg.SMTPHost != "" {
+		data["smtp_host"] = cfg.SMTPHost
+		data["smtp_port"] = cfg.SMTPPort
+		data["smtp_user"] = cfg.SMTPUser
+		data["smtp_pass"] = cfg.SMTPPass
+		data["smtp_from"] = cfg.SMTPFrom
+	}
+	if cfg.MQTTTLSCert != "" {
+		data["mqtt_tls_cert"] = cfg.MQTTTLSCert
+		data["mqtt_tls_key"] = cfg.MQTTTLSKey
+	}
+
+	// Marshal to YAML
+	yamlData, err := marshalYAML(data)
+	if err != nil {
+		return fmt.Errorf("marshal yaml: %w", err)
+	}
+
+	// Write to config.yml
+	if err := os.WriteFile("config.yml", yamlData, 0644); err != nil {
+		return fmt.Errorf("write config.yml: %w", err)
+	}
+	return nil
+}
+
+// marshalYAML is a simple YAML marshaller for map[string]any.
+// This is a simplified implementation; for production use, consider using a proper YAML library.
+func marshalYAML(data map[string]any) ([]byte, error) {
+	var result []byte
+	for key, value := range data {
+		switch v := value.(type) {
+		case string:
+			result = append(result, fmt.Sprintf("%s: %q\n", key, v)...)
+		case int:
+			result = append(result, fmt.Sprintf("%s: %d\n", key, v)...)
+		default:
+			result = append(result, fmt.Sprintf("%s: %v\n", key, v)...)
+		}
+	}
+	return result, nil
 }
