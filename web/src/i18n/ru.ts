@@ -205,6 +205,8 @@ export const ru: Record<string, string> = {
   'settings.lastUsed': 'Последнее использование',
   'settings.revoke': 'Отозвать',
   'settings.revokeConfirm': 'Отозвать токен "{name}"?',
+  'settings.integrations': 'Интеграции и автоматизация',
+  'settings.integrationsDescription': 'Подключайте внешние сервисы, такие как Node-RED, через MQTT шину правил. Внешние плагины получают отдельные учётные данные и подписываются на события аккаунта.',
   'settings.externalPlugins': 'Внешние плагины',
   'settings.externalPluginsDescription': 'Плагины, подключающиеся через MQTT. Учётные данные показываются только при создании.',
   'settings.pluginId': 'ID плагина',
@@ -221,8 +223,6 @@ export const ru: Record<string, string> = {
   'settings.saveNewPassword': 'Сохраните новый пароль — он больше НЕ будет показан.',
   'settings.copyCredentials': 'Копировать учётные данные',
   'settings.deletePluginConfirm': 'Удалить плагин {name}?',
-  'settings.automation': 'Автоматизация и интеграции',
-  'settings.automationDescription': 'Платформа публикует события устройств в MQTT шину правил для внешних инструментов автоматизации, таких как Node-RED.',
   'settings.copyMqttTemplate': 'Копировать шаблон топика MQTT',
   'settings.rulesBusDisabled': 'Шина правил отключена. Включите её для использования внешней автоматизации.',
 

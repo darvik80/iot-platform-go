@@ -205,6 +205,8 @@ export const en: Record<string, string> = {
   'settings.lastUsed': 'Last used',
   'settings.revoke': 'Revoke',
   'settings.revokeConfirm': 'Revoke token "{name}"?',
+  'settings.integrations': 'Integrations & Automation',
+  'settings.integrationsDescription': 'Connect external services like Node-RED via MQTT rules bus. External plugins get dedicated credentials and subscribe to account-scoped events.',
   'settings.externalPlugins': 'External Plugins',
   'settings.externalPluginsDescription': 'Plugins that connect via MQTT. Credentials are shown only at creation.',
   'settings.pluginId': 'Plugin ID',
@@ -221,8 +223,6 @@ export const en: Record<string, string> = {
   'settings.saveNewPassword': 'Save the new password — it will NOT be shown again.',
   'settings.copyCredentials': 'Copy credentials',
   'settings.deletePluginConfirm': 'Delete plugin {name}?',
-  'settings.automation': 'Automation & Integrations',
-  'settings.automationDescription': 'The platform publishes device events to an MQTT rules bus for external automation tools like Node-RED.',
   'settings.copyMqttTemplate': 'Copy MQTT topic template',
   'settings.rulesBusDisabled': 'Rules bus is disabled. Enable it to use external automation.',
 

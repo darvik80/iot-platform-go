@@ -194,13 +194,47 @@ export function SettingsPage() {
 
       {isAdmin && (
         <>
-          <h2 className="h5 mt-4 mb-2">{t('settings.externalPlugins')}</h2>
-          <div className="d-flex align-items-start gap-2 mb-3">
-            <p className="muted small mb-0">
-              {t('settings.externalPluginsDescription')}
-            </p>
-            <span className="help-icon" title="External plugins connect via MQTT and receive events through rules bus subscription. Each plugin gets its own MQTT credentials.">i</span>
+          <h2 className="h5 mt-4 mb-2">{t('settings.integrations')}</h2>
+          <div className="panel mb-3">
+            <div className="d-flex align-items-start gap-2 mb-3">
+              <p className="muted small mb-0">
+                {t('settings.integrationsDescription')}
+              </p>
+              <span className="help-icon" title="Connect external services like Node-RED via MQTT rules bus. Each external plugin gets its own credentials and can subscribe to account-scoped events.">i</span>
+            </div>
+
+            {/* Rules bus info */}
+            {s.rules_bus_enabled ? (
+              <>
+                <p className="small muted mb-2">
+                  Events topic template:{' '}
+                  <span className="mono">
+                    {s.broker_host || 'mqtt'}/events/{activeMembership?.account_slug || '{account_slug}'}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm mb-3"
+                  onClick={() => {
+                    const topic = `events/${activeMembership?.account_slug || '{account_slug}'}/{product}/{device}/{kind}`;
+                    void navigator.clipboard.writeText(topic);
+                  }}
+                >
+                  {t('settings.copyMqttTemplate')}
+                </button>
+              </>
+            ) : (
+              <p className="small muted mb-3">{t('settings.rulesBusDisabled')}</p>
+            )}
+            <div className="small">
+              See <Link to="/docs#automation" className="muted">automation documentation</Link> for Node-RED integration examples.
+            </div>
           </div>
+
+          <h3 className="h6 mt-3 mb-2">{t('settings.externalPlugins')}</h3>
+          <p className="muted small mb-3">
+            {t('settings.externalPluginsDescription')}
+          </p>
 
           <form
             className="d-flex flex-wrap gap-2 mb-3"
@@ -455,38 +489,7 @@ export function SettingsPage() {
             </table>
           </div>
 
-          {/* Automation & Integrations section */}
-          <h2 className="h5 mt-4 mb-2">{t('settings.automation')}</h2>
-          <div className="panel mb-3">
-            <p className="small mb-2">
-              {t('settings.automationDescription')}
-            </p>
-            {s.rules_bus_enabled ? (
-              <>
-                <p className="small muted mb-2">
-                  Events topic template:{' '}
-                  <span className="mono">
-                    {s.broker_host || 'mqtt'}/events/{activeMembership?.account_slug || '{account_slug}'}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;
-                  </span>
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary btn-sm"
-                  onClick={() => {
-                    const topic = `events/${activeMembership?.account_slug || '{account_slug}'}/{product}/{device}/{kind}`;
-                    void navigator.clipboard.writeText(topic);
-                  }}
-                >
-                  {t('settings.copyMqttTemplate')}
-                </button>
-              </>
-            ) : (
-              <p className="small muted mb-0">{t('settings.rulesBusDisabled')}</p>
-            )}
-            <div className="mt-2 small">
-              See <Link to="/docs#automation" className="muted">automation documentation</Link> for Node-RED integration examples.
-            </div>
-          </div>
+
         </>
       )}
     </div>
