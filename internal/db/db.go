@@ -374,9 +374,9 @@ func adaptSQL(sql string, dialect Dialect) string {
 	result = regexp.MustCompile(`(?i)\bAUTOINCREMENT\b`).ReplaceAllString(result, "")
 
 	// Convert remaining INTEGER to BIGINT for PostgreSQL (timestamps need 64-bit)
-	// This must be done after PRIMARY KEY AUTOINCREMENT conversion
-	// Use negative lookahead to avoid converting INTEGER PRIMARY KEY
-	result = regexp.MustCompile(`(?i)\bINTEGER\b(?!\s+PRIMARY\s+KEY)`).ReplaceAllString(result, "BIGINT")
+	// This must be done after PRIMARY KEY AUTOINCREMENT conversion.
+	// INTEGER PRIMARY KEY becomes BIGINT PRIMARY KEY which is valid in PostgreSQL.
+	result = regexp.MustCompile(`(?i)\bINTEGER\b`).ReplaceAllString(result, "BIGINT")
 
 	// Convert ? placeholders to $1, $2, etc.
 	paramIndex := 1
