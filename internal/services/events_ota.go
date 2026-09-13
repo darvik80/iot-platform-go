@@ -271,11 +271,11 @@ func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
 		status = "done"
 	}
 	now := db.NowMS()
-	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status=?, step=?, desc=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
+	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status=?, step=?, description=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
 		status, prog.Step, prog.Desc, now, d.ID)
-	p.emit("ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "desc": prog.Desc, "status": status})
+	p.emit("ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "description": prog.Desc, "status": status})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusOTA, map[string]any{
-		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "step": prog.Step, "desc": prog.Desc, "status": status,
+		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "step": prog.Step, "description": prog.Desc, "status": status,
 	})
 	return nil
 }
@@ -650,7 +650,7 @@ func (p *Platform) flushPendingOTA(d *models.Device) {
 		if err := p.PushOTA(d, fw, false); err != nil {
 			continue
 		}
-		_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, db.NowMS(), it.id)
+		_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', description='notified', updated_at=? WHERE id=?`, db.NowMS(), it.id)
 	}
 }
 
@@ -679,28 +679,28 @@ func (p *Platform) StartOTAJob(devicePK, firmwareID int64, force bool) (*models.
 			if err := p.PushOTA(d, fw, force); err != nil {
 				return nil, err
 			}
-			_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, now, existing)
+			_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', description='notified', updated_at=? WHERE id=?`, now, existing)
 			job.Status = "running"
-			job.Desc = "notified"
+			job.Description = "notified"
 		}
 		return job, nil
 	}
-	res, err := p.DB.Exec(`INSERT INTO ota_jobs(device_pk, firmware_id, status, step, desc, created_at, updated_at) VALUES(?,?, 'pending', 0, 'queued', ?, ?)`,
+	res, err := p.DB.Exec(`INSERT INTO ota_jobs(device_pk, firmware_id, status, step, description, created_at, updated_at) VALUES(?,?, 'pending', 0, 'queued', ?, ?)`,
 		devicePK, firmwareID, now, now)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	job := &models.OTAJob{ID: id, DevicePK: devicePK, ProductID: d.ProductID, DeviceID: d.DeviceID, FirmwareID: firmwareID, FirmwareVersion: fw.Version, Module: fw.Module, Status: "pending", Step: 0, Desc: "queued", CreatedAt: now, UpdatedAt: now}
+	job := &models.OTAJob{ID: id, DevicePK: devicePK, ProductID: d.ProductID, DeviceID: d.DeviceID, FirmwareID: firmwareID, FirmwareVersion: fw.Version, Module: fw.Module, Status: "pending", Step: 0, Description: "queued", CreatedAt: now, UpdatedAt: now}
 	if d.Status != "online" {
 		return job, nil
 	}
 	if err := p.PushOTA(d, fw, force); err != nil {
 		return nil, err
 	}
-	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', desc='notified', updated_at=? WHERE id=?`, db.NowMS(), id)
+	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='running', description='notified', updated_at=? WHERE id=?`, db.NowMS(), id)
 	job.Status = "running"
-	job.Desc = "notified"
+	job.Description = "notified"
 	return job, nil
 }
 
@@ -764,7 +764,7 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 	body := map[string]any{"module": module, "reason": reason}
 	b, _ := json.Marshal(body)
 	now := db.NowMS()
-	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='cancelled', step=-4, desc=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
+	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status='cancelled', step=-4, description=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
 		reason, now, d.ID)
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
@@ -773,7 +773,7 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 }
 
 func (p *Platform) ListOTAJobs(accountID int64, devicePK int64) ([]models.OTAJob, error) {
-	q := `SELECT j.id, j.device_pk, pr.product_id, d.device_id, j.firmware_id, f.version, f.module, j.status, j.step, j.desc, j.created_at, j.updated_at
+	q := `SELECT j.id, j.device_pk, pr.product_id, d.device_id, j.firmware_id, f.version, f.module, j.status, j.step, j.description, j.created_at, j.updated_at
 		FROM ota_jobs j
 		JOIN devices d ON d.id=j.device_pk
 		JOIN products pr ON pr.id=d.product_pk
@@ -796,7 +796,7 @@ func (p *Platform) ListOTAJobs(accountID int64, devicePK int64) ([]models.OTAJob
 	var out []models.OTAJob
 	for rows.Next() {
 		var j models.OTAJob
-		if err := rows.Scan(&j.ID, &j.DevicePK, &j.ProductID, &j.DeviceID, &j.FirmwareID, &j.FirmwareVersion, &j.Module, &j.Status, &j.Step, &j.Desc, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.DevicePK, &j.ProductID, &j.DeviceID, &j.FirmwareID, &j.FirmwareVersion, &j.Module, &j.Status, &j.Step, &j.Description, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)

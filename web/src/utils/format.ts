@@ -1,7 +1,7 @@
-export function formatOtaProgress(j: { status?: string; step?: number; desc?: string }) {
+export function formatOtaProgress(j: { status?: string; step?: number; description?: string }) {
   const status = j.status || '';
   const step = Number(j.step) || 0;
-  const desc = (j.desc || '').trim();
+  const desc = (j.description || '').trim();
 
   let head = '';
   if (status === 'done' || step >= 101) head = 'finish';

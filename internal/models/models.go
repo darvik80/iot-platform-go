@@ -153,7 +153,7 @@ type OTAJob struct {
 	Module          string `json:"module,omitempty"`
 	Status          string `json:"status"`
 	Step            int    `json:"step"`
-	Desc            string `json:"desc"`
+	Description     string `json:"description"`
 	CreatedAt       int64  `json:"created_at"`
 	UpdatedAt       int64  `json:"updated_at"`
 }

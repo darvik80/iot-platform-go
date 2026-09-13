@@ -282,7 +282,7 @@ export interface OTAJob {
   module?: string;
   status: string;
   step: number;
-  desc: string;
+  description: string;
   created_at: number;
   updated_at: number;
 }

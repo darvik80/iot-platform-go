@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS ota_jobs (
     firmware_id INTEGER NOT NULL REFERENCES ota_firmwares(id),
     status TEXT NOT NULL DEFAULT 'pending',
     step INTEGER NOT NULL DEFAULT 0,
-    desc TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
