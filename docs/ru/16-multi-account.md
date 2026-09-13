@@ -383,7 +383,10 @@ sequenceDiagram
 
 Метрики делятся на два типа:
 - **Счётчики (counter)** — инкрементируются in-process при событиях (`StoreTelemetry`, `InvokeRPC` и т.д.) через атомарные операции Prometheus-клиента. SELECT-запросы не нужны.
-- **Гейджи (gauge)** — отражают текущее состояние (количество устройств, online-статус). Пересчитываются раз в `update_interval_ms` через SQL-запрос или обновляются атомарно при изменении состояния.
+- **Гейджи (gauge)** — поддерживаются в памяти и обновляются при событиях:
+  - `cogitor_device_online` — обновляется при MQTT connect/disconnect (платформа отслеживает online-статус устройств)
+  - `cogitor_devices_total` — обновляется при создании/удалении устройств
+  - **Периодическая синхронизация с БД** (раз в 60 секунд) — для гарантии актуальности после перезапуска или рассинхронизации. При scrape Prometheus читает значения из памяти — SQL-запросы не выполняются.
 
 ```mermaid
 sequenceDiagram
@@ -408,16 +411,14 @@ sequenceDiagram
     EX->>EX: cogitor_device_rpc_calls_total++ при InvokeRPC (hook)
     EX->>EX: cogitor_event_bus_published_total++ при publish rules (hook)
 
-    Note over EX: Гейджи (gauge) — периодический пересчёт
-    loop каждые update_interval_ms
-        EX->>DB: SELECT status, count(*) FROM devices WHERE account_id=... GROUP BY status
-        EX->>EX: cogitor_devices_total{account,product,status} = result (atomic set)
-        EX->>DB: SELECT count(*) FROM devices WHERE account_id=... AND online=true
-        EX->>EX: cogitor_device_online{account,product,device} = 1/0 (atomic set)
-    end
-
+    Note over EX: Гейджи (gauge) — в памяти, обновляются при событиях
+    Note over EX: cogitor_device_online обновляется при MQTT connect/disconnect
+    Note over EX: cogitor_devices_total обновляется при create/delete устройства
+    Note over EX: Периодическая синхронизация с БД (раз в 60с) для гарантии актуальности
+    
     Pr->>EX: GET /metrics (Authorization: Bearer <token>)
     EX->>EX: проверка bearer (если задан)
+    EX->>EX: чтение gauge из памяти (SQL не нужен)
     EX-->>Pr: 200 text/plain (Prometheus exposition, account=acme labels)
 
     Note over Adm: Отключаем exporter для аккаунта
@@ -767,7 +768,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 ### 13.5 Prometheus
 
 - [ ] При активном `prometheus-exporter` на `http://platform:9100/metrics` отдаётся текст в формате Prometheus exposition с лейблом `account`
-- [ ] Метрики `cogitor_devices_total{account,product,status}` обновляются не реже чем раз в `update_interval_ms`
+- [ ] Метрики `cogitor_devices_total{account,product,status}` и `cogitor_device_online{account,product,device}` поддерживаются в памяти, обновляются при событиях (create/delete, MQTT connect/disconnect); периодическая синхронизация с БД (раз в 60с) для гарантии актуальности
 - [ ] `cogitor_device_telemetry_samples_total{account,product,device}` инкрементируется при каждом `StoreTelemetry`
 - [ ] `bearer_token` в config — `Authorization: Bearer <token>` проходит, без заголовка — `401`
 - [ ] Admin выключает exporter в account → scrape возвращает `connection refused`
