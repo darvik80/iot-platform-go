@@ -2,7 +2,6 @@ package services
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -235,7 +234,7 @@ func (s *SetupService) Apply() error {
 }
 
 // bootstrapSetup creates the initial admin user and default account.
-func bootstrapSetup(database *sql.DB, cfg config.Config) error {
+func bootstrapSetup(database *db.DB, cfg config.Config) error {
 	hash, err := auth.HashPassword(cfg.AdminPassword)
 	if err != nil {
 		return err
@@ -248,7 +247,7 @@ func bootstrapSetup(database *sql.DB, cfg config.Config) error {
 	}
 	defer tx.Rollback()
 
-	// Create admin user
+	// Create admin user (wrapper auto-converts ? → $N and handles RETURNING id for PostgreSQL)
 	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, is_platform_admin, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?)`,
 		cfg.AdminEmail, hash, models.RoleAdmin, cfg.AdminLogin, "Admin", 1, 1, now, now)
@@ -278,7 +277,7 @@ func bootstrapSetup(database *sql.DB, cfg config.Config) error {
 }
 
 // storeSettings persists wizard configuration to the settings table.
-func storeSettings(database *sql.DB, cfg config.Config) error {
+func storeSettings(database *db.DB, cfg config.Config) error {
 	settings := map[string]string{
 		"jwt_secret":      cfg.JWTSecret,
 		"smtp_host":       cfg.SMTPHost,

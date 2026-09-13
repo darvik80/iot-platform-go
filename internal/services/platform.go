@@ -40,7 +40,7 @@ type Hub interface {
 }
 
 type Platform struct {
-	DB   *sql.DB
+	DB   *db.DB
 	Cfg  config.Config
 	MQTT MQTTSession
 	Pub  Publisher
@@ -57,7 +57,7 @@ type Platform struct {
 	ExternalPlugins *ExternalPluginHub
 }
 
-func New(database *sql.DB, cfg config.Config, log *slog.Logger) *Platform {
+func New(database *db.DB, cfg config.Config, log *slog.Logger) *Platform {
 	p := &Platform{
 		DB:         database,
 		Cfg:        cfg,
