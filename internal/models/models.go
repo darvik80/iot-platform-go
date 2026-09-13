@@ -252,10 +252,8 @@ type ExternalPlugin struct {
 	Effects       []string        `json:"effects,omitempty"`
 	Form          json.RawMessage `json:"form,omitempty"`
 	Status        string          `json:"status"` // online | offline | unknown
-	LastHeartbeatAt *int64        `json:"last_heartbeat_at,omitempty"`
 	MQTTUser      string          `json:"mqtt_user,omitempty"`
 	MQTTPassHash  string          `json:"-"`
 	CreatedAt     int64           `json:"created_at"`
 	UpdatedAt     int64           `json:"updated_at"`
 }
-

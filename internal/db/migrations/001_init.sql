@@ -38,17 +38,6 @@ CREATE TABLE IF NOT EXISTS oauth_states (
     created_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS api_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    token_prefix TEXT NOT NULL,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
-    created_at INTEGER NOT NULL,
-    last_used_at INTEGER
-);
-
 -- ── Accounts (multi-tenancy) ────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -60,6 +49,19 @@ CREATE TABLE IF NOT EXISTS accounts (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_prefix TEXT NOT NULL,
+    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+);
+
+-- ── Account relations ────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS account_memberships (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -316,8 +318,6 @@ CREATE TABLE IF NOT EXISTS external_plugins (
     account_id        INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE,
     name              TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
-    endpoint          TEXT NOT NULL DEFAULT '',
-    auth_token_hash   TEXT NOT NULL,
     mqtt_user         TEXT NOT NULL DEFAULT '',
     mqtt_pass_hash    TEXT NOT NULL DEFAULT '',
     auto              INTEGER NOT NULL DEFAULT 0,
@@ -325,26 +325,12 @@ CREATE TABLE IF NOT EXISTS external_plugins (
     default_config    TEXT NOT NULL DEFAULT '{}',
     effects           TEXT NOT NULL DEFAULT '[]',
     form              TEXT NOT NULL DEFAULT '[]',
-    mode              TEXT NOT NULL DEFAULT 'webhook',
     status            TEXT NOT NULL DEFAULT 'unknown',
-    last_heartbeat_at INTEGER,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_external_plugins_account ON external_plugins(account_id);
-
-CREATE TABLE IF NOT EXISTS external_plugin_events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    plugin_id   TEXT NOT NULL REFERENCES external_plugins(id) ON DELETE CASCADE,
-    binding_id  INTEGER NOT NULL,
-    method      TEXT NOT NULL,
-    params      TEXT NOT NULL,
-    created_at  INTEGER NOT NULL,
-    acked_at    INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_external_plugin_events_plugin ON external_plugin_events(plugin_id, acked_at);
 
 -- ── Audit & Settings ────────────────────────────────────────────────────────
 
@@ -366,10 +352,6 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
--- Default Node-RED MQTT credentials
-INSERT OR IGNORE INTO settings (key, value) VALUES ('nodered_mqtt_user', 'nodered');
-INSERT OR IGNORE INTO settings (key, value) VALUES ('nodered_mqtt_pass', '');
 
 CREATE TABLE IF NOT EXISTS ingest_dedup (
     device_pk INTEGER NOT NULL,

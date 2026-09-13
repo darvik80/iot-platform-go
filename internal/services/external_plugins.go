@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"cogitor-iot-platform/internal/db"
@@ -67,20 +66,20 @@ func (h *ExternalPluginHub) Register(in RegisterExternalPluginInput) (*models.Ex
 
 	now := db.NowMS()
 	p := &models.ExternalPlugin{
-		ID:           in.ID,
-		AccountID:    in.AccountID,
-		Name:         in.Name,
-		Description:  in.Description,
-		Auto:         in.Auto,
-		IntervalMS:   in.IntervalMS,
+		ID:            in.ID,
+		AccountID:     in.AccountID,
+		Name:          in.Name,
+		Description:   in.Description,
+		Auto:          in.Auto,
+		IntervalMS:    in.IntervalMS,
 		DefaultConfig: in.DefaultConfig,
-		Effects:      in.Effects,
-		Form:         in.Form,
-		Status:       "unknown",
-		MQTTUser:     mqttUser,
-		MQTTPassHash: mqttPassHash,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		Effects:       in.Effects,
+		Form:          in.Form,
+		Status:        "unknown",
+		MQTTUser:      mqttUser,
+		MQTTPassHash:  mqttPassHash,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	if len(p.DefaultConfig) == 0 {
@@ -260,16 +259,10 @@ func hashToken(token string) string {
 
 func (p *Platform) ListExternalPlugins() ([]models.ExternalPlugin, error) {
 	rows, err := p.DB.Query(`SELECT id, COALESCE(account_id,0), name, description, auto, interval_ms, 
-		default_config, effects, form, status, last_heartbeat_at, mqtt_user, mqtt_pass_hash, created_at, updated_at 
+		default_config, effects, form, status, mqtt_user, mqtt_pass_hash, created_at, updated_at 
 		FROM external_plugins ORDER BY id`)
 	if err != nil {
-		// Fallback: mqtt columns may not exist if migration 008 was not applied
-		rows, err = p.DB.Query(`SELECT id, COALESCE(account_id,0), name, description, auto, interval_ms, 
-			default_config, effects, form, status, last_heartbeat_at, '', '', created_at, updated_at 
-			FROM external_plugins ORDER BY id`)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -278,15 +271,13 @@ func (p *Platform) ListExternalPlugins() ([]models.ExternalPlugin, error) {
 		var ep models.ExternalPlugin
 		var autoInt int
 		var configStr, effectsStr, formStr string
-		var lastHB *int64
 		err := rows.Scan(&ep.ID, &ep.AccountID, &ep.Name, &ep.Description,
 			&autoInt, &ep.IntervalMS, &configStr, &effectsStr, &formStr,
-			&ep.Status, &lastHB, &ep.MQTTUser, &ep.MQTTPassHash, &ep.CreatedAt, &ep.UpdatedAt)
+			&ep.Status, &ep.MQTTUser, &ep.MQTTPassHash, &ep.CreatedAt, &ep.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
 		ep.Auto = autoInt != 0
-		ep.LastHeartbeatAt = lastHB
 		ep.DefaultConfig = json.RawMessage(configStr)
 		_ = json.Unmarshal([]byte(effectsStr), &ep.Effects)
 		ep.Form = json.RawMessage(formStr)
@@ -302,20 +293,11 @@ func (p *Platform) saveExternalPlugin(ep *models.ExternalPlugin) error {
 		autoInt = 1
 	}
 	_, err := p.DB.Exec(`INSERT OR REPLACE INTO external_plugins 
-		(id, account_id, name, description, auto, interval_ms, default_config, effects, form, status, last_heartbeat_at, mqtt_user, mqtt_pass_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, account_id, name, description, auto, interval_ms, default_config, effects, form, status, mqtt_user, mqtt_pass_hash, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ep.ID, ep.AccountID, ep.Name, ep.Description, autoInt, ep.IntervalMS,
 		string(ep.DefaultConfig), string(effectsJSON), string(ep.Form), ep.Status,
-		ep.LastHeartbeatAt, ep.MQTTUser, ep.MQTTPassHash, ep.CreatedAt, ep.UpdatedAt)
-	if err != nil && strings.Contains(err.Error(), "mqtt_user") {
-		// Fallback: mqtt columns may not exist if migration 008 was not applied
-		_, err = p.DB.Exec(`INSERT OR REPLACE INTO external_plugins 
-			(id, account_id, name, description, auto, interval_ms, default_config, effects, form, status, last_heartbeat_at, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			ep.ID, ep.AccountID, ep.Name, ep.Description, autoInt, ep.IntervalMS,
-			string(ep.DefaultConfig), string(effectsJSON), string(ep.Form), ep.Status,
-			ep.LastHeartbeatAt, ep.CreatedAt, ep.UpdatedAt)
-	}
+		ep.MQTTUser, ep.MQTTPassHash, ep.CreatedAt, ep.UpdatedAt)
 	return err
 }
 
