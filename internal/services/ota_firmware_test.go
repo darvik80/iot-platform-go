@@ -2,31 +2,18 @@ package services
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"cogitor-iot-platform/internal/config"
-	"cogitor-iot-platform/internal/db"
 )
 
 func TestStoreFirmwareFile(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	database, err := db.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
+	p := newTestPlatform(t, config.Config{
+		PublicBaseURL: "http://192.168.1.10:8080",
+	})
 
-	p := New(database, config.Config{
-		DatabaseDriver: "sqlite",
-		DatabaseDSN:    dbPath,
-		DataDir:        dir,
-		PublicBaseURL:  "http://192.168.1.10:8080",
-	}, nil)
-
-	pr, err := p.CreateProduct(0, ProductInput{ProductID: "lamp", Name: "Lamp"})
+	pr, err := p.CreateProduct(1, ProductInput{ProductID: "lamp", Name: "Lamp"})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
@@ -136,19 +123,8 @@ func TestStoreFirmwareFile(t *testing.T) {
 }
 
 func TestRegisterFirmwareRequiresURL(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	database, err := db.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	p := New(database, config.Config{
-		DatabaseDriver: "sqlite",
-		DatabaseDSN:    dbPath,
-		DataDir:        dir,
-	}, nil)
-	pr, err := p.CreateProduct(0, ProductInput{ProductID: "lamp", Name: "Lamp"})
+	p := newTestPlatform(t, config.Config{})
+	pr, err := p.CreateProduct(1, ProductInput{ProductID: "lamp", Name: "Lamp"})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}

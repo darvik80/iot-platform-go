@@ -353,6 +353,7 @@ export interface Settings {
   mqtt_ws_url?: string;
   mqtt_ws_port?: number;
   rules_bus_enabled: boolean;
+  rules_bus_prefix?: string;
   nodered_url: string;
   public_base_url?: string;
   timezone?: string;

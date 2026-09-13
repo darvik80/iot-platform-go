@@ -1,25 +1,16 @@
 package services
 
 import (
-	"path/filepath"
 	"testing"
 
 	"cogitor-iot-platform/internal/config"
-	"cogitor-iot-platform/internal/db"
 	"cogitor-iot-platform/internal/models"
 )
 
 func TestUpdateProductMethods(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	database, err := db.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
+	p := newTestPlatform(t, config.Config{})
 
-	p := New(database, config.Config{}, nil)
-
-	created, err := p.CreateProduct(0, ProductInput{
+	created, err := p.CreateProduct(1, ProductInput{
 		ProductID: "test-product",
 		Name:      "Test Product",
 	})
@@ -62,15 +53,8 @@ func TestUpdateProductMethods(t *testing.T) {
 }
 
 func TestBuiltinRPCListAlwaysPresent(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	database, err := db.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-
-	p := New(database, config.Config{}, nil)
-	created, err := p.CreateProduct(0, ProductInput{
+	p := newTestPlatform(t, config.Config{})
+	created, err := p.CreateProduct(1, ProductInput{
 		ProductID:  "rpc-list-product",
 		Name:       "RPC List Product",
 		SetMethods: true,

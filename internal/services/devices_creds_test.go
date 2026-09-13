@@ -1,31 +1,18 @@
 package services
 
 import (
-	"path/filepath"
 	"testing"
 
 	"cogitor-iot-platform/internal/config"
-	"cogitor-iot-platform/internal/db"
 )
 
 func TestDeviceProvisionJSON(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	database, err := db.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-
-	p := New(database, config.Config{
-		DatabaseDriver:   "sqlite",
-		DatabaseDSN:      dbPath,
-		DataDir:          dir,
+	p := newTestPlatform(t, config.Config{
 		BrokerHostPublic: "192.168.1.100",
 		MQTTAddr:         ":1883",
 		MQTTWSAddr:       ":8083",
-	}, nil)
-	if _, err := p.CreateProduct(0, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
+	})
+	if _, err := p.CreateProduct(1, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
 	_, creds, err := p.CreateDevice(DeviceInput{ProductID: "home", DeviceID: "esp32-s3"})

@@ -212,6 +212,11 @@ func (e *PrometheusExporter) Stop() {
 
 // ── Prometheus text rendering ─────────────────────────────────────────────
 
+// RenderMetrics returns all metrics in Prometheus text exposition format.
+func RenderMetrics() string {
+	return renderMetrics()
+}
+
 func renderMetrics() string {
 	counters, gauges := Metrics.Snapshot()
 

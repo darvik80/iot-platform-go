@@ -209,14 +209,14 @@ export function SettingsPage() {
                 <p className="small muted mb-2">
                   Events topic template:{' '}
                   <span className="mono">
-                    {s.broker_host || 'mqtt'}/events/{activeMembership?.account_slug || '{account_slug}'}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;
+                    {s.rules_bus_prefix || 'platform/v1'}/events/{activeMembership?.account_slug || '{account_slug}'}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;
                   </span>
                 </p>
                 <button
                   type="button"
                   className="btn btn-outline-secondary btn-sm mb-3"
                   onClick={() => {
-                    const topic = `events/${activeMembership?.account_slug || '{account_slug}'}/{product}/{device}/{kind}`;
+                    const topic = `${s.rules_bus_prefix || 'platform/v1'}/events/${activeMembership?.account_slug || '{account_slug}'}/{product}/{device}/{kind}`;
                     void navigator.clipboard.writeText(topic);
                   }}
                 >
@@ -458,7 +458,7 @@ export function SettingsPage() {
                               mqtt_user: result.mqtt_user,
                               mqtt_host: s.broker_host || '',
                               mqtt_port: s.mqtt_port || 1883,
-                              rules_bus: s.rules_bus_enabled ? (s.public_base_url || '') : '',
+                              rules_bus: s.rules_bus_enabled ? (s.rules_bus_prefix || 'platform/v1') : '',
                             });
                           } catch (err) {
                             toast.error(errorMsg(err));

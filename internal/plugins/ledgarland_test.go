@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -126,6 +127,10 @@ type rpcCall struct {
 func (r *recRT) InvokeRPC(method string, params map[string]any) error {
 	r.calls = append(r.calls, rpcCall{method, params})
 	return nil
+}
+
+func (r *recRT) Log() *slog.Logger {
+	return slog.Default()
 }
 
 func TestGarlandLedAttachOnApplyAndOnline(t *testing.T) {

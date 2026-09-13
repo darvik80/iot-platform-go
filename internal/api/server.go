@@ -18,6 +18,7 @@ import (
 	"cogitor-iot-platform/internal/auth"
 	"cogitor-iot-platform/internal/mcpbridge"
 	"cogitor-iot-platform/internal/models"
+	"cogitor-iot-platform/internal/plugins"
 	"cogitor-iot-platform/internal/services"
 	"cogitor-iot-platform/internal/ws"
 
@@ -27,7 +28,7 @@ import (
 type Server struct {
 	Plat  *services.Platform
 	Hub   *ws.Hub
-	SpaFS fs.FS // optional embedded SPA (dist contents)
+	SpaFS fs.FS                  // optional embedded SPA (dist contents)
 	Setup *services.SetupService // setup wizard service (nil if setup not needed)
 }
 
@@ -63,6 +64,12 @@ func (s *Server) Router() http.Handler {
 			"mqtt_addr":    s.Plat.Cfg.MQTTAddr,
 			"mqtt_clients": st.ClientCount,
 		})
+	})
+
+	// Prometheus metrics endpoint (public, no auth)
+	r.Get("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		_, _ = w.Write([]byte(plugins.RenderMetrics()))
 	})
 
 	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
@@ -980,6 +987,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"rpc_default_timeout_ms":   int(s.Plat.Cfg.RPCDefaultTimeout / time.Millisecond),
 		"nodered_url":              s.Plat.Cfg.NodeRedURL,
 		"rules_bus_enabled":        s.Plat.Cfg.RulesBusEnabled,
+		"rules_bus_prefix":         s.Plat.Cfg.RulesBusPrefix,
 		"broker_host":              s.Plat.Cfg.BrokerHostPublic,
 		"mqtt_port":                s.Plat.Cfg.MQTTPublicPort(),
 		"mqtt_ws_url":              s.Plat.Cfg.MQTTWSPublicURL(),
