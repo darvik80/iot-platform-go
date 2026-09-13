@@ -52,6 +52,15 @@ func (s *Server) Router() http.Handler {
 	r.Head("/ota/fw/{token}", s.downloadFirmware)
 
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if s.Plat == nil {
+			// Setup mode
+			writeJSON(w, http.StatusOK, map[string]any{
+				"db":     false,
+				"mqtt":   false,
+				"status": "setup",
+			})
+			return
+		}
 		mqttOK := s.Plat.Pub != nil && s.Plat.Pub.Connected()
 		status := http.StatusOK
 		if !mqttOK {
@@ -91,6 +100,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/auth/register", s.register)
 		r.Get("/auth/verify-email", s.verifyEmail)
 		r.Post("/auth/resend-verification", s.resendVerification)
+		r.Get("/auth/check-slug", s.checkSlugAvailable)
 		r.Get("/auth/google", s.googleStart)
 		r.Get("/auth/google/callback", s.googleCallback)
 
@@ -115,10 +125,6 @@ func (s *Server) Router() http.Handler {
 
 			// Accept invitation (auth required, no account required)
 			r.Post("/invitations/{token}/accept", s.acceptInvitation)
-
-			// Platform-admin: account management
-			r.Post("/accounts", s.requirePlatformAdmin(s.createAccount))
-			r.Delete("/accounts/{id}", s.requirePlatformAdmin(s.deleteAccount))
 
 			// Account-scoped endpoints
 			r.Group(func(r chi.Router) {
@@ -263,6 +269,11 @@ func accountFrom(ctx context.Context) int64 {
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.Plat == nil {
+			// Setup mode — no authenticated endpoints
+			writeErr(w, http.StatusServiceUnavailable, "platform not initialized")
+			return
+		}
 		tok := auth.Bearer(r)
 		if tok == "" {
 			tok = r.URL.Query().Get("token")
@@ -300,7 +311,6 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			Login:           u.Login,
 			Accounts:        refs,
 			ActiveAccountID: activeID,
-			IsPlatformAdmin: u.IsPlatformAdmin,
 		}
 		ctx := withUser(r.Context(), *u)
 		ctx = withClaims(ctx, synthetic)
@@ -316,20 +326,17 @@ func (s *Server) requireAccount(next http.Handler) http.Handler {
 			writeErr(w, http.StatusForbidden, "select an account")
 			return
 		}
-		// Platform admins bypass membership check
-		if !c.IsPlatformAdmin {
-			// Verify membership is still active
-			var status string
-			err := s.Plat.DB.QueryRow(`SELECT status FROM account_memberships WHERE user_id=? AND account_id=?`,
-				c.UserID, c.ActiveAccountID).Scan(&status)
-			if err != nil || status != "active" {
-				writeErr(w, http.StatusForbidden, "membership not active")
-				return
-			}
+		// Verify membership is still active
+		var status string
+		err := s.Plat.DB.QueryRow(`SELECT status FROM account_memberships WHERE user_id=? AND account_id=?`,
+			c.UserID, c.ActiveAccountID).Scan(&status)
+		if err != nil || status != "active" {
+			writeErr(w, http.StatusForbidden, "membership not active")
+			return
 		}
 		// Check account not suspended
 		var accStatus string
-		err := s.Plat.DB.QueryRow(`SELECT status FROM accounts WHERE id=?`, c.ActiveAccountID).Scan(&accStatus)
+		err = s.Plat.DB.QueryRow(`SELECT status FROM accounts WHERE id=?`, c.ActiveAccountID).Scan(&accStatus)
 		if err != nil || accStatus == "suspended" {
 			writeErr(w, http.StatusForbidden, "account suspended")
 			return
@@ -343,17 +350,6 @@ func (s *Server) requireWrite(h http.HandlerFunc) http.HandlerFunc {
 		c := claimsFrom(r)
 		if c == nil || !auth.CanWrite(c.ActiveRole()) {
 			writeErr(w, http.StatusForbidden, "write access required")
-			return
-		}
-		h(w, r)
-	}
-}
-
-func (s *Server) requirePlatformAdmin(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		c := claimsFrom(r)
-		if c == nil || !auth.CanPlatformAdmin(c) {
-			writeErr(w, http.StatusForbidden, "platform admin required")
 			return
 		}
 		h(w, r)
@@ -411,6 +407,11 @@ func (s *Server) mqttStatus(w http.ResponseWriter, r *http.Request) {
 
 // mqttCACert serves the MQTT TLS CA certificate (public, no auth).
 func (s *Server) mqttCACert(w http.ResponseWriter, r *http.Request) {
+	if s.Plat == nil {
+		// Setup mode
+		writeErr(w, http.StatusServiceUnavailable, "platform not initialized")
+		return
+	}
 	caFile := s.Plat.Cfg.MQTTTLSCA
 	if caFile == "" {
 		writeErr(w, http.StatusNotFound, "MQTT TLS CA not configured")
@@ -948,6 +949,11 @@ func (s *Server) uploadFirmware(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) downloadFirmware(w http.ResponseWriter, r *http.Request) {
+	if s.Plat == nil {
+		// Setup mode
+		http.NotFound(w, r)
+		return
+	}
 	fw, path, err := s.Plat.HostedFirmware(chi.URLParam(r, "token"))
 	if err != nil {
 		http.NotFound(w, r)

@@ -30,7 +30,6 @@ type Claims struct {
 	Login           string       `json:"login"`
 	Accounts        []AccountRef `json:"accounts"`
 	ActiveAccountID int64        `json:"active_account_id"`
-	IsPlatformAdmin bool         `json:"is_platform_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -82,7 +81,6 @@ func IssueJWT(secret string, u models.User, accounts []AccountRef, activeAccount
 		Login:           u.Login,
 		Accounts:        accounts,
 		ActiveAccountID: activeAccountID,
-		IsPlatformAdmin: u.IsPlatformAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -126,9 +124,4 @@ func CanWrite(role models.Role) bool {
 // CanAdmin returns true if the per-account role is admin.
 func CanAdmin(role models.Role) bool {
 	return role == models.RoleAdmin
-}
-
-// CanPlatformAdmin returns true if the claims belong to a platform admin.
-func CanPlatformAdmin(c *Claims) bool {
-	return c != nil && c.IsPlatformAdmin
 }

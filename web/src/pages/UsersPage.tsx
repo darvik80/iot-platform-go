@@ -10,7 +10,7 @@ import type { AccountInvitation, MemberInfo, Role } from '../types';
 type Tab = 'members' | 'invitations';
 
 export function UsersPage() {
-  const { activeMembership } = useAuth();
+  const { activeMembership, user, refreshMe } = useAuth();
   const toast = useToast();
   const t = useT();
   const [tab, setTab] = useState<Tab>('members');
@@ -31,6 +31,12 @@ export function UsersPage() {
   const [inviteRole, setInviteRole] = useState<Role>('viewer');
   const [inviteMethod, setInviteMethod] = useState('email');
   const [inviteUrl, setInviteUrl] = useState('');
+
+  // Edit user modal
+  const [editingUser, setEditingUser] = useState<MemberInfo | null>(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editPassword, setEditPassword] = useState('');
 
   if (activeMembership?.role !== 'admin') return <Navigate to="/" replace />;
 
@@ -88,6 +94,40 @@ export function UsersPage() {
       await loadMembers();
     } catch (err) {
       toast.error(errorMsg(err));
+    }
+  };
+
+  const handleOpenEdit = (m: MemberInfo) => {
+    setEditingUser(m);
+    setEditEmail(m.email);
+    setEditDisplayName(m.display_name);
+    setEditPassword('');
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setBusy(true);
+    try {
+      const body: Record<string, string> = {};
+      if (editEmail !== editingUser.email) body.email = editEmail;
+      if (editDisplayName !== editingUser.display_name) body.display_name = editDisplayName;
+      if (editPassword) body.password = editPassword;
+      await api(`/users/${editingUser.user_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      setEditingUser(null);
+      await loadMembers();
+      // Refresh auth context if editing yourself
+      if (user?.id === editingUser.user_id) {
+        await refreshMe();
+      }
+      toast.success('User updated');
+    } catch (err) {
+      toast.error(errorMsg(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -296,6 +336,14 @@ export function UsersPage() {
                     <td className="text-end">
                       <button
                         type="button"
+                        className="btn btn-outline-secondary btn-sm me-1"
+                        onClick={() => handleOpenEdit(m)}
+                        title="Edit email, display name, or password"
+                      >
+                        {t('common.edit')}
+                      </button>
+                      <button
+                        type="button"
                         className="btn btn-outline-danger btn-sm"
                         onClick={() => handleRemoveMember(m.user_id)}
                         title="Remove this user from the account (does not delete the user account)"
@@ -428,6 +476,64 @@ export function UsersPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit user modal ────────────────────────────────────────────── */}
+      {editingUser && (
+        <div className="modal-backdrop" onClick={() => setEditingUser(null)}>
+          <div className="modal show d-block" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-dialog">
+              <div className="modal-content bg-dark border-secondary">
+                <form onSubmit={handleUpdateUser}>
+                  <div className="modal-header border-secondary">
+                    <h5 className="modal-title">Edit user: {editingUser.login}</h5>
+                    <button type="button" className="btn-close btn-close-white" onClick={() => setEditingUser(null)} />
+                  </div>
+                  <div className="modal-body">
+                    <div className="mb-3">
+                      <label className="form-label small">Email</label>
+                      <input
+                        type="email"
+                        className="form-control bg-dark text-light border-secondary"
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label small">Display name</label>
+                      <input
+                        type="text"
+                        className="form-control bg-dark text-light border-secondary"
+                        value={editDisplayName}
+                        onChange={(e) => setEditDisplayName(e.target.value)}
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label small">New password <span className="muted">(leave empty to keep current)</span></label>
+                      <input
+                        type="password"
+                        className="form-control bg-dark text-light border-secondary"
+                        value={editPassword}
+                        onChange={(e) => setEditPassword(e.target.value)}
+                        minLength={8}
+                        placeholder="Minimum 8 characters"
+                      />
+                    </div>
+                  </div>
+                  <div className="modal-footer border-secondary">
+                    <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setEditingUser(null)}>
+                      {t('common.cancel')}
+                    </button>
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
+                      {t('common.save')}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -108,10 +108,9 @@ func TestTokenPrefix(t *testing.T) {
 func TestIssueJWT(t *testing.T) {
 	secret := "test-jwt-secret"
 	user := models.User{
-		ID:              1,
-		Email:           "test@example.com",
-		Login:           "testuser",
-		IsPlatformAdmin: true,
+		ID:    1,
+		Email: "test@example.com",
+		Login: "testuser",
 	}
 	accounts := []AccountRef{
 		{AccountID: 10, AccountSlug: "acme", Role: "admin"},
@@ -135,10 +134,9 @@ func TestIssueJWT(t *testing.T) {
 func TestParseJWT(t *testing.T) {
 	secret := "test-secret-key"
 	user := models.User{
-		ID:              42,
-		Email:           "user@test.com",
-		Login:           "testlogin",
-		IsPlatformAdmin: false,
+		ID:    42,
+		Email: "user@test.com",
+		Login: "testlogin",
 	}
 	accounts := []AccountRef{
 		{AccountID: 100, AccountSlug: "myaccount", Role: "operator"},
@@ -164,9 +162,6 @@ func TestParseJWT(t *testing.T) {
 	}
 	if claims.Login != user.Login {
 		t.Errorf("Login = %q, want %q", claims.Login, user.Login)
-	}
-	if claims.IsPlatformAdmin != user.IsPlatformAdmin {
-		t.Errorf("IsPlatformAdmin = %v, want %v", claims.IsPlatformAdmin, user.IsPlatformAdmin)
 	}
 	if claims.ActiveAccountID != 100 {
 		t.Errorf("ActiveAccountID = %d, want %d", claims.ActiveAccountID, 100)
@@ -291,24 +286,5 @@ func TestCanAdmin(t *testing.T) {
 				t.Errorf("CanAdmin(%q) = %v, want %v", tt.role, got, tt.expected)
 			}
 		})
-	}
-}
-
-func TestCanPlatformAdmin(t *testing.T) {
-	// Nil claims
-	if CanPlatformAdmin(nil) {
-		t.Error("CanPlatformAdmin(nil) should be false")
-	}
-
-	// Non-admin
-	claims := &Claims{IsPlatformAdmin: false}
-	if CanPlatformAdmin(claims) {
-		t.Error("CanPlatformAdmin should be false for non-admin")
-	}
-
-	// Admin
-	claims = &Claims{IsPlatformAdmin: true}
-	if !CanPlatformAdmin(claims) {
-		t.Error("CanPlatformAdmin should be true for admin")
 	}
 }

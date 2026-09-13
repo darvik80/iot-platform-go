@@ -24,6 +24,16 @@ func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
+	if s.Plat == nil {
+		// Setup mode — return minimal config
+		writeJSON(w, http.StatusOK, map[string]any{
+			"register_enabled":     false,
+			"require_email_verify": false,
+			"google_enabled":       false,
+			"platform_name":        "IoT Platform",
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, s.Plat.AuthPublicConfig())
 }
 
@@ -83,6 +93,16 @@ func (s *Server) resendVerification(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Plat.ResendVerification(identity)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "if the account exists, a verification email was sent"})
+}
+
+func (s *Server) checkSlugAvailable(w http.ResponseWriter, r *http.Request) {
+	slug := r.URL.Query().Get("slug")
+	if slug == "" {
+		writeErr(w, http.StatusBadRequest, "missing slug parameter")
+		return
+	}
+	available := s.Plat.CheckSlugAvailable(slug)
+	writeJSON(w, http.StatusOK, map[string]any{"available": available, "slug": slug})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

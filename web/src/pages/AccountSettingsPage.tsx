@@ -6,18 +6,10 @@ import { errorMsg, useToast } from '../components/Toast';
 import { useT } from '../i18n/I18nContext';
 import type { PluginPolicy } from '../types';
 
-type Tab = 'integrations' | 'account' | 'accounts';
-
-interface AccountInfo {
-  id: number;
-  slug: string;
-  name: string;
-  status: string;
-  created_at: number;
-}
+type Tab = 'integrations' | 'account';
 
 export function AccountSettingsPage() {
-  const { activeMembership, user } = useAuth();
+  const { activeMembership } = useAuth();
   const toast = useToast();
   const t = useT();
   const [tab, setTab] = useState<Tab>('integrations');
@@ -28,37 +20,13 @@ export function AccountSettingsPage() {
   const [settingsPlugin, setSettingsPlugin] = useState<PluginPolicy | null>(null);
   const [settingsJSON, setSettingsJSON] = useState('');
 
-  // Accounts (platform admin)
-  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
-  const [newSlug, setNewSlug] = useState('');
-  const [newName, setNewName] = useState('');
-  const [accountError, setAccountError] = useState('');
-
-  const isPlatformAdmin = !!user?.is_platform_admin;
-
   if (activeMembership?.role !== 'admin') return <Navigate to="/" replace />;
 
   const loadPolicies = () => api<PluginPolicy[]>('/plugins/policies').then(setPolicies).catch(console.error);
 
   useEffect(() => {
     loadPolicies();
-    if (isPlatformAdmin) {
-      // Fetch accounts the user is a member of (for now, platform admin sees their own)
-      api<AccountInfo[]>('/me/accounts')
-        .then((memberships) => {
-          // Transform memberships to accounts
-          const accs = (memberships as any[]).map((m: any) => ({
-            id: m.account_id,
-            slug: m.account_slug,
-            name: m.account_name,
-            status: m.account_status,
-            created_at: m.joined_at,
-          }));
-          setAccounts(accs);
-        })
-        .catch(console.error);
-    }
-  }, [isPlatformAdmin]);
+  }, []);
 
   const handleTogglePolicy = async (pluginId: string, enabled: boolean) => {
     try {
@@ -107,47 +75,19 @@ export function AccountSettingsPage() {
     }
   };
 
-  const handleCreateAccount = async () => {
-    if (!newSlug.trim() || !newName.trim()) return;
-    setBusy(true);
-    setAccountError('');
-    try {
-      await api('/accounts', {
-        method: 'POST',
-        body: JSON.stringify({ slug: newSlug.trim(), name: newName.trim() }),
-      });
-      setNewSlug('');
-      setNewName('');
-      // Reload accounts
-      const memberships = await api<any[]>('/me/accounts');
-      const accs = memberships.map((m: any) => ({
-        id: m.account_id,
-        slug: m.account_slug,
-        name: m.account_name,
-        status: m.account_status,
-        created_at: m.joined_at,
-      }));
-      setAccounts(accs);
-    } catch (err) {
-      setAccountError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div>
       <h1 className="h3 mb-3">{t('nav.account')}</h1>
 
       <ul className="nav nav-tabs mb-3">
-        {(['integrations', 'account', ...(isPlatformAdmin ? ['accounts'] : [])] as Tab[]).map((tabKey) => (
+        {(['integrations', 'account'] as Tab[]).map((tabKey) => (
           <li key={tabKey} className="nav-item">
             <button
               type="button"
               className={`nav-link${tab === tabKey ? ' active' : ''}`}
               onClick={() => setTab(tabKey)}
             >
-              {tabKey === 'accounts' ? 'All Accounts' : tabKey === 'integrations' ? t('account.integrations') : t('account.accountInfo')}
+              {tabKey === 'integrations' ? t('account.integrations') : t('account.accountInfo')}
             </button>
           </li>
         ))}
@@ -212,93 +152,6 @@ export function AccountSettingsPage() {
           <div>Slug: {activeMembership?.account_slug}</div>
           <div>Status: {activeMembership?.account_status}</div>
           <div>Your role: {activeMembership?.role}</div>
-        </div>
-      )}
-
-      {/* ── All Accounts tab (platform admin only) ─────────────────────── */}
-      {tab === 'accounts' && isPlatformAdmin && (
-        <div>
-          <div className="d-flex align-items-start gap-2 mb-3">
-            <p className="muted small mb-0">
-              Create new tenant accounts. Each account gets its own slug, devices, products and users.
-            </p>
-            <span className="help-icon" title="Accounts are isolated tenants. Devices and plugins in one account are not visible to others.">
-              i
-            </span>
-          </div>
-
-          <div className="panel mb-3">
-            <h2 className="h6 text-uppercase muted mb-2">Create new account</h2>
-            {accountError && <div className="alert alert-danger py-2">{accountError}</div>}
-            <div className="row g-2">
-              <div className="col-md-3">
-                <input
-                  className="form-control form-control-sm mono"
-                  placeholder="account-slug"
-                  value={newSlug}
-                  onChange={(e) => setNewSlug(e.target.value)}
-                  pattern="[a-z0-9][a-z0-9._-]*"
-                  title="URL-friendly identifier: lowercase letters, digits, dots, hyphens, underscores. Must start with a letter or digit."
-                />
-                <div className="form-text">Slug (URL-friendly ID)</div>
-              </div>
-              <div className="col-md-3">
-                <input
-                  className="form-control form-control-sm"
-                  placeholder="Display name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  title="Human-readable name for the account"
-                />
-                <div className="form-text">Account name</div>
-              </div>
-              <div className="col-md-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm w-100"
-                  disabled={busy || !newSlug.trim() || !newName.trim()}
-                  onClick={handleCreateAccount}
-                  title="Create a new tenant account"
-                >
-                  {t('common.create')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="panel table-responsive">
-            <table className="table table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Slug</th>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="muted small">
-                      No accounts found.
-                    </td>
-                  </tr>
-                )}
-                {accounts.map((a) => (
-                  <tr key={a.id}>
-                    <td className="mono">{a.slug}</td>
-                    <td>{a.name}</td>
-                    <td>
-                      <span className={`badge ${a.status === 'active' ? 'text-bg-success' : 'text-bg-secondary'}`}>
-                        {a.status}
-                      </span>
-                    </td>
-                    <td className="small">{new Date(a.created_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 

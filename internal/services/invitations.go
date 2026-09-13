@@ -37,12 +37,8 @@ func (p *Platform) CreateInvitation(accountID, invitedBy int64, email, role, del
 
 	// Verify inviter is admin in account
 	m, err := p.GetMembership(invitedBy, accountID)
-	if err != nil || (m.Role != models.RoleAdmin) {
-		// Check platform admin
-		u, err2 := p.GetUser(invitedBy)
-		if err2 != nil || !u.IsPlatformAdmin {
-			return nil, "", errors.New("only account admins can invite")
-		}
+	if err != nil || m.Role != models.RoleAdmin {
+		return nil, "", errors.New("only account admins can invite")
 	}
 
 	// Check if user is already a member
@@ -312,11 +308,8 @@ func (p *Platform) CreateMember(accountID, invitedBy int64, in CreateMemberInput
 
 	// Verify creator is admin
 	m, err := p.GetMembership(invitedBy, accountID)
-	if err != nil || (m.Role != models.RoleAdmin) {
-		u, err2 := p.GetUser(invitedBy)
-		if err2 != nil || !u.IsPlatformAdmin {
-			return nil, errors.New("only account admins can create members")
-		}
+	if err != nil || m.Role != models.RoleAdmin {
+		return nil, errors.New("only account admins can create members")
 	}
 
 	if in.DisplayName == "" {

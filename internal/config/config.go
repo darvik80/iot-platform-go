@@ -58,7 +58,7 @@ type Config struct {
 }
 
 func Load() Config {
-	role := models.Role(getenv("REGISTER_DEFAULT_ROLE", "viewer", "AUTH_REGISTER_DEFAULT_ROLE"))
+	role := models.Role(getenv("REGISTER_DEFAULT_ROLE", "admin", "AUTH_REGISTER_DEFAULT_ROLE"))
 	switch role {
 	case models.RoleAdmin, models.RoleOperator, models.RoleViewer:
 	default:
@@ -129,7 +129,7 @@ func Load() Config {
 		OTADir:                 getenv("OTA_DIR", ""),
 		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true, "AUTH_REGISTER_ENABLED"),
 		RegisterDefaultRole:    role,
-		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", true, "AUTH_REQUIRE_EMAIL_VERIFY"),
+		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", false, "AUTH_REQUIRE_EMAIL_VERIFY"),
 		SMTPHost:               getenv("SMTP_HOST", "", "EMAIL_SMTP_HOST"),
 		SMTPPort:               getenvInt("SMTP_PORT", 587, "EMAIL_SMTP_PORT"),
 		SMTPUser:               getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),

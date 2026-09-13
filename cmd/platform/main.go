@@ -27,12 +27,6 @@ func main() {
 	cfg := config.Load()
 
 	// Use defaults if not configured
-	if cfg.DatabaseDriver == "" {
-		cfg.DatabaseDriver = "sqlite"
-	}
-	if cfg.DatabaseDSN == "" {
-		cfg.DatabaseDSN = "./data/platform.db"
-	}
 	if cfg.HTTPAddr == "" {
 		cfg.HTTPAddr = ":8080"
 	}
@@ -48,43 +42,106 @@ func main() {
 		log.Info("google oauth disabled — configure via setup wizard or config.yml")
 	}
 
-	database, err := db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
-	if err != nil {
-		log.Error("database open failed", "driver", cfg.DatabaseDriver, "err", err)
-		os.Exit(1)
-	}
-	defer database.Close()
-
-	plat := services.New(database, cfg, log)
-
-	// Check if setup wizard is needed BEFORE EnsureAdmin
+	// Check if we need to run setup wizard
+	// Setup is needed if database is not configured or the configured database is empty
+	var database *db.DB
 	var setupService *services.SetupService
-	var userCount, accountCount int
+	var plat *services.Platform
+	needSetup := false
 
-	// Check if users table exists and has entries
-	if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
-		log.Warn("users table check failed", "err", err)
-		userCount = 0
-	}
-
-	// Check if accounts table exists and has entries
-	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
-		log.Warn("accounts table check failed, enabling setup wizard", "err", err)
-		accountCount = 0
-	}
-
-	// Setup wizard is needed if there are no users AND no accounts
-	if userCount == 0 && accountCount == 0 {
-		log.Info("fresh database detected, enabling setup wizard")
-		setupService = services.NewSetupService(database, log)
-	} else {
-		// Database already has data — ensure admin exists (migration case)
-		if err := plat.EnsureAdmin(); err != nil {
-			log.Error("ensure admin failed", "err", err)
+	if cfg.DatabaseDriver != "" && cfg.DatabaseDSN != "" {
+		// Database is configured — try to open it
+		var err error
+		database, err = db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
+		if err != nil {
+			log.Error("database open failed", "driver", cfg.DatabaseDriver, "err", err)
 			os.Exit(1)
 		}
+
+		// Check if database has data
+		var userCount, accountCount int
+		if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
+			userCount = 0
+		}
+		if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
+			accountCount = 0
+		}
+
+		if userCount == 0 && accountCount == 0 {
+			// Database is empty — need setup
+			log.Info("empty database detected, enabling setup wizard")
+			needSetup = true
+			// Close the empty database — wizard will open the configured one
+			database.Close()
+			database = nil
+		} else {
+			// Database has data — normal startup
+			plat = services.New(database, cfg, log)
+			if err := plat.EnsureAdmin(); err != nil {
+				log.Error("ensure admin failed", "err", err)
+				os.Exit(1)
+			}
+		}
+	} else {
+		// No database configured — need setup
+		log.Info("no database configured, enabling setup wizard")
+		needSetup = true
 	}
 
+	if needSetup {
+		// Start HTTP server with setup wizard only
+		setupService = services.NewSetupService(log)
+
+		var spa fs.FS
+		if embedded, err := webui.FS(); err == nil {
+			spa = embedded
+		} else if disk := os.DirFS(filepath.Clean("web/dist")); fileExists("web/dist/index.html") {
+			spa = disk
+		}
+
+		srv := &api.Server{Setup: setupService, SpaFS: spa}
+		httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
+
+		log.Info("setup wizard listening", "addr", cfg.HTTPAddr)
+		go func() {
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("http server failed", "err", err)
+				os.Exit(1)
+			}
+		}()
+
+		// Wait for setup to complete
+		for {
+			time.Sleep(1 * time.Second)
+			state := setupService.GetState()
+			if state.Completed {
+				break
+			}
+		}
+
+		_ = httpServer.Shutdown(context.Background())
+
+		// Reload config (wizard wrote config.yml) — force override any existing env vars
+		config.LoadYAMLForce("./config.yml")
+		cfg = config.Load()
+		if cfg.HTTPAddr == "" {
+			cfg.HTTPAddr = ":8080"
+		}
+		if cfg.MQTTAddr == "" {
+			cfg.MQTTAddr = ":1883"
+		}
+
+		// Open the database configured by the wizard
+		var err error
+		database, err = db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
+		if err != nil {
+			log.Error("database open failed after setup", "err", err)
+			os.Exit(1)
+		}
+		plat = services.New(database, cfg, log)
+	}
+
+	defer database.Close()
 	_ = plat.ReloadDeviceMaps()
 
 	hub := ws.NewHub()

@@ -9,7 +9,6 @@ export interface User {
   disabled?: boolean;
   email_verified?: boolean;
   auth_provider?: string;
-  is_platform_admin?: boolean;
   avatar_url?: string;
   updated_at?: number;
 }

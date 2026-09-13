@@ -45,7 +45,7 @@ function AccountSwitcher() {
                 if (m.account_id !== activeAccountId) void switchAccount(m.account_id);
               }}
             >
-              {m.account_name} <span className="muted small">({m.role})</span>
+              {m.account_name} <span className="muted small">({String(m.role)})</span>
             </button>
           ))}
         </div>
@@ -158,7 +158,7 @@ function UserWidget() {
                   {user.display_name || user.login || user.email}
                 </div>
                 <div className="small muted text-truncate">
-                  {user.email} · {activeMembership?.role || ''}
+                  {String(user.email)} · {String(activeMembership?.role || '')}
                 </div>
               </div>
             </div>

@@ -61,15 +61,12 @@ type SetupState struct {
 
 // SetupService manages the setup wizard state.
 type SetupService struct {
-	state    *SetupState
-	log      *slog.Logger
-	database *db.DB // existing database connection from main app
+	state *SetupState
+	log   *slog.Logger
 }
 
 // NewSetupService creates a new setup service.
-// It uses the existing database connection from the main app initially,
-// but the wizard can configure a different database connection.
-func NewSetupService(database *db.DB, log *slog.Logger) *SetupService {
+func NewSetupService(log *slog.Logger) *SetupService {
 	return &SetupService{
 		state: &SetupState{
 			CurrentStep:    1,
@@ -83,8 +80,7 @@ func NewSetupService(database *db.DB, log *slog.Logger) *SetupService {
 			JWTSecret:      generateSecret(),
 			PublicBaseURL:  "http://localhost:8080",
 		},
-		log:      log,
-		database: database,
+		log: log,
 	}
 }
 
@@ -261,9 +257,9 @@ func bootstrapSetup(database *db.DB, cfg config.Config) error {
 	defer tx.Rollback()
 
 	// Create admin user (wrapper auto-converts ? → $N and handles RETURNING id for PostgreSQL)
-	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, is_platform_admin, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`,
-		cfg.AdminEmail, hash, models.RoleAdmin, cfg.AdminLogin, "Admin", 1, 1, now, now)
+	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?)`,
+		cfg.AdminEmail, hash, models.RoleAdmin, cfg.AdminLogin, "Admin", 1, now, now)
 	if err != nil {
 		return fmt.Errorf("create admin: %w", err)
 	}
@@ -329,6 +325,8 @@ func generateSecret() string {
 func writeConfigYAML(cfg config.Config) error {
 	// Build a minimal config structure for YAML
 	data := map[string]any{
+		"database_driver": cfg.DatabaseDriver,
+		"database_dsn":    cfg.DatabaseDSN,
 		"jwt_secret":      cfg.JWTSecret,
 		"public_base_url": cfg.PublicBaseURL,
 	}

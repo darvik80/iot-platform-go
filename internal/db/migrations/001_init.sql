@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS users (
     email_verified INTEGER NOT NULL DEFAULT 0,
     google_sub TEXT,
     disabled INTEGER NOT NULL DEFAULT 0,
-    is_platform_admin INTEGER NOT NULL DEFAULT 0,
     avatar_url TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -106,8 +105,8 @@ CREATE INDEX IF NOT EXISTS idx_invitations_email ON account_invitations(email);
 
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    account_id INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE,
-    product_id TEXT NOT NULL UNIQUE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    product_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     topic_style_default TEXT NOT NULL DEFAULT 'short' CHECK(topic_style_default IN ('short','full')),
@@ -116,7 +115,8 @@ CREATE TABLE IF NOT EXISTS products (
     attributes_json TEXT NOT NULL DEFAULT '[]',
     auto_ota INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    UNIQUE(account_id, product_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_account ON products(account_id);
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS device_credentials (
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL,
     token_prefix TEXT NOT NULL,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     revoked_at INTEGER,
     created_at INTEGER NOT NULL
 );
@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_device_credentials_account ON device_credentials(
 CREATE TABLE IF NOT EXISTS telemetry_samples (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
     value_num REAL,
     value_text TEXT,
@@ -176,7 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_samples_account ON telemetry_samples(ac
 
 CREATE TABLE IF NOT EXISTS device_attributes_reported (
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_device_attrs_reported_account ON device_attribute
 
 CREATE TABLE IF NOT EXISTS device_attributes_desired (
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -199,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_device_attrs_desired_account ON device_attributes
 CREATE TABLE IF NOT EXISTS attribute_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     scope TEXT NOT NULL CHECK(scope IN ('reported','desired')),
     key TEXT NOT NULL,
     value_json TEXT NOT NULL,
@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS attribute_history (
 CREATE TABLE IF NOT EXISTS rpc_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     request_id INTEGER NOT NULL,
     method TEXT NOT NULL,
     params_json TEXT NOT NULL DEFAULT '{}',
@@ -233,7 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_rpc_calls_account ON rpc_calls(account_id);
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     event_id TEXT NOT NULL DEFAULT '',
     type TEXT NOT NULL,
     severity TEXT NOT NULL DEFAULT 'info',
@@ -250,7 +250,7 @@ CREATE INDEX IF NOT EXISTS idx_events_account ON events(account_id);
 CREATE TABLE IF NOT EXISTS device_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     level TEXT NOT NULL,
     module TEXT NOT NULL DEFAULT '',
     code TEXT NOT NULL DEFAULT '',
@@ -268,7 +268,7 @@ CREATE INDEX IF NOT EXISTS idx_device_logs_account ON device_logs(account_id);
 CREATE TABLE IF NOT EXISTS ota_firmwares (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_pk INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     module TEXT NOT NULL DEFAULT 'main',
     version TEXT NOT NULL,
     size INTEGER NOT NULL,
@@ -287,7 +287,7 @@ CREATE INDEX IF NOT EXISTS idx_ota_firmwares_account ON ota_firmwares(account_id
 CREATE TABLE IF NOT EXISTS ota_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_pk INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     firmware_id INTEGER NOT NULL REFERENCES ota_firmwares(id),
     status TEXT NOT NULL DEFAULT 'pending',
     step INTEGER NOT NULL DEFAULT 0,
@@ -315,7 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_device_plugins_device ON device_plugin_bindings(d
 
 CREATE TABLE IF NOT EXISTS external_plugins (
     id                TEXT PRIMARY KEY,
-    account_id        INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id        INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     name              TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
     mqtt_user         TEXT NOT NULL DEFAULT '',
@@ -355,7 +355,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS ingest_dedup (
     device_pk INTEGER NOT NULL,
-    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     capability TEXT NOT NULL,
     fingerprint TEXT NOT NULL,
     seen_at INTEGER NOT NULL,

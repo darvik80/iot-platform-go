@@ -11,6 +11,16 @@ import (
 // LoadYAML reads a YAML config file and sets values as env vars (does not override existing).
 // Nested keys are joined with "_", e.g. mqtt.addr → MQTT_ADDR, server.public_base_url → SERVER_PUBLIC_BASE_URL.
 func LoadYAML(path string) {
+	loadYAML(path, false)
+}
+
+// LoadYAMLForce reads a YAML config file and sets values as env vars, overriding existing values.
+// This is used after setup wizard to ensure the new config is applied.
+func LoadYAMLForce(path string) {
+	loadYAML(path, true)
+}
+
+func loadYAML(path string, force bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -22,7 +32,9 @@ func LoadYAML(path string) {
 	flat := make(map[string]string)
 	flatten("", raw, flat)
 	for k, v := range flat {
-		if _, exists := os.LookupEnv(k); !exists {
+		if force {
+			_ = os.Setenv(k, v)
+		} else if _, exists := os.LookupEnv(k); !exists {
 			_ = os.Setenv(k, v)
 		}
 	}

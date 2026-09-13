@@ -44,7 +44,7 @@ export function OverviewPage() {
   return (
     <div>
       <h1 className="h3 mb-3">{t('overview.title')}</h1>
-      {error && <div className="alert alert-danger py-2">{error}</div>}
+      {error && <div className="alert alert-danger py-2">{String(error)}</div>}
       <div className="row g-3 mb-4">
         {[
           [t('overview.online'), o.online_devices || 0, 'var(--ok)'],
@@ -61,7 +61,7 @@ export function OverviewPage() {
             <div className="stat-card">
               <div className="label">{label}</div>
               <div className="value" style={color ? { color: String(color), fontSize: typeof value === 'string' ? '1rem' : undefined } : undefined}>
-                {value}
+                {String(value)}
               </div>
             </div>
           </div>

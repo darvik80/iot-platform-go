@@ -52,6 +52,11 @@ func (h *ExternalPluginHub) Start(_ context.Context) {
 // Register adds or updates an external plugin.
 // Returns plugin and MQTT password (only on first registration), error.
 func (h *ExternalPluginHub) Register(in RegisterExternalPluginInput) (*models.ExternalPlugin, string, error) {
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugin register request",
+			"id", in.ID, "account_id", in.AccountID, "account_slug", in.AccountSlug,
+			"name", in.Name, "auto", in.Auto, "interval_ms", in.IntervalMS)
+	}
 	if in.ID == "" {
 		return nil, "", errors.New("plugin id required")
 	}
@@ -102,6 +107,10 @@ func (h *ExternalPluginHub) Register(in RegisterExternalPluginInput) (*models.Ex
 	h.plugins[p.ID] = p
 	h.mu.Unlock()
 
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugin registered",
+			"id", p.ID, "account_id", p.AccountID, "mqtt_user", p.MQTTUser)
+	}
 	return p, mqttPass, nil
 }
 
@@ -135,20 +144,32 @@ func (h *ExternalPluginHub) ValidateMQTTCreds(user, pass string) (string, bool) 
 	defer h.mu.RUnlock()
 	for _, p := range h.plugins {
 		if p.MQTTUser == user && p.MQTTPassHash == passHash {
+			if h.plat.Log != nil {
+				h.plat.Log.Debug("external plugin MQTT auth ok", "id", p.ID, "user", user)
+			}
 			return p.ID, true
 		}
+	}
+	if h.plat.Log != nil {
+		h.plat.Log.Debug("external plugin MQTT auth failed", "user", user)
 	}
 	return "", false
 }
 
 // Delete removes an external plugin.
 func (h *ExternalPluginHub) Delete(id string) error {
+	if h.plat.Log != nil {
+		h.plat.Log.Debug("external plugin delete request", "id", id)
+	}
 	if err := h.plat.deleteExternalPlugin(id); err != nil {
 		return err
 	}
 	h.mu.Lock()
 	delete(h.plugins, id)
 	h.mu.Unlock()
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugin deleted", "id", id)
+	}
 	return nil
 }
 
@@ -179,6 +200,9 @@ func (h *ExternalPluginHub) SetOnline(id string) {
 	}
 	h.mu.Unlock()
 	_ = h.plat.updateExternalPluginStatus(id, "online")
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugin online", "id", id)
+	}
 }
 
 // SetOffline updates the plugin status to "offline".
@@ -189,6 +213,9 @@ func (h *ExternalPluginHub) SetOffline(id string) {
 	}
 	h.mu.Unlock()
 	_ = h.plat.updateExternalPluginStatus(id, "offline")
+	if h.plat.Log != nil {
+		h.plat.Log.Info("external plugin offline", "id", id)
+	}
 }
 
 // InvokeRPCForPlugin allows an external plugin to invoke RPC on its bound device.
@@ -292,9 +319,14 @@ func (p *Platform) saveExternalPlugin(ep *models.ExternalPlugin) error {
 	if ep.Auto {
 		autoInt = 1
 	}
-	_, err := p.DB.Exec(`INSERT OR REPLACE INTO external_plugins 
+	_, err := p.DB.Exec(`INSERT INTO external_plugins 
 		(id, account_id, name, description, auto, interval_ms, default_config, effects, form, status, mqtt_user, mqtt_pass_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET 
+			account_id=excluded.account_id, name=excluded.name, description=excluded.description,
+			auto=excluded.auto, interval_ms=excluded.interval_ms, default_config=excluded.default_config,
+			effects=excluded.effects, form=excluded.form, status=excluded.status,
+			mqtt_user=excluded.mqtt_user, mqtt_pass_hash=excluded.mqtt_pass_hash, updated_at=excluded.updated_at`,
 		ep.ID, ep.AccountID, ep.Name, ep.Description, autoInt, ep.IntervalMS,
 		string(ep.DefaultConfig), string(effectsJSON), string(ep.Form), ep.Status,
 		ep.MQTTUser, ep.MQTTPassHash, ep.CreatedAt, ep.UpdatedAt)

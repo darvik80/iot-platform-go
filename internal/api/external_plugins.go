@@ -33,8 +33,15 @@ func (s *Server) registerExternalPlugin(w http.ResponseWriter, r *http.Request) 
 
 	plugin, mqttPass, err := s.Plat.ExternalPlugins.Register(in)
 	if err != nil {
+		if s.Plat.Log != nil {
+			s.Plat.Log.Warn("external plugin register failed", "id", in.ID, "err", err)
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if s.Plat.Log != nil {
+		s.Plat.Log.Info("external plugin register OK",
+			"id", plugin.ID, "account", in.AccountSlug, "mqtt_user", plugin.MQTTUser)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"ok":        true,
@@ -51,8 +58,14 @@ func (s *Server) registerExternalPlugin(w http.ResponseWriter, r *http.Request) 
 func (s *Server) deleteExternalPlugin(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.Plat.ExternalPlugins.Delete(id); err != nil {
+		if s.Plat.Log != nil {
+			s.Plat.Log.Warn("external plugin delete failed", "id", id, "err", err)
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if s.Plat.Log != nil {
+		s.Plat.Log.Info("external plugin deleted via API", "id", id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -47,10 +47,7 @@ func (p *Platform) EnsureAdmin() error {
 	_, _ = p.DB.Exec(`UPDATE users SET login=? WHERE (login IS NULL OR login='') AND email=?`,
 		p.Cfg.AdminLogin, p.Cfg.AdminEmail)
 	_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.AdminEmail)
-	
-	// Ensure is_platform_admin is set for the first admin user (migration case)
-	_, _ = p.DB.Exec(`UPDATE users SET is_platform_admin=1 WHERE id=(SELECT MIN(id) FROM users) AND is_platform_admin=0`)
-	
+
 	return nil
 }
 
@@ -59,6 +56,7 @@ type RegisterInput struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	AccountSlug string `json:"account_slug"` // optional, auto-generated from login if empty
 }
 
 func (p *Platform) Register(in RegisterInput) (*models.User, error) {
@@ -89,7 +87,15 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	if !p.Cfg.RequireEmailVerify {
 		verified = 1
 	}
-	res, err := p.DB.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Create user
+	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
 		in.Email, hash, p.Cfg.RegisterDefaultRole, in.Login, in.DisplayName, verified, now, now)
 	if err != nil {
@@ -98,8 +104,50 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 		}
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
-	u, err := p.GetUser(id)
+	userID, _ := res.LastInsertId()
+
+	// 2. Determine account slug
+	var slug string
+	if in.AccountSlug != "" {
+		slug = normalizeSlug(in.AccountSlug)
+		if slug == "" {
+			return nil, errors.New("invalid account slug: only lowercase letters, digits, and hyphens allowed")
+		}
+		if len(slug) > 63 {
+			slug = slug[:63]
+		}
+		// Check uniqueness
+		var count int
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM accounts WHERE slug=?`, slug).Scan(&count)
+		if count > 0 {
+			return nil, errors.New("account slug already taken")
+		}
+	} else {
+		slug = p.generateAccountSlug(in.Login)
+	}
+
+	// 3. Create personal account
+	accRes, err := tx.Exec(`INSERT INTO accounts(slug, name, settings_json, status, created_at, updated_at)
+		VALUES(?,?,?,'active',?,?)`,
+		slug, in.DisplayName, "{}", now, now)
+	if err != nil {
+		return nil, fmt.Errorf("create account: %w", err)
+	}
+	accountID, _ := accRes.LastInsertId()
+
+	// 4. Create membership (user is admin of their own account)
+	_, err = tx.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at)
+		VALUES(?,?,?,'active',?)`,
+		userID, accountID, models.RoleAdmin, now)
+	if err != nil {
+		return nil, fmt.Errorf("create membership: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	u, err := p.GetUser(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +158,79 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 		}
 	}
 	return u, nil
+}
+
+// generateAccountSlug creates a unique account slug from a login name.
+// Converts to lowercase, replaces non-alphanumeric characters with hyphens,
+// and appends a numeric suffix if the slug is already taken.
+func (p *Platform) generateAccountSlug(login string) string {
+	base := strings.ToLower(login)
+	// Replace non-alphanumeric characters with hyphens
+	var b strings.Builder
+	for _, ch := range base {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteRune(ch)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	base = strings.Trim(b.String(), "-")
+	// Collapse consecutive hyphens
+	for strings.Contains(base, "--") {
+		base = strings.ReplaceAll(base, "--", "-")
+	}
+	if base == "" {
+		base = "user"
+	}
+	if len(base) > 56 {
+		base = base[:56]
+	}
+
+	// Check uniqueness, append suffix if taken
+	candidate := base
+	for i := 1; i <= 100; i++ {
+		var count int
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM accounts WHERE slug=?`, candidate).Scan(&count)
+		if count == 0 {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", base, i)
+	}
+	// Fallback: add timestamp
+	return fmt.Sprintf("%s-%d", base, db.NowMS())
+}
+
+// normalizeSlug converts a user-provided slug to a valid format.
+// Returns empty string if the slug contains invalid characters.
+func normalizeSlug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, ch := range s {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+			b.WriteRune(ch)
+		} else if ch == '-' {
+			b.WriteRune(ch)
+		} else {
+			return "" // invalid character
+		}
+	}
+	result := strings.Trim(b.String(), "-")
+	// Collapse consecutive hyphens
+	for strings.Contains(result, "--") {
+		result = strings.ReplaceAll(result, "--", "-")
+	}
+	return result
+}
+
+// CheckSlugAvailable returns true if the slug is not taken.
+func (p *Platform) CheckSlugAvailable(slug string) bool {
+	slug = normalizeSlug(slug)
+	if slug == "" {
+		return false
+	}
+	var count int
+	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM accounts WHERE slug=?`, slug).Scan(&count)
+	return count == 0
 }
 
 func (p *Platform) sendVerificationEmail(u *models.User) error {
@@ -256,6 +377,8 @@ type UpdateUserInput struct {
 	Role        string `json:"role"`
 	Disabled    *bool  `json:"disabled"`
 	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Password    string `json:"password"` // if set, change password
 }
 
 func (p *Platform) UpdateUser(id int64, in UpdateUserInput) (*models.User, error) {
@@ -278,12 +401,29 @@ func (p *Platform) UpdateUser(id int64, in UpdateUserInput) (*models.User, error
 	if in.DisplayName != "" {
 		u.DisplayName = in.DisplayName
 	}
+	if in.Email != "" {
+		u.Email = in.Email
+	}
+	// Hash new password if provided
+	newHash := ""
+	if in.Password != "" {
+		hash, err := auth.HashPassword(in.Password)
+		if err != nil {
+			return nil, errors.New("failed to hash password")
+		}
+		newHash = hash
+	}
 	dis := 0
 	if u.Disabled {
 		dis = 1
 	}
-	_, err = p.DB.Exec(`UPDATE users SET role=?, disabled=?, display_name=?, updated_at=? WHERE id=?`,
-		u.Role, dis, u.DisplayName, db.NowMS(), id)
+	if newHash != "" {
+		_, err = p.DB.Exec(`UPDATE users SET role=?, disabled=?, display_name=?, email=?, password_hash=?, updated_at=? WHERE id=?`,
+			u.Role, dis, u.DisplayName, u.Email, newHash, db.NowMS(), id)
+	} else {
+		_, err = p.DB.Exec(`UPDATE users SET role=?, disabled=?, display_name=?, email=?, updated_at=? WHERE id=?`,
+			u.Role, dis, u.DisplayName, u.Email, db.NowMS(), id)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -399,14 +539,14 @@ func (p *Platform) RevokeAPIToken(userID, tokenID int64) error {
 }
 
 const userSelect = `SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-	COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0),
+	COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0),
 	COALESCE(avatar_url,''), created_at, updated_at`
 
 func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	var u models.User
-	var verified, disabled, isPlatformAdmin int
+	var verified, disabled int
 	err := row.Scan(&u.ID, &u.Login, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role,
-		&verified, &u.GoogleSub, &disabled, &isPlatformAdmin, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
+		&verified, &u.GoogleSub, &disabled, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
 	}
@@ -415,7 +555,6 @@ func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	}
 	u.EmailVerified = verified == 1
 	u.Disabled = disabled == 1
-	u.IsPlatformAdmin = isPlatformAdmin == 1
 	switch {
 	case u.GoogleSub != "" && u.PasswordHash != "":
 		u.AuthProvider = "both"

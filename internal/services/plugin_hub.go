@@ -129,6 +129,15 @@ func (h *PluginHub) forward(d *models.Device, kind string, payload any) {
 		}
 	}
 	h.mu.Unlock()
+	if h.plat.Log != nil && len(insts) > 0 {
+		pluginIDs := make([]string, 0, len(insts))
+		for _, it := range insts {
+			pluginIDs = append(pluginIDs, it.b.PluginID)
+		}
+		h.plat.Log.Debug("plugin dispatch",
+			"kind", kind, "product", d.ProductID, "device", d.DeviceID,
+			"plugins", pluginIDs, "device_pk", d.ID)
+	}
 	rt := pluginRuntime{plat: h.plat, d: d}
 	online := d.Status == "online"
 	if kind == protocol.BusStatus {

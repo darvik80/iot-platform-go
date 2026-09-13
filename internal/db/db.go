@@ -116,7 +116,14 @@ func (d *DB) convert(query string, args ...any) (string, []any) {
 }
 
 // execInsertReturning handles INSERT ... RETURNING id for PostgreSQL.
+// Only adds RETURNING id if the target table has an id column.
 func (d *DB) execInsertReturning(query string, args []any) (Result, error) {
+	// Check if the query targets a table without an id column
+	if isTableWithoutID(query) {
+		// For tables without id column, just execute without RETURNING
+		res, err := d.Raw.Exec(query, args...)
+		return Result{inner: res, pg: true}, err
+	}
 	q := strings.TrimRight(query, "; \t\n") + " RETURNING id"
 	var id int64
 	err := d.Raw.QueryRow(q, args...).Scan(&id)
@@ -170,6 +177,12 @@ func (t *Tx) convert(query string, args ...any) (string, []any) {
 }
 
 func (t *Tx) execInsertReturning(query string, args []any) (Result, error) {
+	// Check if the query targets a table without an id column
+	if isTableWithoutID(query) {
+		// For tables without id column, just execute without RETURNING
+		res, err := t.inner.Exec(query, args...)
+		return Result{inner: res, pg: true}, err
+	}
 	q := strings.TrimRight(query, "; \t\n") + " RETURNING id"
 	var id int64
 	err := t.inner.QueryRow(q, args...).Scan(&id)
@@ -230,6 +243,31 @@ func hasReturning(q string) bool {
 	return strings.Contains(strings.ToUpper(q), "RETURNING")
 }
 
+// Tables that do NOT have an auto-increment integer 'id' column.
+// INSERT into these tables should NOT use RETURNING id.
+var tablesWithoutID = map[string]bool{
+	"account_memberships":        true,
+	"account_plugin_policies":    true,
+	"device_attributes_reported": true,
+	"device_attributes_desired":  true,
+	"settings":                   true,
+	"ingest_dedup":               true,
+	"schema_migrations":          true,
+	"oauth_states":               true,
+	"external_plugins":           true, // id is TEXT (plugin name), not auto-increment
+}
+
+// isTableWithoutID checks if the INSERT query targets a table without an 'id' column.
+func isTableWithoutID(query string) bool {
+	upper := strings.ToUpper(query)
+	for table := range tablesWithoutID {
+		if strings.Contains(upper, "INTO "+strings.ToUpper(table)) {
+			return true
+		}
+	}
+	return false
+}
+
 // ── Raw open helpers (return *sql.DB for migration use) ─────────────────────
 
 func openSQLite(path string) (*sql.DB, error) {
@@ -283,14 +321,8 @@ func migrate(db *sql.DB, dialect Dialect) error {
 	// Create migrations tracking table
 	createMigrationsTable := `CREATE TABLE IF NOT EXISTS schema_migrations (
 		name TEXT PRIMARY KEY,
-		applied_at INTEGER NOT NULL
+		applied_at BIGINT NOT NULL
 	)`
-	if dialect == DialectPostgres {
-		createMigrationsTable = `CREATE TABLE IF NOT EXISTS schema_migrations (
-			name TEXT PRIMARY KEY,
-			applied_at BIGINT NOT NULL
-		)`
-	}
 	if _, err := db.Exec(createMigrationsTable); err != nil {
 		return err
 	}

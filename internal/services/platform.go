@@ -131,6 +131,12 @@ func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, p
 		p.Plugins.Dispatch(productID, deviceID, kind, payload)
 	}
 	if p.Pub == nil || !p.Cfg.RulesBusEnabled {
+		if p.Log != nil {
+			p.Log.Debug("rules bus skipped",
+				"kind", kind, "account", accountSlug,
+				"product", productID, "device", deviceID,
+				"pub_nil", p.Pub == nil, "enabled", p.Cfg.RulesBusEnabled)
+		}
 		return
 	}
 	b, err := json.Marshal(payload)
@@ -138,6 +144,12 @@ func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, p
 		return
 	}
 	topic := fmt.Sprintf("%s/events/%s/%s/%s/%s", p.Cfg.RulesBusPrefix, accountSlug, productID, deviceID, kind)
+	if p.Log != nil {
+		p.Log.Info("rules bus publish",
+			"topic", topic, "kind", kind,
+			"account", accountSlug, "product", productID, "device", deviceID,
+			"bytes", len(b))
+	}
 	_ = p.Pub.Publish(topic, 0, false, b)
 	MetricEventBusPublished(accountSlug, productID, deviceID, kind)
 }
