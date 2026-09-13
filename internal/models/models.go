@@ -30,6 +30,8 @@ type Device struct {
 	TopicStyle      string   `json:"topic_style"`
 	AutoOTA         bool     `json:"auto_ota"`
 	Enabled         bool     `json:"enabled"`
+	AccountID       int64    `json:"account_id"`
+	AccountSlug     string   `json:"account_slug,omitempty"`
 	CreatedAt       int64    `json:"created_at"`
 	UpdatedAt       int64    `json:"updated_at"`
 }
@@ -238,36 +240,22 @@ type DevicePluginBinding struct {
 	LastError   string          `json:"last_error,omitempty"`
 }
 
-// ExternalPlugin is an out-of-process plugin registered via API.
+// ExternalPlugin is an out-of-process plugin that connects via MQTT.
 type ExternalPlugin struct {
-	ID              string          `json:"id"`
-	AccountID       int64           `json:"account_id"`
-	Name            string          `json:"name"`
-	Description     string          `json:"description"`
-	Endpoint        string          `json:"endpoint"`
-	GRPCEndpoint    string          `json:"grpc_endpoint,omitempty"`
-	AuthTokenHash   string          `json:"-"`
-	Auto            bool            `json:"auto"`
-	IntervalMS      int             `json:"interval_ms"`
-	DefaultConfig   json.RawMessage `json:"default_config"`
-	Effects         []string        `json:"effects,omitempty"`
-	Form            json.RawMessage `json:"form,omitempty"`
-	Mode            string          `json:"mode"`   // webhook | polling | grpc
-	Status          string          `json:"status"` // online | offline | unknown
-	LastHeartbeatAt *int64          `json:"last_heartbeat_at,omitempty"`
-	MQTTUser        string          `json:"mqtt_user,omitempty"`
-	MQTTPassHash    string          `json:"-"`
-	CreatedAt       int64           `json:"created_at"`
-	UpdatedAt       int64           `json:"updated_at"`
+	ID            string          `json:"id"`
+	AccountID     int64           `json:"account_id"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	Auto          bool            `json:"auto"`
+	IntervalMS    int             `json:"interval_ms"`
+	DefaultConfig json.RawMessage `json:"default_config"`
+	Effects       []string        `json:"effects,omitempty"`
+	Form          json.RawMessage `json:"form,omitempty"`
+	Status        string          `json:"status"` // online | offline | unknown
+	LastHeartbeatAt *int64        `json:"last_heartbeat_at,omitempty"`
+	MQTTUser      string          `json:"mqtt_user,omitempty"`
+	MQTTPassHash  string          `json:"-"`
+	CreatedAt     int64           `json:"created_at"`
+	UpdatedAt     int64           `json:"updated_at"`
 }
 
-// ExternalPluginEvent is a queued event for polling-mode plugins.
-type ExternalPluginEvent struct {
-	ID        int64           `json:"id"`
-	PluginID  string          `json:"plugin_id"`
-	BindingID int64           `json:"binding_id"`
-	Method    string          `json:"method"` // plugin.apply_config | plugin.on_event | plugin.detach
-	Params    json.RawMessage `json:"params"`
-	CreatedAt int64           `json:"created_at"`
-	AckedAt   *int64          `json:"acked_at,omitempty"`
-}

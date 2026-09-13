@@ -55,9 +55,10 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	MetricTelemetrySample(d.AccountSlug, d.ProductID, d.DeviceID)
 	p.TouchSeen(d)
 	p.emit("telemetry", map[string]any{"device_id": d.ID, "product_id": d.ProductID, "device": d.DeviceID, "keys": keys, "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusTelemetry, map[string]any{
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusTelemetry, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "keys": keys,
 	})
 	return nil
@@ -262,7 +263,7 @@ func (p *Platform) MergeReported(d *models.Device, attrs map[string]any) error {
 	}
 	p.TouchSeen(d)
 	p.emit("attributes.reported", map[string]any{"device_id": d.ID, "attrs": attrs})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusAttributesReported, map[string]any{
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusAttributesReported, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
 	return nil
@@ -294,7 +295,7 @@ func (p *Platform) SetDesired(d *models.Device, attrs map[string]any, publish bo
 		_ = p.Pub.Publish(topic, 1, false, b)
 	}
 	p.emit("attributes.desired", map[string]any{"device_id": d.ID, "attrs": attrs})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusAttributesDesired, map[string]any{
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusAttributesDesired, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
 	return nil
@@ -401,6 +402,7 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 		call.Message = "timeout"
 		completed := db.NowMS()
 		call.CompletedAt = &completed
+		MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, req.Method, "timeout")
 		return &call, nil
 	}
 }
@@ -444,7 +446,8 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 		}
 	}
 	p.emit("rpc.completed", call)
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
+	MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, call.Method, status)
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"request_id": resp.ID, "code": resp.Code, "message": resp.Message, "method": call.Method,
 		"correlation_id": call.CorrelationID, "data": json.RawMessage(ptrStr(dataStr)),

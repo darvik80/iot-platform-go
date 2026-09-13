@@ -70,14 +70,14 @@ func (p *Platform) RecordEvent(d *models.Device, eventID, typ, severity, code, m
 	id, _ := res.LastInsertId()
 	ev := models.Event{ID: id, DevicePK: d.ID, ProductID: d.ProductID, DeviceID: d.DeviceID, EventID: eventID, Type: typ, Severity: severity, Code: code, Message: message, DataJSON: dataJSON, TS: ts, IngestedAt: now}
 	p.emit("event", ev)
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusEvent, map[string]any{
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusEvent, map[string]any{
 		"ts": ts, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"type": typ, "severity": severity, "code": code, "message": message, "data": data,
 	})
 	return nil
 }
 
-func (p *Platform) ListEvents(devicePK int64, severity string, from, to int64, limit int) ([]models.Event, error) {
+func (p *Platform) ListEvents(accountID int64, devicePK int64, severity string, from, to int64, limit int) ([]models.Event, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -87,6 +87,10 @@ func (p *Platform) ListEvents(devicePK int64, severity string, from, to int64, l
 	q := `SELECT e.id, e.device_pk, pr.product_id, d.device_id, e.event_id, e.type, e.severity, e.code, e.message, e.data_json, e.ts, e.ingested_at
 		FROM events e JOIN devices d ON d.id=e.device_pk JOIN products pr ON pr.id=d.product_pk WHERE e.ts>=? AND e.ts<=?`
 	args := []any{from, to}
+	if accountID > 0 {
+		q += ` AND pr.account_id=?`
+		args = append(args, accountID)
+	}
 	if devicePK > 0 {
 		q += ` AND e.device_pk=?`
 		args = append(args, devicePK)
@@ -156,7 +160,7 @@ func (p *Platform) StoreLogs(d *models.Device, payload []byte) error {
 		_, _ = p.DB.Exec(`INSERT INTO device_logs(device_pk, level, module, code, message, context_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
 			d.ID, it.Level, it.Module, it.Code, it.Message, ctx, it.TS, now)
 		p.emit("log", map[string]any{"device_id": d.ID, "level": it.Level, "module": it.Module, "message": it.Message, "ts": it.TS})
-		p.publishRules(d.ProductID, d.DeviceID, protocol.BusLog, map[string]any{
+		p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusLog, map[string]any{
 			"ts": it.TS, "product_id": d.ProductID, "device_id": d.DeviceID,
 			"level": it.Level, "module": it.Module, "code": it.Code, "message": it.Message, "context": it.Context,
 		})
@@ -165,7 +169,7 @@ func (p *Platform) StoreLogs(d *models.Device, payload []byte) error {
 	return nil
 }
 
-func (p *Platform) ListLogs(devicePK int64, level string, from, to int64, limit int) ([]models.DeviceLog, error) {
+func (p *Platform) ListLogs(accountID int64, devicePK int64, level string, from, to int64, limit int) ([]models.DeviceLog, error) {
 	if limit <= 0 {
 		limit = 200
 	}
@@ -175,6 +179,10 @@ func (p *Platform) ListLogs(devicePK int64, level string, from, to int64, limit 
 	q := `SELECT l.id, l.device_pk, pr.product_id, d.device_id, l.level, l.module, l.code, l.message, l.context_json, l.ts, l.ingested_at
 		FROM device_logs l JOIN devices d ON d.id=l.device_pk JOIN products pr ON pr.id=d.product_pk WHERE l.ts>=? AND l.ts<=?`
 	args := []any{from, to}
+	if accountID > 0 {
+		q += ` AND pr.account_id=?`
+		args = append(args, accountID)
+	}
 	if devicePK > 0 {
 		q += ` AND l.device_pk=?`
 		args = append(args, devicePK)
@@ -266,7 +274,7 @@ func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
 	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status=?, step=?, desc=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
 		status, prog.Step, prog.Desc, now, d.ID)
 	p.emit("ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "desc": prog.Desc, "status": status})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusOTA, map[string]any{
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusOTA, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "step": prog.Step, "desc": prog.Desc, "status": status,
 	})
 	return nil
@@ -509,12 +517,16 @@ func (p *Platform) HostedFirmware(token string) (*models.OTAFirmware, string, er
 	return &fw, path, nil
 }
 
-func (p *Platform) ListFirmware(productID string) ([]models.OTAFirmware, error) {
+func (p *Platform) ListFirmware(accountID int64, productID string) ([]models.OTAFirmware, error) {
 	q := `SELECT f.id, f.product_pk, pr.product_id, f.module, f.version, f.size, f.sha256, f.sign_method, f.sign, f.url, COALESCE(f.download_token,''), f.created_at
-		FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk`
+		FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk WHERE 1=1`
 	args := []any{}
+	if accountID > 0 {
+		q += ` AND pr.account_id=?`
+		args = append(args, accountID)
+	}
 	if productID != "" {
-		q += ` WHERE pr.product_id=?`
+		q += ` AND pr.product_id=?`
 		args = append(args, productID)
 	}
 	q += ` ORDER BY f.created_at DESC`
@@ -706,7 +718,7 @@ func (p *Platform) NotifyFirmware(firmwareID, devicePK int64, force bool) (*mode
 		}
 		targets = append(targets, *d)
 	} else {
-		list, err := p.ListDevices(fw.ProductID, "", "")
+		list, err := p.ListDevices(0, fw.ProductID, "", "")
 		if err != nil {
 			return nil, err
 		}
@@ -760,15 +772,19 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 	return p.Pub.Publish(p.DownTopic(d, protocol.CapOTA, protocol.OpCancel), 1, false, b)
 }
 
-func (p *Platform) ListOTAJobs(devicePK int64) ([]models.OTAJob, error) {
+func (p *Platform) ListOTAJobs(accountID int64, devicePK int64) ([]models.OTAJob, error) {
 	q := `SELECT j.id, j.device_pk, pr.product_id, d.device_id, j.firmware_id, f.version, f.module, j.status, j.step, j.desc, j.created_at, j.updated_at
 		FROM ota_jobs j
 		JOIN devices d ON d.id=j.device_pk
 		JOIN products pr ON pr.id=d.product_pk
-		JOIN ota_firmwares f ON f.id=j.firmware_id`
+		JOIN ota_firmwares f ON f.id=j.firmware_id WHERE 1=1`
 	args := []any{}
+	if accountID > 0 {
+		q += ` AND pr.account_id=?`
+		args = append(args, accountID)
+	}
 	if devicePK > 0 {
-		q += ` WHERE j.device_pk=?`
+		q += ` AND j.device_pk=?`
 		args = append(args, devicePK)
 	}
 	q += ` ORDER BY j.created_at DESC LIMIT 100`

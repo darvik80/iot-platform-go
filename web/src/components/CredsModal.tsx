@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DeviceCredentials } from '../types';
+import { useToast } from './Toast';
 
 const WIFI_KEY = 'cogitor.wifi';
 
@@ -19,6 +20,7 @@ export function CredsModal({
   creds: DeviceCredentials;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const user = creds.username || creds.client_id;
   const [wifi, setWifi] = useState(loadWifi);
   const [copied, setCopied] = useState('');
@@ -48,15 +50,47 @@ export function CredsModal({
   const jsonText = useMemo(() => JSON.stringify(provision, null, 2), [provision]);
 
   const copy = async (label: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
+    let ok = false;
+    // Try modern clipboard API first
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch {
+        // Fall through to legacy method
+      }
+    }
+    // Legacy fallback for non-secure contexts
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        // Last resort: show in toast
+      }
+    }
+    if (ok) {
       setCopied(label);
       setTimeout(() => setCopied(''), 1500);
-    } catch {
+    } else {
       setCopied('');
-      alert(text);
+      toast.info(text);
     }
   };
+
+  const snippetText = useMemo(
+    () =>
+      `broker:      mqtt://${creds.broker_host}:${creds.broker_port}\nwebsocket:  ${creds.broker_ws_url || '(off)'}\nclient_id:   ${creds.client_id}\nusername:    ${user}\npassword:    ${creds.access_token}\ntopics:      auto (v1/me/… or iot/v1/… — detected on connect)\n\n${creds.snippet || ''}`,
+    [creds, user],
+  );
 
   const download = () => {
     const blob = new Blob([jsonText], { type: 'application/json' });
@@ -124,14 +158,10 @@ export function CredsModal({
 
               <details>
                 <summary className="small muted">MQTT / snippet</summary>
-                <pre className="bg-dark border border-secondary rounded p-2 small mono mt-2 mb-0">{`broker:      mqtt://${creds.broker_host}:${creds.broker_port}
-websocket:  ${creds.broker_ws_url || '(off)'}
-client_id:   ${creds.client_id}
-username:    ${user}
-password:    ${creds.access_token}
-topics:      auto (v1/me/… or iot/v1/… — detected on connect)
-
-${creds.snippet || ''}`}</pre>
+                <pre className="bg-dark border border-secondary rounded p-2 small mono mt-2 mb-2">{snippetText}</pre>
+                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => void copy('snippet', snippetText)}>
+                  {copied === 'snippet' ? 'Copied snippet' : 'Copy snippet'}
+                </button>
               </details>
             </div>
             <div className="modal-footer">

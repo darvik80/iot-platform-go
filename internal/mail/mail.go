@@ -53,3 +53,11 @@ func (s *Sender) SendVerification(to, login, verifyURL string) error {
 	)
 	return s.Send(to, "Confirm your Cogitor IoT account", body)
 }
+
+func (s *Sender) SendInvitation(to, accountName, role, inviteURL string) error {
+	body := fmt.Sprintf(
+		"You have been invited to join %s as %s.\n\nAccept the invitation by opening this link:\n%s\n\nIf you did not expect this, ignore this email.\n",
+		accountName, role, inviteURL,
+	)
+	return s.Send(to, fmt.Sprintf("Invitation to join %s", accountName), body)
+}

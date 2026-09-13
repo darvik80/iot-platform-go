@@ -14,8 +14,8 @@ import (
 
 func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := userFrom(r)
-		if u == nil || !auth.CanAdmin(u.Role) {
+		c := claimsFrom(r)
+		if c == nil || !auth.CanAdmin(c.ActiveRole()) {
 			writeErr(w, http.StatusForbidden, "admin access required")
 			return
 		}
@@ -173,7 +173,12 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listAPITokens(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Plat.ListAPITokens(userFrom(r).ID)
+	c := claimsFrom(r)
+	var accID int64
+	if c != nil {
+		accID = c.ActiveAccountID
+	}
+	list, err := s.Plat.ListAPITokens(userFrom(r).ID, accID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -189,7 +194,12 @@ func (s *Server) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	tok, err := s.Plat.CreateAPIToken(userFrom(r).ID, in.Name)
+	c := claimsFrom(r)
+	var accID int64
+	if c != nil {
+		accID = c.ActiveAccountID
+	}
+	tok, err := s.Plat.CreateAPIToken(userFrom(r).ID, accID, in.Name)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -201,6 +211,46 @@ func (s *Server) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err := s.Plat.RevokeAPIToken(userFrom(r).ID, id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Avatar ──────────────────────────────────────────────────────────────────
+
+func (s *Server) getMyAvatar(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	path := s.Plat.AvatarFilePath(u.ID)
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) uploadMyAvatar(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 3<<20) // 3 MB limit with overhead
+	if err := r.ParseMultipartForm(3 << 20); err != nil {
+		writeErr(w, http.StatusBadRequest, "file too large or invalid multipart")
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "file field required")
+		return
+	}
+	u, err := s.Plat.SetAvatarFromFile(userFrom(r).ID, file, header.Header.Get("Content-Type"), header.Filename)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, u)
+}
+
+func (s *Server) deleteMyAvatar(w http.ResponseWriter, r *http.Request) {
+	if err := s.Plat.DeleteAvatar(userFrom(r).ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

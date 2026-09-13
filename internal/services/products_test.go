@@ -19,7 +19,7 @@ func TestUpdateProductMethods(t *testing.T) {
 
 	p := New(database, config.Config{}, nil)
 
-	created, err := p.CreateProduct(ProductInput{
+	created, err := p.CreateProduct(0, ProductInput{
 		ProductID: "test-product",
 		Name:      "Test Product",
 	})
@@ -70,7 +70,7 @@ func TestBuiltinRPCListAlwaysPresent(t *testing.T) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	p := New(database, config.Config{}, nil)
-	created, err := p.CreateProduct(ProductInput{
+	created, err := p.CreateProduct(0, ProductInput{
 		ProductID:  "rpc-list-product",
 		Name:       "RPC List Product",
 		SetMethods: true,

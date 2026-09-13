@@ -3,17 +3,24 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { AttrForm } from '../components/AttrForm';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { CredsModal } from '../components/CredsModal';
 import { MetricCards } from '../components/MetricCards';
 import { RpcConsole } from '../components/RpcConsole';
 import { SeverityBadge, StatusBadge } from '../components/StatusBadge';
 import { DevicePlugins } from '../components/DevicePlugins';
+import { errorMsg, useToast } from '../components/Toast';
 import { formatOtaProgress } from '../utils/format';
-import type { DeviceCredentials, DeviceDetail, Firmware, OTAJob } from '../types';
+import { useT } from '../i18n/I18nContext';
+import type { DeviceCredentials, DeviceDetail, Firmware, OTAJob, DashboardPanel, DashboardResponse } from '../types';
+
+type DetailTab = 'overview' | 'metrics';
 
 export function DeviceDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const t = useT();
   const [detail, setDetail] = useState<DeviceDetail | null>(null);
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
@@ -21,6 +28,10 @@ export function DeviceDetailPage() {
   const [otaJobs, setOtaJobs] = useState<OTAJob[]>([]);
   const [otaFw, setOtaFw] = useState('');
   const [otaBusy, setOtaBusy] = useState(false);
+  const [tab, setTab] = useState<DetailTab>('overview');
+  const [dashboard, setDashboard] = useState<DashboardPanel[] | null>(null);
+  const [dashLoading, setDashLoading] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<'rotateToken' | 'deleteDevice' | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -44,6 +55,25 @@ export function DeviceDetailPage() {
     }
   }, [id]);
 
+  const loadDashboard = useCallback(async () => {
+    if (!id) return;
+    setDashLoading(true);
+    try {
+      const resp = await api<DashboardResponse>(`/devices/${id}/dashboard`);
+      setDashboard(resp.panels);
+    } catch {
+      setDashboard([]);
+    } finally {
+      setDashLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (tab === 'metrics' && dashboard === null && !dashLoading) {
+      void loadDashboard();
+    }
+  }, [tab, dashboard, dashLoading, loadDashboard]);
+
   useEffect(() => {
     void load();
     return platformWS.subscribe((msg) => {
@@ -62,22 +92,37 @@ export function DeviceDetailPage() {
     <div>
       <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
         <button type="button" className="btn btn-outline-secondary btn-sm flex-shrink-0" onClick={() => navigate('/devices')}>
-          ← Devices
+          ← {t('devices.title')}
         </button>
         <h1 className="h4 mb-0" style={{ minWidth: 0 }}>
           {d.product_id} / {d.device_id} <StatusBadge status={d.status} />
         </h1>
         {detail.product?.id ? (
           <Link className="muted small ms-auto flex-shrink-0" to={`/products/${detail.product.id}`}>
-            Edit product schema
+            {t('device.editProductSchema')}
           </Link>
         ) : null}
       </div>
 
+      {/* Tab navigation */}
+      <ul className="nav nav-tabs mb-3">
+        <li className="nav-item">
+          <button className={`nav-link${tab === 'overview' ? ' active' : ''}`} onClick={() => setTab('overview')}>
+            {t('device.overview')}
+          </button>
+        </li>
+        <li className="nav-item">
+          <button className={`nav-link${tab === 'metrics' ? ' active' : ''}`} onClick={() => { setTab('metrics'); }}>
+            {t('device.metricsPlus')}
+          </button>
+        </li>
+      </ul>
+
+      {tab === 'overview' && (<>
       <div className="row g-3">
         <div className="col-lg-6">
           <div className="panel">
-            <h2 className="h6 text-uppercase muted">Connection</h2>
+            <h2 className="h6 text-uppercase muted">{t('device.connection')}</h2>
             <div className="mono small">
               <div>client_id: {c.client_id}</div>
               <div>username: {c.username || c.client_id}</div>
@@ -108,38 +153,23 @@ export function DeviceDetailPage() {
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={async () => {
-                  if (!confirm('Rotate token? Device must be updated with the new credential.')) return;
-                  try {
-                    setCreds(await api<DeviceCredentials>(`/devices/${d.id}/token/rotate`, { method: 'POST', body: '{}' }));
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : String(e));
-                  }
-                }}
+                onClick={() => setConfirmAction('rotateToken')}
               >
-                Rotate token
+                {t('device.rotateToken')}
               </button>
               <button
                 type="button"
                 className="btn btn-danger btn-sm"
-                onClick={async () => {
-                  if (!confirm('Delete device?')) return;
-                  try {
-                    await api(`/devices/${d.id}`, { method: 'DELETE' });
-                    navigate('/devices');
-                  } catch (e) {
-                    alert(e instanceof Error ? e.message : String(e));
-                  }
-                }}
+                onClick={() => setConfirmAction('deleteDevice')}
               >
-                Delete device
+                {t('device.deleteDevice')}
               </button>
             </div>
           </div>
         </div>
         <div className="col-lg-6">
           <div className="panel">
-            <h2 className="h6 text-uppercase muted">Device metrics</h2>
+            <h2 className="h6 text-uppercase muted">{t('device.metrics')}</h2>
             <MetricCards latest={detail.latest_telemetry} product={detail.product} />
           </div>
         </div>
@@ -175,18 +205,18 @@ export function DeviceDetailPage() {
                   });
                   await load();
                 } catch (err) {
-                  alert(err instanceof Error ? err.message : String(err));
+                  toast.error(errorMsg(err));
                 }
               }}
             />
             <label className="form-check-label small" htmlFor="dev-auto-ota">
-              Auto-OTA (device)
+              {t('device.autoOta')}
             </label>
           </div>
         </div>
         <div className="row g-2 align-items-end mb-2">
           <div className="col-md-6">
-            <label className="form-label small muted mb-0">Firmware</label>
+            <label className="form-label small muted mb-0">{t('device.firmware')}</label>
             <select className="form-select form-select-sm" value={otaFw} onChange={(e) => setOtaFw(e.target.value)}>
               {firmwares.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -206,13 +236,13 @@ export function DeviceDetailPage() {
                   await api(`/devices/${d.id}/ota`, { method: 'POST', body: JSON.stringify({ firmware_id: Number(otaFw) }) });
                   await load();
                 } catch (err) {
-                  alert(err instanceof Error ? err.message : String(err));
+                  toast.error(errorMsg(err));
                 } finally {
                   setOtaBusy(false);
                 }
               }}
             >
-              Notify this device
+              {t('device.notifyThisDevice')}
             </button>
             <button
               type="button"
@@ -224,26 +254,26 @@ export function DeviceDetailPage() {
                   await api(`/devices/${d.id}/ota/cancel`, { method: 'POST', body: JSON.stringify({ reason: 'cancelled from device page' }) });
                   await load();
                 } catch (err) {
-                  alert(err instanceof Error ? err.message : String(err));
+                  toast.error(errorMsg(err));
                 } finally {
                   setOtaBusy(false);
                 }
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
-        {d.status !== 'online' && <p className="small muted mb-2">Device offline — job will stay pending until it reconnects.</p>}
+        {d.status !== 'online' && <p className="small muted mb-2">{t('device.deviceOffline')}</p>}
         {!!otaJobs.length && (
           <div className="table-responsive">
             <table className="table table-sm mb-0">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Version</th>
-                  <th>Status</th>
-                  <th>Progress</th>
+                  <th>{t('common.time')}</th>
+                  <th>{t('common.version')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('ota.progress')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -269,15 +299,15 @@ export function DeviceDetailPage() {
       </div>
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Recent events</h2>
+        <h2 className="h6 text-uppercase muted">{t('device.recentEvents')}</h2>
         <div className="table-responsive">
           <table className="table table-sm">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Severity</th>
-                <th>Code</th>
-                <th>Message</th>
+                <th>{t('common.time')}</th>
+                <th>{t('overview.severity')}</th>
+                <th>{t('overview.code')}</th>
+                <th>{t('common.message')}</th>
               </tr>
             </thead>
             <tbody>
@@ -294,7 +324,7 @@ export function DeviceDetailPage() {
               {!(detail.recent_events || []).length && (
                 <tr>
                   <td colSpan={4} className="muted">
-                    No events
+                    {t('overview.noEvents')}
                   </td>
                 </tr>
               )}
@@ -302,8 +332,239 @@ export function DeviceDetailPage() {
           </table>
         </div>
       </div>
+      </>)}
+
+      {tab === 'metrics' && (
+        <div>
+          {dashLoading && <p className="muted">{t('device.loadingDashboard')}</p>}
+          {dashboard && !dashboard.length && <p className="muted">{t('device.noDashboardPanels')}</p>}
+          {dashboard && !!dashboard.length && (
+            <div className="row g-3">
+              {dashboard.map((p) => (
+                <div key={p.id} className="col-lg-6">
+                  <div className="panel h-100">
+                    <h2 className="h6 text-uppercase muted">{p.title}</h2>
+                    <PanelRenderer panel={p} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="d-flex gap-2 mt-3">
+            <button className="btn btn-outline-secondary btn-sm" onClick={() => { setDashboard(null); void loadDashboard(); }}>
+              {t('common.refresh')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {creds && <CredsModal creds={creds} onClose={() => setCreds(null)} />}
+
+      {confirmAction === 'rotateToken' && (
+        <ConfirmModal
+          message={t('device.rotateTokenConfirm')}
+          danger={false}
+          onConfirm={async () => {
+            setConfirmAction(null);
+            try {
+              setCreds(await api<DeviceCredentials>(`/devices/${d.id}/token/rotate`, { method: 'POST', body: '{}' }));
+            } catch (e) {
+              toast.error(errorMsg(e));
+            }
+          }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+
+      {confirmAction === 'deleteDevice' && (
+        <ConfirmModal
+          message={t('device.deleteConfirm')}
+          danger
+          onConfirm={async () => {
+            setConfirmAction(null);
+            try {
+              await api(`/devices/${d.id}`, { method: 'DELETE' });
+              navigate('/devices');
+            } catch (e) {
+              toast.error(errorMsg(e));
+            }
+          }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Panel renderers ───────────────────────────────────────────────────────
+
+function PanelRenderer({ panel }: { panel: DashboardPanel }) {
+  switch (panel.type) {
+    case 'telemetry_chart':
+      return <TelemetryChart data={panel.data} />;
+    case 'telemetry_gauge':
+      return <TelemetryGauge data={panel.data} />;
+    case 'rpc_table':
+      return <RpcTable data={panel.data} />;
+    case 'online_timeline':
+      return <OnlineTimeline data={panel.data} />;
+    case 'events_count':
+      return <EventsCount data={panel.data} />;
+    default:
+      return <p className="muted small">Unknown panel type</p>;
+  }
+}
+
+function TelemetryChart({ data }: { data: unknown }) {
+  const series = data as { key: string; points: [number, number][] }[];
+  if (!Array.isArray(series) || !series.length) return <p className="muted small">No data</p>;
+
+  const allPts = series.flatMap((s) => s.points);
+  if (!allPts.length) return <p className="muted small">No data</p>;
+
+  const tsMin = Math.min(...allPts.map((p) => p[0]));
+  const tsMax = Math.max(...allPts.map((p) => p[0]));
+  const valMin = Math.min(...allPts.map((p) => (typeof p[1] === 'number' ? p[1] : 0)));
+  const valMax = Math.max(...allPts.map((p) => (typeof p[1] === 'number' ? p[1] : 0)));
+  const valRange = valMax - valMin || 1;
+  const tsRange = tsMax - tsMin || 1;
+
+  const W = 400;
+  const H = 120;
+  const pad = 4;
+  const colors = ['#4fc3f7', '#81c784', '#ffb74d', '#e57373', '#ba68c8'];
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ maxHeight: 160 }}>
+      {series.map((s, si) => {
+        const color = colors[si % colors.length];
+        const pts = s.points
+          .filter((p) => typeof p[1] === 'number')
+          .map((p) => {
+            const x = pad + ((p[0] - tsMin) / tsRange) * (W - 2 * pad);
+            const y = H - pad - ((p[1] - valMin) / valRange) * (H - 2 * pad);
+            return `${x},${y}`;
+          })
+          .join(' ');
+        return <polyline key={s.key} points={pts} fill="none" stroke={color} strokeWidth="1.5" />;
+      })}
+      <text x={pad} y={10} fontSize="8" fill="var(--muted)">
+        {valMax.toFixed(1)}
+      </text>
+      <text x={pad} y={H - 2} fontSize="8" fill="var(--muted)">
+        {valMin.toFixed(1)}
+      </text>
+    </svg>
+  );
+}
+
+function TelemetryGauge({ data }: { data: unknown }) {
+  const gauges = data as { key: string; current: number; min: number; max: number; avg: number }[];
+  if (!Array.isArray(gauges) || !gauges.length) return <p className="muted small">No data</p>;
+  return (
+    <div className="d-flex flex-wrap gap-3">
+      {gauges.map((g) => (
+        <div key={g.key} className="text-center" style={{ minWidth: 100 }}>
+          <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 600 }}>
+            {g.current.toFixed(1)}
+          </div>
+          <div className="small muted">{g.key}</div>
+          <div className="small muted">
+            min {g.min.toFixed(1)} / avg {g.avg.toFixed(1)} / max {g.max.toFixed(1)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RpcTable({ data }: { data: unknown }) {
+  const rows = data as { method: string; status: string; created_at: number; completed_at?: number | null; message?: string }[];
+  if (!Array.isArray(rows) || !rows.length) return <p className="muted small">No RPC calls</p>;
+  return (
+    <div className="table-responsive">
+      <table className="table table-sm mb-0">
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Status</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 20).map((r, i) => (
+            <tr key={i}>
+              <td className="mono small">{r.method}</td>
+              <td>
+                <span className={`badge ${r.status === 'ok' ? 'bg-success' : r.status === 'pending' ? 'bg-warning' : 'bg-danger'}`}>
+                  {r.status}
+                </span>
+              </td>
+              <td className="mono small">{new Date(r.created_at).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function OnlineTimeline({ data }: { data: unknown }) {
+  const segments = data as { start: number; end: number; online: boolean }[];
+  if (!Array.isArray(segments) || !segments.length) return <p className="muted small">No data</p>;
+
+  const tsMin = Math.min(...segments.map((s) => s.start));
+  const tsMax = Math.max(...segments.map((s) => s.end));
+  const tsRange = tsMax - tsMin || 1;
+  const W = 400;
+  const H = 24;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ maxHeight: 32, borderRadius: 4, overflow: 'hidden' }}>
+        {segments.map((s, i) => {
+          const x = ((s.start - tsMin) / tsRange) * W;
+          const w = ((s.end - s.start) / tsRange) * W;
+          return <rect key={i} x={x} y={0} width={Math.max(w, 1)} height={H} fill={s.online ? 'var(--ok)' : 'var(--muted)'} opacity={0.6} />;
+        })}
+      </svg>
+      <div className="d-flex gap-3 mt-1 small muted">
+        <span>
+          <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--ok)', borderRadius: 2, marginRight: 4, opacity: 0.6 }} />
+          Online
+        </span>
+        <span>
+          <span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--muted)', borderRadius: 2, marginRight: 4, opacity: 0.6 }} />
+          Offline
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function EventsCount({ data }: { data: unknown }) {
+  const counts = data as { critical: number; error: number; warning: number; info: number };
+  if (!counts) return <p className="muted small">No data</p>;
+  const items = [
+    { label: 'Critical', value: counts.critical, color: '#e57373' },
+    { label: 'Error', value: counts.error, color: '#ffb74d' },
+    { label: 'Warning', value: counts.warning, color: '#ffd54f' },
+    { label: 'Info', value: counts.info, color: '#4fc3f7' },
+  ];
+  const max = Math.max(...items.map((i) => i.value), 1);
+  return (
+    <div className="d-flex flex-column gap-1">
+      {items.map((it) => (
+        <div key={it.label} className="d-flex align-items-center gap-2 small">
+          <span style={{ width: 60 }}>{it.label}</span>
+          <div style={{ flex: 1, background: 'var(--bg-card)', borderRadius: 3, height: 14, overflow: 'hidden' }}>
+            <div style={{ width: `${(it.value / max) * 100}%`, background: it.color, height: '100%', borderRadius: 3, minWidth: it.value > 0 ? 2 : 0 }} />
+          </div>
+          <span className="mono" style={{ width: 30, textAlign: 'right' }}>
+            {it.value}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

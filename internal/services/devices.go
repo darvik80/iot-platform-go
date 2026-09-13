@@ -56,9 +56,13 @@ type DeviceInput struct {
 	AutoOTA     *bool    `json:"auto_ota"`
 }
 
-func (p *Platform) ListDevices(productID, status, q string) ([]models.Device, error) {
+func (p *Platform) ListDevices(accountID int64, productID, status, q string) ([]models.Device, error) {
 	query := deviceSelect + ` WHERE 1=1`
 	args := []any{}
+	if accountID > 0 {
+		query += ` AND pr.account_id=?`
+		args = append(args, accountID)
+	}
 	if productID != "" {
 		query += ` AND pr.product_id=?`
 		args = append(args, productID)
@@ -99,6 +103,25 @@ func (p *Platform) GetDevice(id int64) (*models.Device, error) {
 		return nil, errors.New("not found")
 	}
 	return d, err
+}
+
+// GetDeviceScoped returns a device only if it belongs to the given account (via product).
+// Pass accountID=0 to skip the account check (internal callers).
+func (p *Platform) GetDeviceScoped(accountID, id int64) (*models.Device, error) {
+	d, err := p.GetDevice(id)
+	if err != nil {
+		return nil, err
+	}
+	if accountID > 0 {
+		pr, err := p.GetProduct(d.ProductPK)
+		if err != nil {
+			return nil, errors.New("not found")
+		}
+		if pr.AccountID != accountID {
+			return nil, errors.New("not found")
+		}
+	}
+	return d, nil
 }
 
 func (p *Platform) GetDeviceByIdentity(productID, deviceID string) (*models.Device, error) {
@@ -296,8 +319,9 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	_, _ = p.DB.Exec(`UPDATE devices SET status='online', last_seen_at=?, updated_at=? WHERE id=?`, now, now, d.ID)
 	d.Status = "online"
 	d.LastSeenAt = &now
+	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, true)
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
 	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
 	p.flushPendingOTA(d)
 	_ = p.maybeAutoOTA(d, d.FwVersion, "main")
@@ -310,8 +334,9 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET status='offline', updated_at=? WHERE id=?`, now, d.ID)
 	d.Status = "offline"
+	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, false)
 	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
-	p.publishRules(d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
+	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
 	msg := "Device offline"
 	if reason != "" {
 		msg = "Device offline (" + reason + ")"
@@ -358,15 +383,25 @@ func (p *Platform) TouchSeen(d *models.Device) {
 	_, _ = p.DB.Exec(`UPDATE devices SET last_seen_at=?, status='online', updated_at=? WHERE id=?`, now, now, d.ID)
 }
 
-func (p *Platform) Overview() (models.Overview, error) {
+func (p *Platform) Overview(accountID int64) (models.Overview, error) {
 	var o models.Overview
-	_ = p.DB.QueryRow(`SELECT
-		SUM(CASE WHEN status='online' THEN 1 ELSE 0 END),
-		SUM(CASE WHEN status='offline' THEN 1 ELSE 0 END),
-		SUM(CASE WHEN status='unknown' THEN 1 ELSE 0 END),
-		COUNT(1) FROM devices`).Scan(&o.OnlineDevices, &o.OfflineDevices, &o.UnknownDevices, &o.TotalDevices)
-	cutoff := db.NowMS() - 24*3600*1000
-	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ?`, cutoff).Scan(&o.RecentEvents)
+	if accountID > 0 {
+		_ = p.DB.QueryRow(`SELECT
+			SUM(CASE WHEN d.status='online' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN d.status='offline' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN d.status='unknown' THEN 1 ELSE 0 END),
+			COUNT(1) FROM devices d JOIN products pr ON pr.id = d.product_pk WHERE pr.account_id=?`, accountID).Scan(&o.OnlineDevices, &o.OfflineDevices, &o.UnknownDevices, &o.TotalDevices)
+		cutoff := db.NowMS() - 24*3600*1000
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ? AND account_id=?`, cutoff, accountID).Scan(&o.RecentEvents)
+	} else {
+		_ = p.DB.QueryRow(`SELECT
+			SUM(CASE WHEN status='online' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status='offline' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status='unknown' THEN 1 ELSE 0 END),
+			COUNT(1) FROM devices`).Scan(&o.OnlineDevices, &o.OfflineDevices, &o.UnknownDevices, &o.TotalDevices)
+		cutoff := db.NowMS() - 24*3600*1000
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ?`, cutoff).Scan(&o.RecentEvents)
+	}
 	o.PlatformName = p.Cfg.PlatformName
 	o.NodeRedURL = p.Cfg.NodeRedURL
 	if p.MQTT != nil {

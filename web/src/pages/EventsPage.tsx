@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { SeverityBadge } from '../components/StatusBadge';
+import { useT } from '../i18n/I18nContext';
 import type { Device, EventRow } from '../types';
 
 export function EventsPage() {
+  const t = useT();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [severity, setSeverity] = useState('');
@@ -35,15 +37,14 @@ export function EventsPage() {
 
   return (
     <div>
-      <h1 className="h3 mb-3">Events</h1>
+      <h1 className="h3 mb-3">{t('events.title')}</h1>
       <p className="muted small mb-3">
-        Discrete incidents: device online/offline, firmware <span className="code">v1/e</span> posts, alerts. Not telemetry
-        (metrics) and not log lines.
+        {t('events.description')}
       </p>
       {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="d-flex flex-wrap gap-2 mb-3">
         <select className="form-select form-select-sm" style={{ maxWidth: 220 }} value={devicePK} onChange={(e) => setDevicePK(e.target.value)}>
-          <option value="">All devices</option>
+          <option value="">{t('events.allDevices')}</option>
           {devices.map((d) => (
             <option key={d.id} value={d.id}>
               {d.product_id}.{d.device_id}
@@ -51,7 +52,7 @@ export function EventsPage() {
           ))}
         </select>
         <select className="form-select form-select-sm" style={{ maxWidth: 160 }} value={severity} onChange={(e) => setSeverity(e.target.value)}>
-          <option value="">All severities</option>
+          <option value="">{t('events.allSeverities')}</option>
           {['info', 'warning', 'error', 'critical'].map((s) => (
             <option key={s} value={s}>
               {s}
@@ -63,12 +64,12 @@ export function EventsPage() {
         <table className="table table-sm align-middle">
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Device</th>
-              <th>Type</th>
-              <th>Severity</th>
-              <th>Code</th>
-              <th>Message</th>
+              <th>{t('common.time')}</th>
+              <th>{t('common.device')}</th>
+              <th>{t('events.type')}</th>
+              <th>{t('overview.severity')}</th>
+              <th>{t('overview.code')}</th>
+              <th>{t('common.message')}</th>
             </tr>
           </thead>
           <tbody>
@@ -95,9 +96,7 @@ export function EventsPage() {
             {!events.length && (
               <tr>
                 <td colSpan={6} className="muted">
-                  No events yet. Online/offline will appear when a device connects. Firmware can also publish{' '}
-                  <span className="code">v1/e</span>:{' '}
-                  <span className="code">{`{"type":"alert","severity":"warning","code":"low_battery","message":"..."}`}</span>
+                  {t('events.noEvents')}
                 </td>
               </tr>
             )}

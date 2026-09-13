@@ -14,6 +14,7 @@ type User struct {
 	CreatedAt       int64  `json:"created_at"`
 	UpdatedAt       int64  `json:"updated_at"`
 	AuthProvider    string `json:"auth_provider,omitempty"` // password|google|both
+	AvatarURL       string `json:"avatar_url"`
 }
 
 // APIToken is a long-lived credential for MCP / scripts (plaintext shown once at create).

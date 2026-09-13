@@ -20,6 +20,7 @@ const (
 	Me          = "me"
 	SegEvents   = "events"
 	SegCommands = "commands"
+	SegAccount  = "account"
 )
 
 // Canonical ingest kinds (full tail and short mnemonic fold here).
@@ -192,6 +193,18 @@ func RulesEventsRoot(prefix string) string {
 
 func RulesCommandsRoot(prefix string) string {
 	return strings.TrimRight(prefix, "/") + "/" + SegCommands + "/"
+}
+
+// RulesEventsRootForAccount returns the account-scoped events root.
+// Format: {prefix}/events/{accountSlug}/
+func RulesEventsRootForAccount(prefix, accountSlug string) string {
+	return strings.TrimRight(prefix, "/") + "/" + SegEvents + "/" + accountSlug + "/"
+}
+
+// RulesCommandsRootForAccount returns the account-scoped commands root.
+// Format: {prefix}/commands/{accountSlug}/
+func RulesCommandsRootForAccount(prefix, accountSlug string) string {
+	return strings.TrimRight(prefix, "/") + "/" + SegCommands + "/" + accountSlug + "/"
 }
 
 func DownTopic(style, productID, deviceID, capability, operation string) string {

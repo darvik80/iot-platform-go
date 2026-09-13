@@ -27,11 +27,12 @@ type PluginHub struct {
 }
 
 type pluginRunner struct {
-	binding models.DevicePluginBinding
-	inst    plugins.Instance
-	cancel  context.CancelFunc
-	running bool
-	lastErr string
+	binding   models.DevicePluginBinding
+	inst      plugins.Instance
+	cancel    context.CancelFunc
+	running   bool
+	lastErr   string
+	accountID int64 // device's account for policy checks
 }
 
 type pluginRuntime struct {
@@ -117,6 +118,10 @@ func (h *PluginHub) forward(d *models.Device, kind string, payload any) {
 	}
 	for _, r := range h.runners {
 		if r.binding.DevicePK == d.ID && r.binding.Enabled && r.inst != nil {
+			// Check per-account plugin policy
+			if r.accountID > 0 && !h.plat.IsPluginEnabled(r.accountID, r.binding.PluginID) {
+				continue
+			}
 			insts = append(insts, struct {
 				inst plugins.Instance
 				b    models.DevicePluginBinding
@@ -138,28 +143,7 @@ func (h *PluginHub) forward(d *models.Device, kind string, payload any) {
 		_ = it.inst.OnEvent(rt, ev)
 	}
 
-	// Dispatch to external plugins — query all bindings for this device
-	if h.plat.ExternalPlugins != nil {
-		bindings, err := h.plat.ListDevicePlugins(d.ID)
-		if err != nil {
-			return
-		}
-		for _, b := range bindings {
-			if !b.Enabled {
-				continue
-			}
-			if _, ok := h.plat.ExternalPlugins.GetPlugin(b.PluginID); ok {
-				params := map[string]any{
-					"binding_id": b.ID,
-					"device_pk":  d.ID,
-					"kind":       kind,
-					"online":     online,
-					"payload":    payload,
-				}
-				h.plat.ExternalPlugins.Dispatch(b.ID, "plugin.on_event", params)
-			}
-		}
-	}
+	// External plugins receive events via MQTT rules bus subscription — no push needed.
 }
 
 func (h *PluginHub) Apply(bindingID int64) error {
@@ -209,6 +193,12 @@ func (h *PluginHub) syncRunner(b models.DevicePluginBinding) {
 		h.mu.Unlock()
 		return
 	}
+	// Check per-account plugin policy before creating runner
+	d, err := h.plat.GetDevice(b.DevicePK)
+	if err == nil && d != nil && d.AccountID > 0 && !h.plat.IsPluginEnabled(d.AccountID, b.PluginID) {
+		h.mu.Unlock()
+		return
+	}
 	inst := fac()
 	if err := inst.ApplyConfig(b.Config); err != nil {
 		h.mu.Unlock()
@@ -217,9 +207,12 @@ func (h *PluginHub) syncRunner(b models.DevicePluginBinding) {
 		}
 		return
 	}
-	d, err := h.plat.GetDevice(b.DevicePK)
 	online := err == nil && d != nil && d.Status == "online" && d.Enabled
-	r := &pluginRunner{binding: b, inst: inst}
+	var accountID int64
+	if d != nil {
+		accountID = d.AccountID
+	}
+	r := &pluginRunner{binding: b, inst: inst, accountID: accountID}
 	h.runners[b.ID] = r
 	var (
 		start    bool
@@ -269,6 +262,10 @@ func (h *PluginHub) tickOnce(bindingID int64) {
 	if r == nil || r.inst == nil || !r.binding.Enabled {
 		return
 	}
+	// Check per-account plugin policy
+	if r.accountID > 0 && !h.plat.IsPluginEnabled(r.accountID, r.binding.PluginID) {
+		return
+	}
 	d, err := h.plat.GetDevice(r.binding.DevicePK)
 	if err != nil || d.Status != "online" || !d.Enabled {
 		return
@@ -294,6 +291,26 @@ func (p *Platform) StartPlugins(ctx context.Context) {
 		p.ExternalPlugins = newExternalPluginHub(p)
 	}
 	p.ExternalPlugins.Start(ctx)
+}
+
+// RebuildAccountRunners re-syncs all plugin runners for devices belonging to
+// the given account. Called after a plugin policy change so that enable/disable
+// takes effect immediately.
+func (h *PluginHub) RebuildAccountRunners(accountID int64) {
+	list, err := h.plat.ListAllPluginBindings()
+	if err != nil {
+		if h.plat.Log != nil {
+			h.plat.Log.Warn("rebuild account runners: list failed", "account", accountID, "err", err)
+		}
+		return
+	}
+	for _, b := range list {
+		d, err := h.plat.GetDevice(b.DevicePK)
+		if err != nil || d == nil || d.AccountID != accountID {
+			continue
+		}
+		h.syncRunner(b)
+	}
 }
 
 func (p *Platform) ListPluginCatalog() []models.PluginInfo {
@@ -437,15 +454,7 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 			_ = p.Plugins.Apply(b.ID)
 		}
 	}
-	// Send apply_config to external plugin
-	if isExternal && p.ExternalPlugins != nil && enabled == 1 {
-		params := map[string]any{
-			"binding_id": b.ID,
-			"device_pk":  devicePK,
-			"config":     json.RawMessage(cfg),
-		}
-		p.ExternalPlugins.Dispatch(b.ID, "plugin.apply_config", params)
-	}
+	// External plugin: config is stored in bindings; plugin reads via MQTT when ready.
 	if fresh, err := p.GetPluginBinding(id); err == nil {
 		b = fresh
 	}
@@ -459,10 +468,6 @@ func (p *Platform) UpdatePluginBinding(id int64, in PluginBindingInput) (*models
 	}
 	cfg := b.Config
 	_, fac, isInternal := plugins.Lookup(b.PluginID)
-	var isExternal bool
-	if !isInternal && p.ExternalPlugins != nil {
-		_, isExternal = p.ExternalPlugins.GetPlugin(b.PluginID)
-	}
 	if len(in.Config) > 0 && string(in.Config) != "null" {
 		if isInternal && fac != nil {
 			if err := fac().ApplyConfig(in.Config); err != nil {
@@ -494,15 +499,7 @@ func (p *Platform) UpdatePluginBinding(id int64, in PluginBindingInput) (*models
 			_ = p.Plugins.Apply(b.ID)
 		}
 	}
-	// External plugin: send apply_config
-	if isExternal && p.ExternalPlugins != nil && b.Enabled {
-		params := map[string]any{
-			"binding_id": b.ID,
-			"device_pk":  b.DevicePK,
-			"config":     json.RawMessage(cfg),
-		}
-		p.ExternalPlugins.Dispatch(b.ID, "plugin.apply_config", params)
-	}
+	// External plugin: config updated in DB; plugin picks up via MQTT.
 	if fresh, err := p.GetPluginBinding(id); err == nil {
 		b = fresh
 	}
@@ -514,13 +511,7 @@ func (p *Platform) DeletePluginBinding(id int64) error {
 	if err != nil {
 		return err
 	}
-	// Notify external plugin before deleting
-	if p.ExternalPlugins != nil {
-		if _, ok := p.ExternalPlugins.GetPlugin(b.PluginID); ok {
-			params := map[string]any{"binding_id": b.ID}
-			p.ExternalPlugins.Dispatch(b.ID, "plugin.detach", params)
-		}
-	}
+	// External plugins are notified of detach via MQTT topic unsubscribe.
 	if _, err := p.DB.Exec(`DELETE FROM device_plugin_bindings WHERE id=?`, id); err != nil {
 		return err
 	}

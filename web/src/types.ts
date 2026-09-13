@@ -9,6 +9,27 @@ export interface User {
   disabled?: boolean;
   email_verified?: boolean;
   auth_provider?: string;
+  is_platform_admin?: boolean;
+  avatar_url?: string;
+  updated_at?: number;
+}
+
+export interface AccountMembership {
+  user_id: number;
+  account_id: number;
+  account_slug: string;
+  account_name: string;
+  account_status?: string;
+  role: Role;
+  status: string;
+  joined_at: number;
+  invited_by?: number | null;
+}
+
+export interface MeResponse {
+  user: User;
+  memberships: AccountMembership[];
+  active_account_id: number;
 }
 
 export interface APIToken {
@@ -204,8 +225,6 @@ export interface ExternalPlugin {
   id: string;
   name: string;
   description: string;
-  endpoint: string;
-  mode: string; // webhook | polling
   status: string; // online | offline | unknown
   mqtt_user: string;
   auto: boolean;
@@ -218,7 +237,6 @@ export interface ExternalPlugin {
 export interface ExternalPluginRegistration {
   ok: boolean;
   id: string;
-  token: string;
   mqtt_user: string;
   mqtt_pass: string;
   mqtt_host: string;
@@ -347,4 +365,70 @@ export interface AuthConfig {
   register_enabled?: boolean;
   google_enabled?: boolean;
   require_email_verify?: boolean;
+}
+
+export interface AccountInvitation {
+  id: number;
+  account_id: number;
+  email: string;
+  role: Role;
+  status: string; // pending | accepted | revoked | expired
+  delivery_method: string;
+  invited_by: number;
+  expires_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface InvitationInfo {
+  account_name: string;
+  account_slug: string;
+  email: string;
+  role: Role;
+  status: string;
+  expires_at: number;
+}
+
+export interface MemberInfo {
+  user_id: number;
+  login: string;
+  email: string;
+  display_name: string;
+  role: Role;
+  status: string;
+  joined_at: number;
+}
+
+export interface PluginPolicy {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  settings_json: string;
+  form?: PluginFormField[];
+  default_config?: Record<string, unknown>;
+  updated_at?: number;
+}
+
+export interface AuditEntry {
+  id: number;
+  user_id: number | null;
+  user_login: string;
+  actor_kind: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  detail_json: string | null;
+  created_at: number;
+}
+
+export interface DashboardPanel {
+  id: string;
+  type: 'telemetry_chart' | 'telemetry_gauge' | 'rpc_table' | 'online_timeline' | 'events_count';
+  title: string;
+  data: unknown;
+}
+
+export interface DashboardResponse {
+  panels: DashboardPanel[];
 }

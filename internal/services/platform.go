@@ -78,8 +78,9 @@ func (p *Platform) SetHub(h Hub)                 { p.Hub = h }
 
 const deviceSelect = `SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
 	       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-	       d.topic_style, COALESCE(d.auto_ota,1), d.enabled, d.created_at, d.updated_at
-	FROM devices d JOIN products pr ON pr.id = d.product_pk`
+	       d.topic_style, COALESCE(d.auto_ota,1), d.enabled, COALESCE(pr.account_id,0), COALESCE(a.slug,''),
+	       d.created_at, d.updated_at
+	FROM devices d JOIN products pr ON pr.id = d.product_pk LEFT JOIN accounts a ON a.id = pr.account_id`
 
 func (p *Platform) ReloadDeviceMaps() error {
 	rows, err := p.DB.Query(deviceSelect + ` WHERE d.enabled = 1 AND d.access_token_hash IS NOT NULL`)
@@ -125,7 +126,7 @@ func (p *Platform) emit(event string, data any) {
 	}
 }
 
-func (p *Platform) publishRules(productID, deviceID, kind string, payload any) {
+func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, payload any) {
 	if p.Plugins != nil {
 		p.Plugins.Dispatch(productID, deviceID, kind, payload)
 	}
@@ -136,8 +137,9 @@ func (p *Platform) publishRules(productID, deviceID, kind string, payload any) {
 	if err != nil {
 		return
 	}
-	topic := fmt.Sprintf("%s/events/%s/%s/%s", p.Cfg.RulesBusPrefix, productID, deviceID, kind)
+	topic := fmt.Sprintf("%s/events/%s/%s/%s/%s", p.Cfg.RulesBusPrefix, accountSlug, productID, deviceID, kind)
 	_ = p.Pub.Publish(topic, 0, false, b)
+	MetricEventBusPublished(accountSlug, productID, deviceID, kind)
 }
 
 // ObserveTopicStyle stores the MQTT dialect inferred from Will / subscribe / publish prefixes.
@@ -195,15 +197,69 @@ func (p *Platform) SeenRecently(devicePK int64, capability string, payload []byt
 	return false
 }
 
-func (p *Platform) Audit(userID *int64, action, entityType, entityID string, detail any) {
+func (p *Platform) Audit(userID *int64, actorKind, action, entityType, entityID string, detail any) {
 	var dj *string
 	if detail != nil {
 		b, _ := json.Marshal(detail)
 		s := string(b)
 		dj = &s
 	}
-	_, _ = p.DB.Exec(`INSERT INTO audit_log(user_id, action, entity_type, entity_id, detail_json, created_at) VALUES(?,?,?,?,?,?)`,
-		userID, action, entityType, entityID, dj, db.NowMS())
+	_, _ = p.DB.Exec(`INSERT INTO audit_log(user_id, actor_kind, action, entity_type, entity_id, detail_json, created_at) VALUES(?,?,?,?,?,?,?)`,
+		userID, actorKind, action, entityType, entityID, dj, db.NowMS())
+}
+
+// AuditEntry is a single row from audit_log joined with user login.
+type AuditEntry struct {
+	ID         int64   `json:"id"`
+	UserID     *int64  `json:"user_id"`
+	UserLogin  string  `json:"user_login"`
+	ActorKind  string  `json:"actor_kind"`
+	Action     string  `json:"action"`
+	EntityType string  `json:"entity_type"`
+	EntityID   string  `json:"entity_id"`
+	DetailJSON *string `json:"detail_json"`
+	CreatedAt  int64   `json:"created_at"`
+}
+
+// ListAuditLog returns the most recent audit entries for the given account.
+func (p *Platform) ListAuditLog(accountID int64, limit int) ([]AuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	q := `SELECT a.id, a.user_id, COALESCE(u.login,'') AS user_login, a.actor_kind, a.action, a.entity_type, a.entity_id, a.detail_json, a.created_at
+		FROM audit_log a LEFT JOIN users u ON u.id = a.user_id`
+	var args []any
+	if accountID > 0 {
+		q += ` WHERE a.account_id=?`
+		args = append(args, accountID)
+	}
+	q += ` ORDER BY a.created_at DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := p.DB.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var uid sql.NullInt64
+		var dj sql.NullString
+		if err := rows.Scan(&e.ID, &uid, &e.UserLogin, &e.ActorKind, &e.Action, &e.EntityType, &e.EntityID, &dj, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		if uid.Valid {
+			e.UserID = &uid.Int64
+		}
+		if dj.Valid {
+			e.DetailJSON = &dj.String
+		}
+		out = append(out, e)
+	}
+	if out == nil {
+		out = []AuditEntry{}
+	}
+	return out, rows.Err()
 }
 
 func (p *Platform) RetentionLoop(ctx context.Context) {
@@ -271,7 +327,8 @@ func scanDevice(row interface{ Scan(dest ...any) error }) (*models.Device, error
 	var lastSeen sql.NullInt64
 	var enabled, autoOTA int
 	err := row.Scan(&d.ID, &d.ProductPK, &d.ProductID, &d.DeviceID, &d.Name, &d.Description, &tags,
-		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &autoOTA, &enabled, &d.CreatedAt, &d.UpdatedAt)
+		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &autoOTA, &enabled,
+		&d.AccountID, &d.AccountSlug, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -309,4 +366,14 @@ func (p *Platform) getSetting(key, fallback string) string {
 
 func (p *Platform) setSetting(key, val string) {
 	_, _ = p.DB.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, val)
+}
+
+// IsAccountSuspended returns true if the account with the given ID has status "suspended".
+func (p *Platform) IsAccountSuspended(accountID int64) bool {
+	if accountID <= 0 {
+		return false
+	}
+	var status string
+	err := p.DB.QueryRow(`SELECT status FROM accounts WHERE id=?`, accountID).Scan(&status)
+	return err == nil && status == "suspended"
 }

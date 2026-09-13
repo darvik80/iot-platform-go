@@ -2,25 +2,41 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { errorMsg, useToast } from '../components/Toast';
 import { formatAge } from '../utils/format';
+import { useT } from '../i18n/I18nContext';
 import type { APIToken, ExternalPlugin, ExternalPluginRegistration } from '../types';
 
+interface RegenResult {
+  pluginId: string;
+  pluginName: string;
+  mqtt_pass: string;
+  mqtt_user: string;
+  mqtt_host: string;
+  mqtt_port: number;
+  rules_bus: string;
+}
+
 export function SettingsPage() {
-  const { settings, user } = useAuth();
+  const { settings, activeMembership } = useAuth();
   const s = settings || ({} as NonNullable<typeof settings>);
+  const toast = useToast();
+  const t = useT();
   const [tokens, setTokens] = useState<APIToken[]>([]);
   const [name, setName] = useState('mcp');
   const [created, setCreated] = useState<APIToken | null>(null);
   const [busy, setBusy] = useState(false);
   const [plugins, setPlugins] = useState<ExternalPlugin[]>([]);
   const [newPlugin, setNewPlugin] = useState<ExternalPluginRegistration | null>(null);
+  const [regenResult, setRegenResult] = useState<RegenResult | null>(null);
   const [pluginForm, setPluginForm] = useState({ id: '', name: '', description: '' });
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = activeMembership?.role === 'admin';
+  const accountSlug = activeMembership?.account_slug || '{account_slug}';
 
   const load = () => {
     api<APIToken[]>('/me/tokens')
       .then(setTokens)
-      .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+      .catch((e) => toast.error(errorMsg(e)));
   };
 
   const loadPlugins = () => {
@@ -36,7 +52,7 @@ export function SettingsPage() {
 
   return (
     <div>
-      <h1 className="h3 mb-3">Settings</h1>
+      <h1 className="h3 mb-3">{t('settings.title')}</h1>
       <div className="panel mono small mb-4">
         <div>Platform: {s.platform_name}</div>
         <div>Retention: {s.telemetry_retention_days} days</div>
@@ -46,7 +62,6 @@ export function SettingsPage() {
           {s.mqtt_ws_url ? <> · WS {s.mqtt_ws_url}</> : null} · <Link to="/mqtt">MQTT monitor</Link>
         </div>
         <div>Rules bus: {String(s.rules_bus_enabled)}</div>
-        <div>Node-RED: {s.nodered_url}</div>
         <div className="mt-2">Public URL: {s.public_base_url || '—'}</div>
         <div>Timezone: {s.timezone || 'UTC'}</div>
         <div>Registration: {String(s.register_enabled)}</div>
@@ -54,9 +69,9 @@ export function SettingsPage() {
         <div>Google OAuth: {String(s.google_enabled)}</div>
       </div>
 
-      <h2 className="h5 mb-2">API tokens</h2>
+      <h2 className="h5 mb-2">{t('settings.apiTokens')}</h2>
       <p className="muted small mb-3">
-        Long-lived tokens for MCP and scripts. Use as <span className="mono">Authorization: Bearer …</span>. Shown once at create.
+        {t('settings.apiTokensDescription')}
       </p>
 
       <form
@@ -73,7 +88,7 @@ export function SettingsPage() {
             setName('mcp');
             await load();
           } catch (err) {
-            alert(err instanceof Error ? err.message : String(err));
+            toast.error(errorMsg(err));
           } finally {
             setBusy(false);
           }
@@ -82,13 +97,13 @@ export function SettingsPage() {
         <input
           className="form-control form-control-sm"
           style={{ maxWidth: 220 }}
-          placeholder="Name (e.g. mcp)"
+          placeholder={t('settings.tokenName')}
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={64}
         />
         <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
-          Create token
+          {t('settings.createToken')}
         </button>
       </form>
 
@@ -99,11 +114,11 @@ export function SettingsPage() {
             <div className="modal-dialog modal-dialog-centered">
               <div className="modal-content">
                 <div className="modal-header">
-                  <h5 className="modal-title">API token created</h5>
+                  <h5 className="modal-title">{t('settings.tokenCreated')}</h5>
                   <button type="button" className="btn-close btn-close-white" onClick={() => setCreated(null)} />
                 </div>
                 <div className="modal-body">
-                  <p className="text-danger small">Copy now — it will not be shown again.</p>
+                  <p className="text-danger small">{t('settings.copyNow')}</p>
                   <p className="muted small mb-1">
                     Name: <span className="mono">{created.name}</span>
                   </p>
@@ -115,12 +130,12 @@ export function SettingsPage() {
                     className="btn btn-outline-secondary btn-sm"
                     onClick={() => void navigator.clipboard.writeText(created.token!)}
                   >
-                    Copy
+                    {t('common.copy')}
                   </button>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-primary" onClick={() => setCreated(null)}>
-                    Done
+                    {t('common.done')}
                   </button>
                 </div>
               </div>
@@ -133,10 +148,10 @@ export function SettingsPage() {
         <table className="table table-sm align-middle mb-0">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Prefix</th>
-              <th>Created</th>
-              <th>Last used</th>
+              <th>{t('common.name')}</th>
+              <th>{t('settings.prefix')}</th>
+              <th>{t('settings.created')}</th>
+              <th>{t('settings.lastUsed')}</th>
               <th />
             </tr>
           </thead>
@@ -144,31 +159,31 @@ export function SettingsPage() {
             {tokens.length === 0 && (
               <tr>
                 <td colSpan={5} className="muted small">
-                  No tokens yet.
+                  {t('settings.noTokens')}
                 </td>
               </tr>
             )}
-            {tokens.map((t) => (
-              <tr key={t.id}>
-                <td>{t.name}</td>
-                <td className="mono">{t.token_prefix}…</td>
-                <td className="small">{formatAge(t.created_at)}</td>
-                <td className="small">{t.last_used_at ? formatAge(t.last_used_at) : '—'}</td>
+            {tokens.map((tok) => (
+              <tr key={tok.id}>
+                <td>{tok.name}</td>
+                <td className="mono">{tok.token_prefix}…</td>
+                <td className="small">{formatAge(tok.created_at)}</td>
+                <td className="small">{tok.last_used_at ? formatAge(tok.last_used_at) : '—'}</td>
                 <td className="text-end">
                   <button
                     type="button"
                     className="btn btn-outline-danger btn-sm"
                     onClick={async () => {
-                      if (!confirm(`Revoke token “${t.name}”?`)) return;
+                      if (!confirm(t('settings.revokeConfirm', { name: tok.name }))) return;
                       try {
-                        await api(`/me/tokens/${t.id}`, { method: 'DELETE' });
+                        await api(`/me/tokens/${tok.id}`, { method: 'DELETE' });
                         await load();
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : String(err));
+                        toast.error(errorMsg(err));
                       }
                     }}
                   >
-                    Revoke
+                    {t('settings.revoke')}
                   </button>
                 </td>
               </tr>
@@ -179,10 +194,13 @@ export function SettingsPage() {
 
       {isAdmin && (
         <>
-          <h2 className="h5 mt-4 mb-2">External Plugins</h2>
-          <p className="muted small mb-3">
-            Plugins that connect via MQTT or webhook. Credentials are shown only at creation.
-          </p>
+          <h2 className="h5 mt-4 mb-2">{t('settings.externalPlugins')}</h2>
+          <div className="d-flex align-items-start gap-2 mb-3">
+            <p className="muted small mb-0">
+              {t('settings.externalPluginsDescription')}
+            </p>
+            <span className="help-icon" title="External plugins connect via MQTT and receive events through rules bus subscription. Each plugin gets its own MQTT credentials.">i</span>
+          </div>
 
           <form
             className="d-flex flex-wrap gap-2 mb-3"
@@ -198,7 +216,7 @@ export function SettingsPage() {
                 setPluginForm({ id: '', name: '', description: '' });
                 await loadPlugins();
               } catch (err) {
-                alert(err instanceof Error ? err.message : String(err));
+                toast.error(errorMsg(err));
               } finally {
                 setBusy(false);
               }
@@ -207,10 +225,11 @@ export function SettingsPage() {
             <input
               className="form-control form-control-sm"
               style={{ maxWidth: 160 }}
-              placeholder="Plugin ID"
+              placeholder={t('settings.pluginId')}
               value={pluginForm.id}
               onChange={(e) => setPluginForm({ ...pluginForm, id: e.target.value })}
               required
+              title="Unique identifier for the plugin (e.g., my-plugin)"
             />
             <input
               className="form-control form-control-sm"
@@ -219,16 +238,18 @@ export function SettingsPage() {
               value={pluginForm.name}
               onChange={(e) => setPluginForm({ ...pluginForm, name: e.target.value })}
               required
+              title="Human-readable name for the plugin"
             />
             <input
               className="form-control form-control-sm"
               style={{ maxWidth: 260 }}
-              placeholder="Description (optional)"
+              placeholder={t('settings.pluginDescription')}
               value={pluginForm.description}
               onChange={(e) => setPluginForm({ ...pluginForm, description: e.target.value })}
+              title="Optional description of what the plugin does"
             />
-            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
-              Create plugin
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy} title="Create a new external plugin">
+              {t('settings.createPlugin')}
             </button>
           </form>
 
@@ -240,22 +261,16 @@ export function SettingsPage() {
               <div className="modal-dialog modal-dialog-centered modal-lg">
                 <div className="modal-content">
                   <div className="modal-header">
-                    <h5 className="modal-title">Plugin created — save credentials!</h5>
+                    <h5 className="modal-title">{t('settings.pluginCreated')}</h5>
                     <button type="button" className="btn-close btn-close-white" onClick={() => setNewPlugin(null)} />
                   </div>
                   <div className="modal-body">
                     <p className="text-danger small mb-2">
-                      Copy these credentials now — the password will NOT be shown again.
+                      {t('settings.copyCredentialsNow')}
                     </p>
                     <div className="mono small">
                       <div className="mb-2">
                         <span className="muted">Plugin ID:</span> {newPlugin.id}
-                      </div>
-                      <div className="mb-2">
-                        <span className="muted">API Token:</span>
-                        <pre className="bg-dark border border-secondary rounded p-2 small mono mb-0 mt-1 user-select-all text-break">
-                          {newPlugin.token}
-                        </pre>
                       </div>
                       <div className="mb-2">
                         <span className="muted">MQTT User:</span> <span className="user-select-all">{newPlugin.mqtt_user}</span>
@@ -269,8 +284,17 @@ export function SettingsPage() {
                       <div className="mb-2">
                         <span className="muted">MQTT Broker:</span> {newPlugin.mqtt_host}:{newPlugin.mqtt_port}
                       </div>
-                      <div>
+                      <div className="mb-3">
                         <span className="muted">Rules Bus:</span> {newPlugin.rules_bus}
+                      </div>
+                      <hr className="border-secondary my-2" />
+                      <div className="mb-2">
+                        <span className="muted">Subscribe (events):</span>
+                        <div className="mono small mt-1 user-select-all">{newPlugin.rules_bus}/events/{accountSlug}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;</div>
+                      </div>
+                      <div>
+                        <span className="muted">Publish (commands):</span>
+                        <div className="mono small mt-1 user-select-all">{newPlugin.rules_bus}/commands/{accountSlug}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;</div>
                       </div>
                     </div>
                   </div>
@@ -279,14 +303,14 @@ export function SettingsPage() {
                       type="button"
                       className="btn btn-outline-secondary btn-sm"
                       onClick={() => {
-                        const text = `Plugin: ${newPlugin.id}\nToken: ${newPlugin.token}\nMQTT User: ${newPlugin.mqtt_user}\nMQTT Pass: ${newPlugin.mqtt_pass}\nBroker: ${newPlugin.mqtt_host}:${newPlugin.mqtt_port}`;
+                        const text = `Plugin: ${newPlugin.id}\nMQTT User: ${newPlugin.mqtt_user}\nMQTT Pass: ${newPlugin.mqtt_pass}\nBroker: ${newPlugin.mqtt_host}:${newPlugin.mqtt_port}\nSubscribe: ${newPlugin.rules_bus}/events/${accountSlug}/{product}/{device}/{kind}\nPublish: ${newPlugin.rules_bus}/commands/${accountSlug}/{product}/{device}/{kind}`;
                         void navigator.clipboard.writeText(text);
                       }}
                     >
-                      Copy all
+                      {t('settings.copyAll')}
                     </button>
                     <button type="button" className="btn btn-primary" onClick={() => setNewPlugin(null)}>
-                      Done
+                      {t('common.done')}
                     </button>
                   </div>
                 </div>
@@ -294,24 +318,83 @@ export function SettingsPage() {
             </div>
           )}
 
+          {regenResult && (
+            <>
+              <div className="modal-backdrop fade show" />
+              <div className="modal fade show d-block" tabIndex={-1} role="dialog" style={{ zIndex: 1050 }}>
+                <div className="modal-dialog modal-dialog-centered">
+                  <div className="modal-content">
+                    <div className="modal-header">
+                      <h5 className="modal-title">{t('settings.passwordRegenerated')}</h5>
+                      <button type="button" className="btn-close btn-close-white" onClick={() => setRegenResult(null)} />
+                    </div>
+                    <div className="modal-body">
+                      <p className="text-danger small mb-2">{t('settings.saveNewPassword')}</p>
+                      <div className="mono small">
+                        <div className="mb-2">
+                          <span className="muted">Plugin:</span> {regenResult.pluginName} <span className="muted">({regenResult.pluginId})</span>
+                        </div>
+                        <div className="mb-2">
+                          <span className="muted">MQTT User:</span> <span className="user-select-all">{regenResult.mqtt_user}</span>
+                        </div>
+                        <div className="mb-2">
+                          <span className="muted">MQTT Password:</span>
+                          <pre className="bg-dark border border-secondary rounded p-2 small mono mb-0 mt-1 user-select-all text-break">
+                            {regenResult.mqtt_pass}
+                          </pre>
+                        </div>
+                        <div className="mb-2">
+                          <span className="muted">Broker:</span> {regenResult.mqtt_host}:{regenResult.mqtt_port}
+                        </div>
+                        <hr className="border-secondary my-2" />
+                        <div className="mb-2">
+                          <span className="muted">Subscribe (events):</span>
+                          <div className="mono small mt-1 user-select-all">platform/v1/events/{accountSlug}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;</div>
+                        </div>
+                        <div>
+                          <span className="muted">Publish (commands):</span>
+                          <div className="mono small mt-1 user-select-all">platform/v1/commands/{accountSlug}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="modal-footer">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => {
+                          const text = `Plugin: ${regenResult.pluginId}\nMQTT User: ${regenResult.mqtt_user}\nMQTT Pass: ${regenResult.mqtt_pass}\nBroker: ${regenResult.mqtt_host}:${regenResult.mqtt_port}`;
+                          void navigator.clipboard.writeText(text);
+                        }}
+                      >
+                        {t('settings.copyCredentials')}
+                      </button>
+                      <button type="button" className="btn btn-primary" onClick={() => setRegenResult(null)}>
+                        {t('common.done')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
           <div className="panel table-responsive">
             <table className="table table-sm align-middle mb-0">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Mode</th>
-                  <th>Status</th>
-                  <th>MQTT User</th>
-                  <th>Created</th>
+                  <th>{t('common.id')}</th>
+                  <th>{t('common.name')}</th>
+                  <th>{t('common.status')}</th>
+                  <th>{t('settings.mqttUser')}</th>
+                  <th>{t('settings.created')}</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {plugins.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="muted small">
-                      No external plugins.
+                    <td colSpan={6} className="muted small">
+                      {t('settings.noExternalPlugins')}
                     </td>
                   </tr>
                 )}
@@ -319,7 +402,6 @@ export function SettingsPage() {
                   <tr key={p.id}>
                     <td className="mono">{p.id}</td>
                     <td>{p.name}</td>
-                    <td>{p.mode}</td>
                     <td>
                       <span className={`badge ${p.status === 'online' ? 'text-bg-success' : 'text-bg-secondary'}`}>
                         {p.status}
@@ -332,37 +414,78 @@ export function SettingsPage() {
                         type="button"
                         className="btn btn-outline-warning btn-sm me-1"
                         onClick={async () => {
-                          if (!confirm(`Regenerate MQTT password for ${p.name}?`)) return;
+                          if (!confirm(t('settings.regenConfirm', { name: p.name }))) return;
                           try {
-                            const result = await api<{ mqtt_pass: string }>(`/plugins/external/${p.id}/regenerate-mqtt`, { method: 'POST' });
-                            alert(`New MQTT password:\n${result.mqtt_pass}\n\nSave it now!`);
+                            const result = await api<{ mqtt_pass: string; mqtt_user: string }>(`/plugins/external/${p.id}/regenerate-mqtt`, { method: 'POST' });
+                            setRegenResult({
+                              pluginId: p.id,
+                              pluginName: p.name,
+                              mqtt_pass: result.mqtt_pass,
+                              mqtt_user: result.mqtt_user,
+                              mqtt_host: s.broker_host || '',
+                              mqtt_port: s.mqtt_port || 1883,
+                              rules_bus: s.rules_bus_enabled ? (s.public_base_url || '') : '',
+                            });
                           } catch (err) {
-                            alert(err instanceof Error ? err.message : String(err));
+                            toast.error(errorMsg(err));
                           }
                         }}
                       >
-                        Regen MQTT
+                        {t('settings.regenMqtt')}
                       </button>
                       <button
                         type="button"
                         className="btn btn-outline-danger btn-sm"
                         onClick={async () => {
-                          if (!confirm(`Delete plugin ${p.name}?`)) return;
+                          if (!confirm(t('settings.deletePluginConfirm', { name: p.name }))) return;
                           try {
                             await api(`/plugins/external/${p.id}`, { method: 'DELETE' });
                             await loadPlugins();
                           } catch (err) {
-                            alert(err instanceof Error ? err.message : String(err));
+                            toast.error(errorMsg(err));
                           }
                         }}
                       >
-                        Delete
+                        {t('common.delete')}
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Automation & Integrations section */}
+          <h2 className="h5 mt-4 mb-2">{t('settings.automation')}</h2>
+          <div className="panel mb-3">
+            <p className="small mb-2">
+              {t('settings.automationDescription')}
+            </p>
+            {s.rules_bus_enabled ? (
+              <>
+                <p className="small muted mb-2">
+                  Events topic template:{' '}
+                  <span className="mono">
+                    {s.broker_host || 'mqtt'}/events/{activeMembership?.account_slug || '{account_slug}'}/&#123;product&#125;/&#123;device&#125;/&#123;kind&#125;
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() => {
+                    const topic = `events/${activeMembership?.account_slug || '{account_slug}'}/{product}/{device}/{kind}`;
+                    void navigator.clipboard.writeText(topic);
+                  }}
+                >
+                  {t('settings.copyMqttTemplate')}
+                </button>
+              </>
+            ) : (
+              <p className="small muted mb-0">{t('settings.rulesBusDisabled')}</p>
+            )}
+            <div className="mt-2 small">
+              See <Link to="/docs#automation" className="muted">automation documentation</Link> for Node-RED integration examples.
+            </div>
           </div>
         </>
       )}

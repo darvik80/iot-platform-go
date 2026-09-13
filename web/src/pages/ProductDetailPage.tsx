@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { MethodEditor, PRESET_METRICS, isReservedMethodName } from '../components/MethodEditor';
+import { errorMsg, useToast } from '../components/Toast';
+import { useT } from '../i18n/I18nContext';
 import type { Product, ProductAttribute, ProductMethod, ProductMetric } from '../types';
 
 type Draft = {
@@ -16,6 +18,8 @@ type Draft = {
 export function ProductDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const t = useT();
   const [p, setP] = useState<Product | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,7 +65,7 @@ export function ProductDetailPage() {
   }, [id, applyProduct]);
 
   useEffect(() => {
-    void load().catch((e) => alert(e.message));
+    void load().catch((e) => toast.error(errorMsg(e)));
   }, [load]);
 
   const persist = useCallback(
@@ -87,9 +91,9 @@ export function ProductDetailPage() {
         applyProduct(updated);
         if (!opts?.quiet) setStatus('Saved');
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = errorMsg(e);
         setStatus('');
-        alert(msg);
+        toast.error(msg);
         throw e;
       } finally {
         setBusy(false);
@@ -106,7 +110,7 @@ export function ProductDetailPage() {
     <div>
       <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/products')}>
-          ← Products
+          ← {t('products.title')}
         </button>
         <h1 className="h4 mb-0 mono">{p.product_id}</h1>
         <button
@@ -119,14 +123,14 @@ export function ProductDetailPage() {
               applyProduct(updated);
               setStatus('ESP presets restored');
             } catch (e) {
-              alert(e instanceof Error ? e.message : String(e));
+              toast.error(errorMsg(e));
             }
           }}
         >
           Reset to ESP presets
         </button>
         <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => void persist()}>
-          {busy ? 'Saving…' : 'Save'}
+          {busy ? t('common.loading') : t('common.save')}
         </button>
         {status ? <span className="small text-success">{status}</span> : null}
         <button
@@ -138,18 +142,18 @@ export function ProductDetailPage() {
               await api(`/products/${p.id}`, { method: 'DELETE' });
               navigate('/products');
             } catch (e) {
-              alert(e instanceof Error ? e.message : String(e));
+              toast.error(errorMsg(e));
             }
           }}
         >
-          Delete
+          {t('common.delete')}
         </button>
       </div>
 
       <div className="panel">
         <div className="row g-2">
           <div className="col-md-4">
-            <label className="form-label small muted">Name</label>
+            <label className="form-label small muted">{t('common.name')}</label>
             <input className="form-control" value={name} onChange={(e) => patchDraft({ name: e.target.value })} />
           </div>
           <div className="col-md-6">
@@ -175,7 +179,7 @@ export function ProductDetailPage() {
 
       <div className="panel">
         <h2 className="h6 text-uppercase muted">
-          RPC methods <span className="fw-normal text-lowercase">· preset locked</span>
+          {t('product.rpcMethods')} <span className="fw-normal text-lowercase">· preset locked</span>
         </h2>
         <MethodEditor
           methods={methods}
@@ -188,7 +192,7 @@ export function ProductDetailPage() {
           }}
         />
         <details className="mt-2">
-          <summary className="muted">+ Add method</summary>
+          <summary className="muted">+ {t('product.addMethod')}</summary>
           <div className="row g-2 mt-2">
             <div className="col-md-3">
               <input className="form-control form-control-sm mono" placeholder="setLed" value={addMethod.name} onChange={(e) => setAddMethod({ ...addMethod, name: e.target.value })} />
@@ -206,9 +210,9 @@ export function ProductDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   const n = addMethod.name.trim();
-                  if (!n) return alert('Method name required');
-                  if (isReservedMethodName(n)) return alert(`"${n}" is a predefined method`);
-                  if (methods.some((m) => m.name === n)) return alert('Method already exists');
+                  if (!n) return toast.warning('Method name required');
+                  if (isReservedMethodName(n)) return toast.warning(`"${n}" is a predefined method`);
+                  if (methods.some((m) => m.name === n)) return toast.warning('Method already exists');
                   const nextMethods = [
                     ...methods,
                     {
@@ -232,7 +236,7 @@ export function ProductDetailPage() {
 
       <div className="panel">
         <h2 className="h6 text-uppercase muted">
-          Metrics <span className="fw-normal text-lowercase">· ESP presets locked</span>
+          {t('product.metricsSchema')} <span className="fw-normal text-lowercase">· ESP presets locked</span>
         </h2>
         <div className="table-responsive">
           <table className="table table-sm schema-compact">
@@ -335,7 +339,7 @@ export function ProductDetailPage() {
           </table>
         </div>
         <details>
-          <summary className="muted">+ Add metric</summary>
+          <summary className="muted">+ {t('product.addMetric')}</summary>
           <div className="row g-2 mt-2">
             <div className="col-md-2">
               <input className="form-control form-control-sm mono" placeholder="key" value={addMetric.key} onChange={(e) => setAddMetric({ ...addMetric, key: e.target.value })} />
@@ -369,9 +373,9 @@ export function ProductDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   const key = addMetric.key.trim();
-                  if (!key) return alert('Metric key required');
-                  if (PRESET_METRICS[key]) return alert(`"${key}" is a predefined metric`);
-                  if (metrics.some((m) => m.key === key)) return alert('Metric already exists');
+                  if (!key) return toast.warning('Metric key required');
+                  if (PRESET_METRICS[key]) return toast.warning(`"${key}" is a predefined metric`);
+                  if (metrics.some((m) => m.key === key)) return toast.warning('Metric already exists');
                   const next = [...metrics, { ...addMetric, key, label: addMetric.label || key }];
                   patchDraft({ metrics: next });
                   setAddMetric({ key: '', label: '', group: 'Sensors', format: 'number', unit: '' });
@@ -386,7 +390,7 @@ export function ProductDetailPage() {
       </div>
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Attributes</h2>
+        <h2 className="h6 text-uppercase muted">{t('product.attributes')}</h2>
         <div className="table-responsive">
           <table className="table table-sm schema-compact">
             <thead>
@@ -497,7 +501,7 @@ export function ProductDetailPage() {
           </table>
         </div>
         <details>
-          <summary className="muted">+ Add attribute</summary>
+          <summary className="muted">+ {t('product.addAttribute')}</summary>
           <div className="row g-2 mt-2">
             <div className="col-md-2">
               <input className="form-control form-control-sm mono" placeholder="key" value={addAttr.key} onChange={(e) => setAddAttr({ ...addAttr, key: e.target.value })} />
@@ -532,8 +536,8 @@ export function ProductDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   const key = addAttr.key.trim();
-                  if (!key) return alert('Attribute key required');
-                  if (attributes.some((a) => a.key === key)) return alert('Attribute already exists');
+                  if (!key) return toast.warning('Attribute key required');
+                  if (attributes.some((a) => a.key === key)) return toast.warning('Attribute already exists');
                   const next = [...attributes, { ...addAttr, key, label: addAttr.label || key }];
                   patchDraft({ attributes: next });
                   setAddAttr({ key: '', label: '', scope: 'desired', type: 'number', unit: '', writable: true });

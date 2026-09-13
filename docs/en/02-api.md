@@ -230,6 +230,56 @@ Details: [08-external-plugins.md](08-external-plugins.md).
 
 ---
 
+## Plugin policies (admin)
+
+Per-account control of catalog plugins (built-in plugins like LED garland, schedule, prometheus-exporter, metrics-dashboard).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/plugins/policies` | List all catalog plugins with effective enabled/settings for the active account |
+| PATCH | `/plugins/policies/{pluginId}` | Update policy: `{ "enabled"?, "settings"? }` |
+
+When a plugin is disabled, it stops running for all devices in the account. Settings are plugin-specific JSON configurations.
+
+---
+
+## Device dashboard
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/devices/{id}/dashboard` | Aggregated dashboard panels for metrics-dashboard plugin |
+
+Response:
+
+```json
+{
+  "panels": [
+    {
+      "id": "telemetry_chart",
+      "type": "telemetry_chart",
+      "title": "WiFi RSSI",
+      "data": { "keys": ["wifi_rssi"], "points": [[1234567890, -65], ...] }
+    }
+  ]
+}
+```
+
+Panel types: `telemetry_chart`, `telemetry_gauge`, `rpc_table`, `online_timeline`, `events_count`.
+
+---
+
+## Account management (platform-admin)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| DELETE | `/accounts/{id}?force=true` | Delete account with cascade |
+
+Without `force=true`: only if `devices.count=0` and `external_plugins.count=0`.
+
+With `force=true`: cascades through products, devices, plugin bindings, firmwares, OTA jobs, telemetry, events, logs, RPC calls, audit logs, memberships, invitations, plugin policies, external plugins.
+
+---
+
 ## Roles
 
 | Role | Read | Write (devices, RPC, OTA, …) |

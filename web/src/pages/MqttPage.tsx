@@ -4,9 +4,11 @@ import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { SeverityBadge } from '../components/StatusBadge';
 import { formatAge } from '../utils/format';
+import { useT } from '../i18n/I18nContext';
 import type { MQTTStatus } from '../types';
 
 export function MqttPage() {
+  const t = useT();
   const [st, setSt] = useState<MQTTStatus | null>(null);
   const [error, setError] = useState('');
 
@@ -35,20 +37,20 @@ export function MqttPage() {
 
   return (
     <div>
-      <h1 className="h3 mb-3">MQTT</h1>
+      <h1 className="h3 mb-3">{t('mqtt.title')}</h1>
       {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="row g-3 mb-4">
         <div className="col-6 col-md-3">
           <div className="stat-card">
-            <div className="label">Status</div>
+            <div className="label">{t('common.status')}</div>
             <div className="value" style={{ fontSize: '1.1rem', color: s.listening ? 'var(--ok)' : 'var(--crit)' }}>
-              {s.listening ? 'listening' : 'down'}
+              {s.listening ? t('mqtt.listening') : t('common.down')}
             </div>
           </div>
         </div>
         <div className="col-6 col-md-3">
           <div className="stat-card">
-            <div className="label">Sessions</div>
+            <div className="label">{t('mqtt.sessions')}</div>
             <div className="value">{s.client_count}</div>
           </div>
         </div>
@@ -78,7 +80,7 @@ export function MqttPage() {
             </div>
             {s.tls_addr && (
               <a className="small" href="/api/v1/mqtt/ca.pem" download>
-                Download CA
+                {t('mqtt.downloadCa')}
               </a>
             )}
           </div>
@@ -86,18 +88,18 @@ export function MqttPage() {
       </div>
 
       <div className="panel mb-4">
-        <h2 className="h6 text-uppercase muted">Connected clients</h2>
+        <h2 className="h6 text-uppercase muted">{t('mqtt.connectedClients')}</h2>
         <div className="table-responsive">
           <table className="table table-sm align-middle">
             <thead>
               <tr>
-                <th>Kind</th>
-                <th>Username</th>
-                <th>Client ID</th>
-                <th>Remote</th>
-                <th>Subscriptions</th>
-                <th>Connected</th>
-                <th>Last seen</th>
+                <th>{t('overview.kind')}</th>
+                <th>{t('mqtt.username')}</th>
+                <th>{t('mqtt.clientId')}</th>
+                <th>{t('overview.remote')}</th>
+                <th>{t('overview.subscriptions')}</th>
+                <th>{t('mqtt.connected')}</th>
+                <th>{t('mqtt.lastSeen')}</th>
               </tr>
             </thead>
             <tbody>
@@ -122,7 +124,7 @@ export function MqttPage() {
               ) : (
                 <tr>
                   <td colSpan={7} className="muted">
-                    No MQTT clients connected
+                    {t('mqtt.noClients')}
                   </td>
                 </tr>
               )}
@@ -132,19 +134,19 @@ export function MqttPage() {
       </div>
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Broker events</h2>
-        <p className="muted small">In-memory trail (auth, sessions, ACL, ingest). Telemetry ingest is debug in stdout; it still appears here.</p>
+        <h2 className="h6 text-uppercase muted">{t('mqtt.brokerEvents')}</h2>
+        <p className="muted small">{t('mqtt.eventsDescription')}</p>
         <div className="table-responsive">
           <table className="table table-sm align-middle">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Level</th>
-                <th>Kind</th>
-                <th>User</th>
-                <th>Topic</th>
-                <th>Message</th>
-                <th>Bytes</th>
+                <th>{t('common.time')}</th>
+                <th>{t('mqtt.level')}</th>
+                <th>{t('overview.kind')}</th>
+                <th>{t('overview.user')}</th>
+                <th>{t('mqtt.topic')}</th>
+                <th>{t('common.message')}</th>
+                <th>{t('mqtt.bytes')}</th>
               </tr>
             </thead>
             <tbody>
@@ -165,7 +167,7 @@ export function MqttPage() {
               ) : (
                 <tr>
                   <td colSpan={7} className="muted">
-                    No MQTT events yet — connect a device or Node-RED
+                    {t('mqtt.noEvents')}
                   </td>
                 </tr>
               )}

@@ -17,12 +17,31 @@ import (
 	"cogitor-iot-platform/internal/models"
 )
 
+// AccountRef is a compact per-account role descriptor embedded in JWT claims.
+type AccountRef struct {
+	AccountID   int64  `json:"account_id"`
+	AccountSlug string `json:"account_slug"`
+	Role        string `json:"role"`
+}
+
 type Claims struct {
-	UserID int64       `json:"uid"`
-	Email  string      `json:"email"`
-	Login  string      `json:"login"`
-	Role   models.Role `json:"role"`
+	UserID          int64        `json:"uid"`
+	Email           string       `json:"email"`
+	Login           string       `json:"login"`
+	Accounts        []AccountRef `json:"accounts"`
+	ActiveAccountID int64        `json:"active_account_id"`
+	IsPlatformAdmin bool         `json:"is_platform_admin"`
 	jwt.RegisteredClaims
+}
+
+// ActiveRole returns the role for the currently active account.
+func (c *Claims) ActiveRole() models.Role {
+	for _, a := range c.Accounts {
+		if a.AccountID == c.ActiveAccountID {
+			return models.Role(a.Role)
+		}
+	}
+	return ""
 }
 
 func HashPassword(pw string) (string, error) {
@@ -54,12 +73,16 @@ func TokenPrefix(token string) string {
 	return token[:8]
 }
 
-func IssueJWT(secret string, u models.User, ttl time.Duration) (string, error) {
+// IssueJWT creates a signed JWT carrying multi-account claims.
+// accounts must be non-empty; activeAccountID must be one of the account IDs.
+func IssueJWT(secret string, u models.User, accounts []AccountRef, activeAccountID int64, ttl time.Duration) (string, error) {
 	claims := Claims{
-		UserID: u.ID,
-		Email:  u.Email,
-		Login:  u.Login,
-		Role:   u.Role,
+		UserID:          u.ID,
+		Email:           u.Email,
+		Login:           u.Login,
+		Accounts:        accounts,
+		ActiveAccountID: activeAccountID,
+		IsPlatformAdmin: u.IsPlatformAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -95,10 +118,17 @@ func Bearer(r *http.Request) string {
 	return ""
 }
 
+// CanWrite returns true if the per-account role allows write operations.
 func CanWrite(role models.Role) bool {
 	return role == models.RoleAdmin || role == models.RoleOperator
 }
 
+// CanAdmin returns true if the per-account role is admin.
 func CanAdmin(role models.Role) bool {
 	return role == models.RoleAdmin
+}
+
+// CanPlatformAdmin returns true if the claims belong to a platform admin.
+func CanPlatformAdmin(c *Claims) bool {
+	return c != nil && c.IsPlatformAdmin
 }

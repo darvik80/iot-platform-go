@@ -30,11 +30,11 @@ func (l *Local) requireWrite() error {
 }
 
 func (l *Local) Overview(_ context.Context) (any, error) {
-	return l.Plat.Overview()
+	return l.Plat.Overview(0)
 }
 
 func (l *Local) ListDevices(_ context.Context, productID, status, q string) (any, error) {
-	return l.Plat.ListDevices(productID, status, q)
+	return l.Plat.ListDevices(0, productID, status, q)
 }
 
 func (l *Local) GetDevice(_ context.Context, id int64) (any, error) {
@@ -44,7 +44,7 @@ func (l *Local) GetDevice(_ context.Context, id int64) (any, error) {
 	}
 	reported, desired, _ := l.Plat.GetAttributes(id)
 	latest, _ := l.Plat.LatestTelemetry(id)
-	events, _ := l.Plat.ListEvents(id, "", 0, 0, 20)
+	events, _ := l.Plat.ListEvents(0, id, "", 0, 0, 20)
 	product, _ := l.Plat.GetProduct(d.ProductPK)
 	return map[string]any{
 		"device": d, "product": product, "reported": reported, "desired": desired,
@@ -71,7 +71,7 @@ func (l *Local) FindDeviceID(_ context.Context, productID, deviceID string) (int
 }
 
 func (l *Local) ListProducts(_ context.Context) (any, error) {
-	return l.Plat.ListProducts()
+	return l.Plat.ListProducts(0)
 }
 
 func (l *Local) GetProduct(_ context.Context, id int64) (any, error) {

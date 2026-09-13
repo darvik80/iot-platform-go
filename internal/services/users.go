@@ -9,7 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,67 +28,30 @@ func (p *Platform) Mailer() *mail.Sender {
 	return &mail.Sender{Cfg: p.Cfg, Log: p.Log}
 }
 
+// EnsureAdmin checks if an admin user exists and updates it if needed.
+// For fresh databases, use the setup wizard instead.
+// This is only called when the database already has data (migration case).
 func (p *Platform) EnsureAdmin() error {
 	var n int
 	if err := p.DB.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&n); err != nil {
 		return err
 	}
-	if n > 0 {
-		// Ensure migration columns filled for bootstrap admin if needed.
-		_, _ = p.DB.Exec(`UPDATE users SET login=? WHERE (login IS NULL OR login='') AND email=?`,
-			p.Cfg.AdminLogin, p.Cfg.AdminEmail)
-		_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.AdminEmail)
+	if n == 0 {
+		// No users exist — this should have been handled by setup wizard
+		// But if we're here, it means accounts exist but no users (edge case)
+		// Don't create anything, let the system work with existing data
 		return nil
 	}
 
-	// Bootstrap: create admin user, default account, and membership
-	hash, err := auth.HashPassword(p.Cfg.AdminPassword)
-	if err != nil {
-		return err
-	}
-	now := db.NowMS()
-
-	tx, err := p.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Create admin user with is_platform_admin flag
-	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, is_platform_admin, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`,
-		p.Cfg.AdminEmail, hash, models.RoleAdmin, p.Cfg.AdminLogin, "Admin", 1, 1, now, now)
-	if err != nil {
-		return err
-	}
-	adminID, _ := res.LastInsertId()
-
-	// Create default account
-	slug := p.Cfg.BootstrapAccountSlug
-	if slug == "" {
-		slug = "default"
-	}
-	name := p.Cfg.BootstrapAccountName
-	if name == "" {
-		name = "Default"
-	}
-	accRes, err := tx.Exec(`INSERT INTO accounts(slug, name, settings_json, status, created_at, updated_at)
-		VALUES(?,?,?,?,?,?)`,
-		slug, name, "{}", "active", now, now)
-	if err != nil {
-		return err
-	}
-	accountID, _ := accRes.LastInsertId()
-
-	// Create membership linking admin to default account
-	_, err = tx.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at)
-		VALUES(?,?,?,?,?)`,
-		adminID, accountID, models.RoleAdmin, "active", now)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	// Ensure migration columns filled for bootstrap admin if needed.
+	_, _ = p.DB.Exec(`UPDATE users SET login=? WHERE (login IS NULL OR login='') AND email=?`,
+		p.Cfg.AdminLogin, p.Cfg.AdminEmail)
+	_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.AdminEmail)
+	
+	// Ensure is_platform_admin is set for the first admin user (migration case)
+	_, _ = p.DB.Exec(`UPDATE users SET is_platform_admin=1 WHERE id=(SELECT MIN(id) FROM users) AND is_platform_admin=0`)
+	
+	return nil
 }
 
 type RegisterInput struct {
@@ -212,32 +178,62 @@ func (p *Platform) Login(identity, password string) (*models.User, string, error
 	if p.Cfg.RequireEmailVerify && !u.EmailVerified {
 		return nil, "", errors.New("email not verified")
 	}
-	tok, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, 24*time.Hour)
+	refs, activeID, err := p.LoadAccountRefs(u.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(refs) == 0 {
+		return nil, "", errors.New("no account membership — contact administrator")
+	}
+	tok, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, refs, activeID, 24*time.Hour)
 	if err != nil {
 		return nil, "", err
 	}
 	return u, tok, nil
 }
 
+// LoadAccountRefs queries account memberships for a user and returns
+// AccountRef slice plus the default active account ID (first membership).
+func (p *Platform) LoadAccountRefs(userID int64) ([]auth.AccountRef, int64, error) {
+	rows, err := p.DB.Query(`SELECT m.account_id, a.slug, m.role
+		FROM account_memberships m JOIN accounts a ON a.id = m.account_id
+		WHERE m.user_id = ? AND m.status = 'active' AND a.status = 'active'
+		ORDER BY m.joined_at`, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var refs []auth.AccountRef
+	var firstID int64
+	for rows.Next() {
+		var r auth.AccountRef
+		if err := rows.Scan(&r.AccountID, &r.AccountSlug, &r.Role); err != nil {
+			return nil, 0, err
+		}
+		if firstID == 0 {
+			firstID = r.AccountID
+		}
+		refs = append(refs, r)
+	}
+	if refs == nil {
+		refs = []auth.AccountRef{}
+	}
+	return refs, firstID, rows.Err()
+}
+
 func (p *Platform) FindUserByLoginOrEmail(identity string) (*models.User, error) {
 	identity = strings.ToLower(strings.TrimSpace(identity))
-	row := p.DB.QueryRow(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
-		FROM users WHERE lower(email)=? OR lower(login)=?`, identity, identity)
+	row := p.DB.QueryRow(userSelect+` FROM users WHERE lower(email)=? OR lower(login)=?`, identity, identity)
 	return scanUser(row)
 }
 
 func (p *Platform) GetUser(id int64) (*models.User, error) {
-	row := p.DB.QueryRow(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
-		FROM users WHERE id=?`, id)
+	row := p.DB.QueryRow(userSelect+` FROM users WHERE id=?`, id)
 	return scanUser(row)
 }
 
 func (p *Platform) ListUsers() ([]models.User, error) {
-	rows, err := p.DB.Query(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
-		FROM users ORDER BY id`)
+	rows, err := p.DB.Query(userSelect + ` FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -306,20 +302,30 @@ func (p *Platform) DeleteUser(id int64) error {
 	return nil
 }
 
-func (p *Platform) UserByAPIToken(token string) (*models.User, error) {
+// UserByAPIToken returns the user and the token's account_id (0 if legacy token without account).
+func (p *Platform) UserByAPIToken(token string) (*models.User, int64, error) {
 	h := auth.HashToken(token)
 	var id int64
-	err := p.DB.QueryRow(`SELECT user_id FROM api_tokens WHERE token_hash=?`, h).Scan(&id)
+	var accID int64
+	err := p.DB.QueryRow(`SELECT user_id, COALESCE(account_id,0) FROM api_tokens WHERE token_hash=?`, h).Scan(&id, &accID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	_, _ = p.DB.Exec(`UPDATE api_tokens SET last_used_at=? WHERE token_hash=?`, db.NowMS(), h)
-	return p.GetUser(id)
+	u, err := p.GetUser(id)
+	return u, accID, err
 }
 
-func (p *Platform) ListAPITokens(userID int64) ([]models.APIToken, error) {
-	rows, err := p.DB.Query(`SELECT id, user_id, name, token_prefix, created_at, last_used_at
-		FROM api_tokens WHERE user_id=? ORDER BY id DESC`, userID)
+func (p *Platform) ListAPITokens(userID int64, accountID int64) ([]models.APIToken, error) {
+	var rows *sql.Rows
+	var err error
+	if accountID > 0 {
+		rows, err = p.DB.Query(`SELECT id, user_id, COALESCE(account_id,0), name, token_prefix, created_at, last_used_at
+			FROM api_tokens WHERE user_id=? AND account_id=? ORDER BY id DESC`, userID, accountID)
+	} else {
+		rows, err = p.DB.Query(`SELECT id, user_id, COALESCE(account_id,0), name, token_prefix, created_at, last_used_at
+			FROM api_tokens WHERE user_id=? ORDER BY id DESC`, userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -328,8 +334,12 @@ func (p *Platform) ListAPITokens(userID int64) ([]models.APIToken, error) {
 	for rows.Next() {
 		var t models.APIToken
 		var last sql.NullInt64
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Prefix, &t.CreatedAt, &last); err != nil {
+		var accID int64
+		if err := rows.Scan(&t.ID, &t.UserID, &accID, &t.Name, &t.Prefix, &t.CreatedAt, &last); err != nil {
 			return nil, err
+		}
+		if accID > 0 {
+			t.AccountID = &accID
 		}
 		if last.Valid {
 			v := last.Int64
@@ -343,7 +353,7 @@ func (p *Platform) ListAPITokens(userID int64) ([]models.APIToken, error) {
 	return out, rows.Err()
 }
 
-func (p *Platform) CreateAPIToken(userID int64, name string) (*models.APIToken, error) {
+func (p *Platform) CreateAPIToken(userID int64, accountID int64, name string) (*models.APIToken, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("name required")
@@ -359,8 +369,8 @@ func (p *Platform) CreateAPIToken(userID int64, name string) (*models.APIToken, 
 	raw = "cip_" + raw
 	now := db.NowMS()
 	prefix := auth.TokenPrefix(raw)
-	res, err := p.DB.Exec(`INSERT INTO api_tokens(user_id, name, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
-		userID, name, auth.HashToken(raw), prefix, now)
+	res, err := p.DB.Exec(`INSERT INTO api_tokens(user_id, account_id, name, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?,?)`,
+		userID, accountID, name, auth.HashToken(raw), prefix, now)
 	if err != nil {
 		return nil, err
 	}
@@ -368,6 +378,7 @@ func (p *Platform) CreateAPIToken(userID int64, name string) (*models.APIToken, 
 	return &models.APIToken{
 		ID:        id,
 		UserID:    userID,
+		AccountID: &accountID,
 		Name:      name,
 		Token:     raw,
 		Prefix:    prefix,
@@ -387,11 +398,15 @@ func (p *Platform) RevokeAPIToken(userID, tokenID int64) error {
 	return nil
 }
 
+const userSelect = `SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
+	COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0),
+	COALESCE(avatar_url,''), created_at, updated_at`
+
 func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	var u models.User
 	var verified, disabled, isPlatformAdmin int
 	err := row.Scan(&u.ID, &u.Login, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role,
-		&verified, &u.GoogleSub, &disabled, &isPlatformAdmin, &u.CreatedAt, &u.UpdatedAt)
+		&verified, &u.GoogleSub, &disabled, &isPlatformAdmin, &u.AvatarURL, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
 	}
@@ -519,7 +534,14 @@ func (p *Platform) GoogleCallback(ctx context.Context, code, state string) (*mod
 	if u.Disabled {
 		return nil, "", errors.New("account disabled")
 	}
-	jwt, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, 24*time.Hour)
+	refs, activeID, err := p.LoadAccountRefs(u.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(refs) == 0 {
+		return nil, "", errors.New("no account membership — contact administrator")
+	}
+	jwt, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, refs, activeID, 24*time.Hour)
 	if err != nil {
 		return nil, "", err
 	}
@@ -615,6 +637,115 @@ func (p *Platform) AuthPublicConfig() map[string]any {
 		"google_enabled":       p.Cfg.GoogleEnabled(),
 		"platform_name":        p.Cfg.PlatformName,
 	}
+}
+
+// ── Avatar ──────────────────────────────────────────────────────────────────
+
+const maxAvatarBytes = 2 << 20 // 2 MB
+
+var allowedAvatarTypes = map[string]string{
+	"image/jpeg": ".jpg",
+	"image/png":  ".png",
+	"image/webp": ".webp",
+}
+
+// AvatarDir returns the directory where avatar files are stored.
+func (p *Platform) AvatarDir() string {
+	return filepath.Join(p.Cfg.DataDir, "avatars")
+}
+
+// AvatarFilePath returns the absolute path to a user's avatar file (empty if none).
+func (p *Platform) AvatarFilePath(userID int64) string {
+	u, err := p.GetUser(userID)
+	if err != nil || u.AvatarURL == "" {
+		return ""
+	}
+	// avatar_url is stored as "/api/v1/me/avatar" — file is at data/avatars/{userID}{ext}
+	dir := p.AvatarDir()
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		name := e.Name()
+		if len(name) > 0 && strings.HasPrefix(name, strconv.FormatInt(userID, 10)) {
+			return filepath.Join(dir, name)
+		}
+	}
+	return ""
+}
+
+// SetAvatarFromFile validates and saves an uploaded avatar image for the user.
+func (p *Platform) SetAvatarFromFile(userID int64, file io.ReadCloser, contentType, fileName string) (*models.User, error) {
+	defer file.Close()
+
+	ext, ok := allowedAvatarTypes[contentType]
+	if !ok {
+		// Fallback: guess from file extension
+		ext = strings.ToLower(filepath.Ext(fileName))
+		switch ext {
+		case ".jpg", ".jpeg":
+			ext = ".jpg"
+		case ".png":
+			ext = ".png"
+		case ".webp":
+			ext = ".webp"
+		default:
+			return nil, errors.New("unsupported image type: use JPEG, PNG or WebP")
+		}
+	}
+
+	dir := p.AvatarDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create avatar dir: %w", err)
+	}
+
+	// Remove old avatar files for this user
+	oldEntries, _ := os.ReadDir(dir)
+	for _, e := range oldEntries {
+		if strings.HasPrefix(e.Name(), strconv.FormatInt(userID, 10)+".") {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+
+	destName := strconv.FormatInt(userID, 10) + ext
+	destPath := filepath.Join(dir, destName)
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("create avatar file: %w", err)
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, io.LimitReader(file, maxAvatarBytes+1))
+	if err != nil {
+		_ = os.Remove(destPath)
+		return nil, fmt.Errorf("write avatar: %w", err)
+	}
+	if written > maxAvatarBytes {
+		_ = os.Remove(destPath)
+		return nil, errors.New("avatar file too large (max 2 MB)")
+	}
+
+	// Update DB
+	now := db.NowMS()
+	_, err = p.DB.Exec(`UPDATE users SET avatar_url=?, updated_at=? WHERE id=?`, "/api/v1/me/avatar", now, userID)
+	if err != nil {
+		_ = os.Remove(destPath)
+		return nil, err
+	}
+	return p.GetUser(userID)
+}
+
+// DeleteAvatar removes the user's avatar file and clears the DB field.
+func (p *Platform) DeleteAvatar(userID int64) error {
+	dir := p.AvatarDir()
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), strconv.FormatInt(userID, 10)+".") {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+	now := db.NowMS()
+	_, err := p.DB.Exec(`UPDATE users SET avatar_url='', updated_at=? WHERE id=?`, now, userID)
+	return err
 }
 
 // silence unused import if time only used via db

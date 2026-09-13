@@ -24,7 +24,7 @@ func TestBindLEDGarlandPlugin(t *testing.T) {
 		DatabaseDSN:    dbPath,
 		DataDir:        dir,
 	}, nil)
-	if _, err := p.CreateProduct(ProductInput{ProductID: "home", Name: "Home"}); err != nil {
+	if _, err := p.CreateProduct(0, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
 	dev, _, err := p.CreateDevice(DeviceInput{ProductID: "home", DeviceID: "esp32-s3-ctr"})

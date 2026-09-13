@@ -113,16 +113,23 @@ body {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 0.35rem;
+  border-radius: 0.5rem;
   padding: 1rem;
   margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
 .stat-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 0.35rem;
+  border-radius: 0.5rem;
   padding: 0.85rem 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  transition: box-shadow 0.15s ease;
+}
+
+.stat-card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
 .stat-card .label {
@@ -338,6 +345,16 @@ body {
   .offcanvas.show {
     width: 280px !important;
   }
+
+  // User widget dropdown: wider on mobile
+  .user-widget-dropdown {
+    width: min(280px, calc(100vw - 2rem));
+    right: -0.5rem;
+  }
+
+  .user-widget-name {
+    display: none;
+  }
 }
 
 // Very small screens (phones < 400px)
@@ -351,4 +368,198 @@ body {
   .panel .table {
     font-size: 0.75rem;
   }
+}
+
+// ── Top bar & User Widget ─────────────────────────────────────────
+
+.top-bar {
+  background: rgba(20, 26, 34, 0.95);
+  backdrop-filter: blur(8px);
+  min-height: 52px;
+}
+
+.user-widget-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 2rem;
+  padding: 0.25rem 0.75rem 0.25rem 0.25rem;
+  color: var(--body-color);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.user-widget-btn:hover {
+  border-color: var(--accent);
+}
+
+.user-widget-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-widget-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+}
+
+.user-widget-dropdown {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 1050;
+  width: 260px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+// ── UI Modernization ──────────────────────────────────────────────
+
+// Consistent button border-radius
+.btn {
+  border-radius: 0.4rem;
+  font-weight: 500;
+}
+
+.btn-sm {
+  border-radius: 0.35rem;
+}
+
+// Improved form control contrast
+.form-control,
+.form-select {
+  background: var(--input-bg);
+  border-color: var(--input-border-color);
+  color: var(--input-color);
+  border-radius: 0.4rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+  background: #1a2230;
+  border-color: var(--accent);
+  color: var(--input-color);
+  box-shadow: 0 0 0 0.15rem rgba(61, 156, 240, 0.2);
+}
+
+// File input button styling
+.form-control[type="file"] {
+  color: var(--input-color);
+}
+
+.form-control[type="file"]::file-selector-button {
+  background: var(--secondary);
+  color: var(--input-color);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.25rem 0.75rem;
+  margin-right: 0.75rem;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.form-control[type="file"]::file-selector-button:hover {
+  background: #354358;
+  border-color: var(--accent);
+}
+
+// Help icon (i) tooltip
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  cursor: help;
+  line-height: 1;
+  vertical-align: middle;
+  margin-left: 0.25rem;
+}
+
+.help-icon:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+// Nav tabs modernization
+.nav-tabs {
+  border-bottom-color: var(--border);
+}
+
+.nav-tabs .nav-link {
+  border-radius: 0.4rem 0.4rem 0 0;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.85rem;
+}
+
+.nav-tabs .nav-link.active {
+  background: var(--panel);
+  border-color: var(--border) var(--border) var(--panel);
+  color: var(--body-color);
+}
+
+// Alert modernization
+.alert {
+  border-radius: 0.4rem;
+  border: 1px solid var(--border);
+}
+
+// Responsive table card-view on very small screens
+@media (max-width: 575.98px) {
+  .table-card-view thead {
+    display: none;
+  }
+  .table-card-view tbody tr {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0.4rem;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .table-card-view tbody td {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0;
+    border: none;
+    font-size: 0.85rem;
+  }
+  .table-card-view tbody td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+  }
+}
+
+// Toast notifications
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-item {
+  backdrop-filter: blur(6px);
 }

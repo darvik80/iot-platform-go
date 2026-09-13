@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -86,78 +87,120 @@ func (s *Server) Router() http.Handler {
 		r.Get("/auth/google", s.googleStart)
 		r.Get("/auth/google/callback", s.googleCallback)
 
+		// Public invitation info (no auth required)
+		r.Get("/invitations/{token}", s.getInvitationInfo)
+
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate)
-			r.Get("/overview", s.overview)
-			r.Get("/mqtt", s.mqttStatus)
+
+			// Account-less endpoints (no requireAccount)
 			r.Get("/me", s.me)
+			r.Get("/me/accounts", s.listMyAccounts)
+			r.Post("/auth/switch-account", s.switchAccount)
 			r.Get("/me/tokens", s.listAPITokens)
 			r.Post("/me/tokens", s.createAPIToken)
 			r.Delete("/me/tokens/{id}", s.revokeAPIToken)
 
-			r.Get("/users", s.requireAdmin(s.listUsers))
-			r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
-			r.Delete("/users/{id}", s.requireAdmin(s.deleteUser))
+			// Avatar (per-user, not account-scoped)
+			r.Get("/me/avatar", s.getMyAvatar)
+			r.Post("/me/avatar", s.uploadMyAvatar)
+			r.Delete("/me/avatar", s.deleteMyAvatar)
 
-			r.Get("/products", s.listProducts)
-			r.Post("/products", s.requireWrite(s.createProduct))
-			r.Get("/products/{id}", s.getProduct)
-			r.Put("/products/{id}", s.requireWrite(s.updateProduct))
-			r.Delete("/products/{id}", s.requireWrite(s.deleteProduct))
-			r.Post("/products/{id}/esp-defaults", s.requireWrite(s.applyESPDefaults))
+			// Accept invitation (auth required, no account required)
+			r.Post("/invitations/{token}/accept", s.acceptInvitation)
 
-			r.Get("/devices", s.listDevices)
-			r.Post("/devices", s.requireWrite(s.createDevice))
-			r.Get("/devices/{id}", s.getDevice)
-			r.Put("/devices/{id}", s.requireWrite(s.updateDevice))
-			r.Delete("/devices/{id}", s.requireWrite(s.deleteDevice))
-			r.Post("/devices/{id}/token/rotate", s.requireWrite(s.rotateToken))
-			r.Post("/devices/{id}/enable", s.requireWrite(s.enableDevice))
-			r.Post("/devices/{id}/disable", s.requireWrite(s.disableDevice))
+			// Platform-admin: account management
+			r.Post("/accounts", s.requirePlatformAdmin(s.createAccount))
+			r.Delete("/accounts/{id}", s.requirePlatformAdmin(s.deleteAccount))
 
-			r.Get("/devices/{id}/telemetry", s.deviceTelemetry)
-			r.Get("/devices/{id}/telemetry/latest", s.deviceTelemetryLatest)
-			r.Get("/devices/{id}/attributes", s.deviceAttributes)
-			r.Patch("/devices/{id}/attributes/desired", s.requireWrite(s.patchDesired))
-			r.Post("/devices/{id}/rpc", s.requireWrite(s.invokeRPC))
-			r.Get("/devices/{id}/rpc", s.listRPC)
-			r.Post("/devices/{id}/ota", s.requireWrite(s.startOTA))
-			r.Post("/devices/{id}/ota/cancel", s.requireWrite(s.cancelOTA))
+			// Account-scoped endpoints
+			r.Group(func(r chi.Router) {
+				r.Use(s.requireAccount)
 
-			r.Get("/plugins", s.listPluginCatalog)
-			r.Get("/devices/{id}/plugins", s.listDevicePlugins)
-			r.Post("/devices/{id}/plugins", s.requireWrite(s.bindDevicePlugin))
-			r.Put("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.updateDevicePlugin))
-			r.Delete("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.deleteDevicePlugin))
-			r.Post("/devices/{id}/plugins/{bindingId}/apply", s.requireWrite(s.applyDevicePlugin))
-			r.Post("/ota/firmwares/{id}/notify", s.requireWrite(s.notifyFirmware))
+				r.Get("/overview", s.overview)
+				r.Get("/mqtt", s.mqttStatus)
 
-			r.Get("/events", s.listEvents)
-			r.Get("/logs", s.listLogs)
-			r.Get("/ota/firmwares", s.listFirmware)
-			r.Post("/ota/firmwares", s.requireWrite(s.registerFirmware))
-			r.Post("/ota/firmwares/upload", s.requireWrite(s.uploadFirmware))
-			r.Delete("/ota/firmwares/{id}", s.requireWrite(s.deleteFirmware))
-			r.Get("/ota/jobs", s.listOTAJobs)
+				r.Get("/users", s.requireAdmin(s.listUsers))
+				r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
+				r.Delete("/users/{id}", s.requireAdmin(s.deleteUser))
 
-			r.Get("/settings", s.getSettings)
+				r.Get("/products", s.listProducts)
+				r.Post("/products", s.requireWrite(s.createProduct))
+				r.Get("/products/{id}", s.getProduct)
+				r.Put("/products/{id}", s.requireWrite(s.updateProduct))
+				r.Delete("/products/{id}", s.requireWrite(s.deleteProduct))
+				r.Post("/products/{id}/esp-defaults", s.requireWrite(s.applyESPDefaults))
 
-			// External plugins management (admin only)
-			r.Get("/plugins/external", s.listExternalPlugins)
-			r.Post("/plugins/external", s.requireAdmin(s.registerExternalPlugin))
-			r.Delete("/plugins/external/{id}", s.requireAdmin(s.deleteExternalPlugin))
-			r.Post("/plugins/external/{id}/regenerate-mqtt", s.requireAdmin(s.regenerateExternalPluginMQTT))
+				r.Get("/devices", s.listDevices)
+				r.Post("/devices", s.requireWrite(s.createDevice))
+				r.Get("/devices/{id}", s.getDevice)
+				r.Put("/devices/{id}", s.requireWrite(s.updateDevice))
+				r.Delete("/devices/{id}", s.requireWrite(s.deleteDevice))
+				r.Post("/devices/{id}/token/rotate", s.requireWrite(s.rotateToken))
+				r.Post("/devices/{id}/enable", s.requireWrite(s.enableDevice))
+				r.Post("/devices/{id}/disable", s.requireWrite(s.disableDevice))
 
-			r.Get("/ws", s.Hub.ServeWS)
+				r.Get("/devices/{id}/telemetry", s.deviceTelemetry)
+				r.Get("/devices/{id}/telemetry/latest", s.deviceTelemetryLatest)
+				r.Get("/devices/{id}/attributes", s.deviceAttributes)
+				r.Patch("/devices/{id}/attributes/desired", s.requireWrite(s.patchDesired))
+				r.Post("/devices/{id}/rpc", s.requireWrite(s.invokeRPC))
+				r.Get("/devices/{id}/rpc", s.listRPC)
+				r.Post("/devices/{id}/ota", s.requireWrite(s.startOTA))
+				r.Post("/devices/{id}/ota/cancel", s.requireWrite(s.cancelOTA))
+				r.Get("/devices/{id}/dashboard", s.deviceDashboard)
+
+				r.Get("/plugins", s.listPluginCatalog)
+				r.Get("/devices/{id}/plugins", s.listDevicePlugins)
+				r.Post("/devices/{id}/plugins", s.requireWrite(s.bindDevicePlugin))
+				r.Put("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.updateDevicePlugin))
+				r.Delete("/devices/{id}/plugins/{bindingId}", s.requireWrite(s.deleteDevicePlugin))
+				r.Post("/devices/{id}/plugins/{bindingId}/apply", s.requireWrite(s.applyDevicePlugin))
+				r.Post("/ota/firmwares/{id}/notify", s.requireWrite(s.notifyFirmware))
+
+				r.Get("/events", s.listEvents)
+				r.Get("/logs", s.listLogs)
+				r.Get("/ota/firmwares", s.listFirmware)
+				r.Post("/ota/firmwares", s.requireWrite(s.registerFirmware))
+				r.Post("/ota/firmwares/upload", s.requireWrite(s.uploadFirmware))
+				r.Delete("/ota/firmwares/{id}", s.requireWrite(s.deleteFirmware))
+				r.Get("/ota/jobs", s.listOTAJobs)
+
+				r.Get("/settings", s.getSettings)
+
+				// External plugins management (admin only)
+				r.Get("/plugins/external", s.listExternalPlugins)
+				r.Post("/plugins/external", s.requireAdmin(s.registerExternalPlugin))
+				r.Delete("/plugins/external/{id}", s.requireAdmin(s.deleteExternalPlugin))
+				r.Post("/plugins/external/{id}/regenerate-mqtt", s.requireAdmin(s.regenerateExternalPluginMQTT))
+
+				// Plugin policies (admin only — catalog plugin management)
+				r.Get("/plugins/policies", s.requireAdmin(s.listPluginPolicies))
+				r.Patch("/plugins/policies/{pluginId}", s.requireAdmin(s.updatePluginPolicy))
+
+				// Invitations and member management (admin only)
+				r.Post("/invitations", s.requireAdmin(s.createInvitation))
+				r.Get("/invitations", s.requireAdmin(s.listInvitations))
+				r.Post("/invitations/{id}/resend", s.requireAdmin(s.resendInvitation))
+				r.Delete("/invitations/{id}", s.requireAdmin(s.revokeInvitation))
+				r.Post("/members", s.requireAdmin(s.createMember))
+				r.Get("/members", s.requireAdmin(s.listMembers))
+				r.Patch("/members/{userId}", s.requireAdmin(s.updateMemberRole))
+				r.Delete("/members/{userId}", s.requireAdmin(s.removeMember))
+
+				r.Get("/audit-log", s.requireAdmin(s.listAuditLog))
+
+				r.Get("/ws", s.Hub.ServeWS)
+			})
 		})
 	})
 
 	// Embedded Streamable HTTP MCP (same process as platform — not a separate deploy).
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
-		u := userFrom(req)
+		c := claimsFrom(req)
 		role := models.Role("")
-		if u != nil {
-			role = u.Role
+		if c != nil {
+			role = c.ActiveRole()
 		}
 		return mcpbridge.NewServer(mcpbridge.NewLocal(s.Plat, role))
 	}, &mcp.StreamableHTTPOptions{Stateless: true})
@@ -167,9 +210,6 @@ func (s *Server) Router() http.Handler {
 		r.Handle("/mcp/*", mcpHandler)
 	})
 
-	// External plugin RPC endpoint (plugin token auth, not JWT)
-	r.Post("/api/plugins/external/rpc", s.externalPluginRPC)
-
 	if s.SpaFS != nil {
 		r.Handle("/*", spaHandler(s.SpaFS))
 	}
@@ -178,7 +218,41 @@ func (s *Server) Router() http.Handler {
 
 type ctxKey int
 
-const userKey ctxKey = 1
+const (
+	userKey    ctxKey = 1
+	claimsKey  ctxKey = 2
+	accountKey ctxKey = 3
+)
+
+func withUser(ctx context.Context, u models.User) context.Context {
+	return context.WithValue(ctx, userKey, u)
+}
+
+func userFrom(r *http.Request) *models.User {
+	u, ok := r.Context().Value(userKey).(models.User)
+	if !ok {
+		return nil
+	}
+	return &u
+}
+
+func withClaims(ctx context.Context, c *auth.Claims) context.Context {
+	return context.WithValue(ctx, claimsKey, c)
+}
+
+func claimsFrom(r *http.Request) *auth.Claims {
+	c, _ := r.Context().Value(claimsKey).(*auth.Claims)
+	return c
+}
+
+func withAccount(ctx context.Context, accountID int64) context.Context {
+	return context.WithValue(ctx, accountKey, accountID)
+}
+
+func accountFrom(ctx context.Context) int64 {
+	id, _ := ctx.Value(accountKey).(int64)
+	return id
+}
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -197,22 +271,70 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				writeErr(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(withUser(r.Context(), *u)))
+			ctx := withUser(r.Context(), *u)
+			ctx = withClaims(ctx, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		u, err := s.Plat.UserByAPIToken(tok)
+		// API token fallback — build synthetic claims
+		u, tokenAccID, err := s.Plat.UserByAPIToken(tok)
 		if err != nil || u.Disabled {
 			writeErr(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(withUser(r.Context(), *u)))
+		refs, activeID, _ := s.Plat.LoadAccountRefs(u.ID)
+		// Use the token's account_id if set, otherwise fall back to first membership
+		if tokenAccID > 0 {
+			activeID = tokenAccID
+		}
+		synthetic := &auth.Claims{
+			UserID:          u.ID,
+			Email:           u.Email,
+			Login:           u.Login,
+			Accounts:        refs,
+			ActiveAccountID: activeID,
+			IsPlatformAdmin: u.IsPlatformAdmin,
+		}
+		ctx := withUser(r.Context(), *u)
+		ctx = withClaims(ctx, synthetic)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// requireAccount ensures an active account is selected and membership is valid.
+func (s *Server) requireAccount(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := claimsFrom(r)
+		if c == nil || c.ActiveAccountID == 0 {
+			writeErr(w, http.StatusForbidden, "select an account")
+			return
+		}
+		// Platform admins bypass membership check
+		if !c.IsPlatformAdmin {
+			// Verify membership is still active
+			var status string
+			err := s.Plat.DB.QueryRow(`SELECT status FROM account_memberships WHERE user_id=? AND account_id=?`,
+				c.UserID, c.ActiveAccountID).Scan(&status)
+			if err != nil || status != "active" {
+				writeErr(w, http.StatusForbidden, "membership not active")
+				return
+			}
+		}
+		// Check account not suspended
+		var accStatus string
+		err := s.Plat.DB.QueryRow(`SELECT status FROM accounts WHERE id=?`, c.ActiveAccountID).Scan(&accStatus)
+		if err != nil || accStatus == "suspended" {
+			writeErr(w, http.StatusForbidden, "account suspended")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(withAccount(r.Context(), c.ActiveAccountID)))
 	})
 }
 
 func (s *Server) requireWrite(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := userFrom(r)
-		if u == nil || !auth.CanWrite(u.Role) {
+		c := claimsFrom(r)
+		if c == nil || !auth.CanWrite(c.ActiveRole()) {
 			writeErr(w, http.StatusForbidden, "write access required")
 			return
 		}
@@ -220,12 +342,55 @@ func (s *Server) requireWrite(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) requirePlatformAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c := claimsFrom(r)
+		if c == nil || !auth.CanPlatformAdmin(c) {
+			writeErr(w, http.StatusForbidden, "platform admin required")
+			return
+		}
+		h(w, r)
+	}
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, userFrom(r))
+	u := userFrom(r)
+	c := claimsFrom(r)
+	memberships, _ := s.Plat.ListUserMemberships(u.ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":              u,
+		"memberships":       memberships,
+		"active_account_id": c.ActiveAccountID,
+	})
+}
+
+func (s *Server) listMyAccounts(w http.ResponseWriter, r *http.Request) {
+	list, err := s.Plat.ListUserMemberships(userFrom(r).ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) switchAccount(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		AccountID int64 `json:"account_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	tok, err := s.Plat.SwitchAccount(userFrom(r).ID, in.AccountID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok})
 }
 
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
-	o, err := s.Plat.Overview()
+	o, err := s.Plat.Overview(accountFrom(r.Context()))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -267,7 +432,7 @@ func (s *Server) mqttCACert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listProducts(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Plat.ListProducts()
+	list, err := s.Plat.ListProducts(accountFrom(r.Context()))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -281,19 +446,19 @@ func (s *Server) createProduct(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	pr, err := s.Plat.CreateProduct(in)
+	pr, err := s.Plat.CreateProduct(accountFrom(r.Context()), in)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "create", "product", pr.ProductID, pr)
+	s.Plat.Audit(&uid, "user", "create", "product", pr.ProductID, pr)
 	writeJSON(w, http.StatusCreated, pr)
 }
 
 func (s *Server) getProduct(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	pr, err := s.Plat.GetProduct(id)
+	pr, err := s.Plat.GetProductScoped(accountFrom(r.Context()), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -303,6 +468,10 @@ func (s *Server) getProduct(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateProduct(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetProductScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -359,6 +528,10 @@ func (s *Server) updateProduct(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) applyESPDefaults(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetProductScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	pr, err := s.Plat.ApplyProductESPDefaults(id)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -369,6 +542,10 @@ func (s *Server) applyESPDefaults(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteProduct(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetProductScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err := s.Plat.DeleteProduct(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -377,7 +554,7 @@ func (s *Server) deleteProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Plat.ListDevices(r.URL.Query().Get("product_id"), r.URL.Query().Get("status"), r.URL.Query().Get("q"))
+	list, err := s.Plat.ListDevices(accountFrom(r.Context()), r.URL.Query().Get("product_id"), r.URL.Query().Get("status"), r.URL.Query().Get("q"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -397,20 +574,20 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "create", "device", d.ProductID+"."+d.DeviceID, map[string]any{"id": d.ID})
+	s.Plat.Audit(&uid, "user", "create", "device", d.ProductID+"."+d.DeviceID, map[string]any{"id": d.ID})
 	writeJSON(w, http.StatusCreated, map[string]any{"device": d, "credentials": creds})
 }
 
 func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	d, err := s.Plat.GetDevice(id)
+	d, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	reported, desired, _ := s.Plat.GetAttributes(id)
 	latest, _ := s.Plat.LatestTelemetry(id)
-	events, _ := s.Plat.ListEvents(id, "", 0, 0, 20)
+	events, _ := s.Plat.ListEvents(0, id, "", 0, 0, 20)
 	product, _ := s.Plat.GetProduct(d.ProductPK)
 	username := d.ProductID + "." + d.DeviceID
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -432,6 +609,10 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	var in services.DeviceInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -447,6 +628,10 @@ func (s *Server) updateDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err := s.Plat.DeleteDevice(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -456,18 +641,26 @@ func (s *Server) deleteDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) rotateToken(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	creds, err := s.Plat.RotateDeviceToken(id)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "rotate_token", "device", strconv.FormatInt(id, 10), nil)
+	s.Plat.Audit(&uid, "user", "rotate_token", "device", strconv.FormatInt(id, 10), nil)
 	writeJSON(w, http.StatusOK, creds)
 }
 
 func (s *Server) enableDevice(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err := s.Plat.SetDeviceEnabled(id, true); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -477,6 +670,10 @@ func (s *Server) enableDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) disableDevice(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err := s.Plat.SetDeviceEnabled(id, false); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -486,6 +683,10 @@ func (s *Server) disableDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deviceTelemetry(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -503,6 +704,10 @@ func (s *Server) deviceTelemetry(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deviceTelemetryLatest(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	latest, err := s.Plat.LatestTelemetry(id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -513,6 +718,10 @@ func (s *Server) deviceTelemetryLatest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deviceAttributes(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	reported, desired, err := s.Plat.GetAttributes(id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -523,7 +732,7 @@ func (s *Server) deviceAttributes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchDesired(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	d, err := s.Plat.GetDevice(id)
+	d, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -538,13 +747,13 @@ func (s *Server) patchDesired(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "set_desired", "device", strconv.FormatInt(id, 10), attrs)
+	s.Plat.Audit(&uid, "user", "set_desired", "device", strconv.FormatInt(id, 10), attrs)
 	writeJSON(w, http.StatusOK, attrs)
 }
 
 func (s *Server) invokeRPC(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	d, err := s.Plat.GetDevice(id)
+	d, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -561,12 +770,16 @@ func (s *Server) invokeRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "rpc", "device", strconv.FormatInt(id, 10), req)
+	s.Plat.Audit(&uid, "user", "rpc", "device", strconv.FormatInt(id, 10), req)
 	writeJSON(w, http.StatusOK, call)
 }
 
 func (s *Server) listRPC(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	list, err := s.Plat.ListRPC(id, 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -577,6 +790,10 @@ func (s *Server) listRPC(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) startOTA(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if _, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
 	var in struct {
 		FirmwareID int64 `json:"firmware_id"`
 		Force      bool  `json:"force"`
@@ -591,7 +808,7 @@ func (s *Server) startOTA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "ota", "device", strconv.FormatInt(id, 10), in)
+	s.Plat.Audit(&uid, "user", "ota", "device", strconv.FormatInt(id, 10), in)
 	writeJSON(w, http.StatusOK, job)
 }
 
@@ -608,13 +825,13 @@ func (s *Server) notifyFirmware(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := userFrom(r).ID
-	s.Plat.Audit(&uid, "ota_notify", "firmware", strconv.FormatInt(fwID, 10), in)
+	s.Plat.Audit(&uid, "user", "ota_notify", "firmware", strconv.FormatInt(fwID, 10), in)
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) cancelOTA(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	d, err := s.Plat.GetDevice(id)
+	d, err := s.Plat.GetDeviceScoped(accountFrom(r.Context()), id)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -639,7 +856,7 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	list, err := s.Plat.ListEvents(devicePK, r.URL.Query().Get("severity"), from, to, limit)
+	list, err := s.Plat.ListEvents(accountFrom(r.Context()), devicePK, r.URL.Query().Get("severity"), from, to, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -652,7 +869,7 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 	from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
 	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	list, err := s.Plat.ListLogs(devicePK, r.URL.Query().Get("level"), from, to, limit)
+	list, err := s.Plat.ListLogs(accountFrom(r.Context()), devicePK, r.URL.Query().Get("level"), from, to, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -661,7 +878,7 @@ func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listFirmware(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Plat.ListFirmware(r.URL.Query().Get("product_id"))
+	list, err := s.Plat.ListFirmware(accountFrom(r.Context()), r.URL.Query().Get("product_id"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -738,7 +955,17 @@ func (s *Server) downloadFirmware(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listOTAJobs(w http.ResponseWriter, r *http.Request) {
 	devicePK, _ := strconv.ParseInt(r.URL.Query().Get("device_id"), 10, 64)
-	list, err := s.Plat.ListOTAJobs(devicePK)
+	list, err := s.Plat.ListOTAJobs(accountFrom(r.Context()), devicePK)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	list, err := s.Plat.ListAuditLog(accountFrom(r.Context()), limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

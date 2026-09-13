@@ -4,6 +4,8 @@ import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { CredsModal } from '../components/CredsModal';
 import { StatusBadge } from '../components/StatusBadge';
+import { errorMsg, useToast } from '../components/Toast';
+import { useT } from '../i18n/I18nContext';
 import type { Device, DeviceCredentials, Product } from '../types';
 
 export function DevicesPage() {
@@ -14,6 +16,8 @@ export function DevicesPage() {
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ product_id: '', device_id: '', name: '' });
+  const toast = useToast();
+  const t = useT();
 
   const load = useCallback(async () => {
     try {
@@ -59,24 +63,24 @@ export function DevicesPage() {
       setShowAdd(false);
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     }
   };
 
   return (
     <div>
-      <h1 className="h3 mb-3">Devices</h1>
+      <h1 className="h3 mb-3">{t('devices.title')}</h1>
       {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="d-flex flex-wrap gap-2 mb-3">
-        <input className="form-control" style={{ maxWidth: 240, minWidth: 0, flex: '1 1 160px' }} placeholder="Search\u2026" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="form-control" style={{ maxWidth: 240, minWidth: 0, flex: '1 1 160px' }} placeholder={t('common.search')} value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" className="btn btn-primary flex-shrink-0" onClick={() => setShowAdd((v) => !v)}>
-          Add device
+          {t('devices.addDevice')}
         </button>
       </div>
 
       {showAdd && (
         <div className="panel">
-          <h2 className="h6 text-uppercase muted">Register device</h2>
+          <h2 className="h6 text-uppercase muted">{t('devices.registerDevice')}</h2>
           <div className="row g-2">
             <div className="col-md-3">
               <select
@@ -95,11 +99,11 @@ export function DevicesPage() {
               <input className="form-control" placeholder="device_id" value={form.device_id} onChange={(e) => setForm({ ...form, device_id: e.target.value })} />
             </div>
             <div className="col-md-4">
-              <input className="form-control" placeholder="Display name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input className="form-control" placeholder={t('common.displayName')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div className="col-md-2">
               <button type="button" className="btn btn-primary w-100" onClick={create}>
-                Create
+                {t('common.create')}
               </button>
             </div>
           </div>
@@ -111,12 +115,12 @@ export function DevicesPage() {
           <table className="table table-hover align-middle">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>Device</th>
-                <th>Name</th>
-                <th>FW</th>
-                <th>Status</th>
-                <th>Last seen</th>
+                <th>{t('common.product')}</th>
+                <th>{t('common.device')}</th>
+                <th>{t('common.name')}</th>
+                <th>{t('devices.fw')}</th>
+                <th>{t('common.status')}</th>
+                <th>{t('mqtt.lastSeen')}</th>
               </tr>
             </thead>
             <tbody>
@@ -137,7 +141,7 @@ export function DevicesPage() {
               {!filtered.length && (
                 <tr>
                   <td colSpan={6} className="muted">
-                    No devices
+                    {t('devices.noDevices')}
                   </td>
                 </tr>
               )}

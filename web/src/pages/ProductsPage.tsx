@@ -1,35 +1,46 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { useT } from '../i18n/I18nContext';
 import type { Product } from '../types';
 
 export function ProductsPage() {
+  const t = useT();
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState('');
   const [name, setName] = useState('');
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
 
-  const load = async () => setProducts(await api<Product[]>('/products'));
+  const load = async () => {
+    try {
+      setProducts(await api<Product[]>('/products'));
+      setError('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   useEffect(() => {
-    void load().catch((e) => alert(e.message));
+    void load().catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   return (
     <div>
-      <h1 className="h3 mb-2">Products</h1>
-      <p className="muted">Create a product first, then register devices. Open a product to define RPC methods, metrics and attributes.</p>
+      <h1 className="h3 mb-2">{t('products.title')}</h1>
+      <p className="muted mb-3">{t('products.description')}</p>
+      {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="row g-2 mb-3">
         <div className="col-md-4">
-          <input className="form-control" placeholder="product_id (esp32-cam)" value={productId} onChange={(e) => setProductId(e.target.value)} />
+          <input className="form-control" placeholder="product_id (esp32-cam)" value={productId} onChange={(e) => setProductId(e.target.value)} title="Unique identifier for the product (e.g., esp32-cam)" />
         </div>
         <div className="col-md-4">
-          <input className="form-control" placeholder="Display name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="form-control" placeholder={t('common.displayName')} value={name} onChange={(e) => setName(e.target.value)} title="Human-readable name for the product" />
         </div>
         <div className="col-md-2">
           <button
             type="button"
             className="btn btn-primary w-100"
+            title="Create a new product"
             onClick={async () => {
               try {
                 await api('/products', { method: 'POST', body: JSON.stringify({ product_id: productId, name }) });
@@ -37,11 +48,11 @@ export function ProductsPage() {
                 setName('');
                 await load();
               } catch (e) {
-                alert(e instanceof Error ? e.message : String(e));
+                setError(e instanceof Error ? e.message : String(e));
               }
             }}
           >
-            Create
+            {t('common.create')}
           </button>
         </div>
       </div>
@@ -50,10 +61,10 @@ export function ProductsPage() {
           <table className="table table-hover align-middle">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Methods</th>
-                <th>Metrics</th>
+                <th>{t('common.id')}</th>
+                <th>{t('common.name')}</th>
+                <th>{t('products.methods')}</th>
+                <th>{t('products.metrics')}</th>
                 <th />
               </tr>
             </thead>
@@ -70,18 +81,19 @@ export function ProductsPage() {
                     <button
                       type="button"
                       className="btn btn-danger btn-sm"
+                      title={t('products.deleteTitle')}
                       onClick={async (e) => {
                         e.preventDefault();
-                        if (!confirm(`Delete product #${p.id}?`)) return;
+                        if (!confirm(t('products.deleteConfirm', { id: p.id }))) return;
                         try {
                           await api(`/products/${p.id}`, { method: 'DELETE' });
                           await load();
                         } catch (err) {
-                          alert(err instanceof Error ? err.message : String(err));
+                          setError(err instanceof Error ? err.message : String(err));
                         }
                       }}
                     >
-                      Delete
+                      {t('common.delete')}
                     </button>
                   </td>
                 </tr>
@@ -89,7 +101,7 @@ export function ProductsPage() {
               {!products.length && (
                 <tr>
                   <td colSpan={5} className="muted">
-                    No products
+                    {t('products.noProducts')}
                   </td>
                 </tr>
               )}
@@ -97,7 +109,6 @@ export function ProductsPage() {
           </table>
         </div>
       </div>
-      <button type="button" className="d-none" onClick={() => navigate('/')} />
     </div>
   );
 }

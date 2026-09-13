@@ -84,6 +84,11 @@ func (h *platHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 		h.b.note("warn", "auth_fail", clientID, user, remote, "", "bad token", 0)
 		return false
 	}
+	// Reject device CONNECT if the owning account is suspended
+	if d.AccountID > 0 && h.b.plat.IsAccountSuspended(d.AccountID) {
+		h.b.note("warn", "auth_fail", clientID, user, remote, "", "account suspended", 0)
+		return false
+	}
 	if style := protocol.DetectStyle(pk.Connect.WillTopic); style != "" {
 		h.b.plat.ObserveTopicStyle(d, style)
 	}
@@ -110,13 +115,17 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if user == "" || strings.HasPrefix(topic, "$") {
 		return false
 	}
-	// External plugin ACL — read events, write commands
+	// External plugin ACL — read account-scoped events, write account-scoped commands
 	if strings.HasPrefix(user, "extplg_") {
+		slug := extPluginSlug(user)
+		if slug == "" {
+			return false // malformed username
+		}
 		prefix := strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")
 		if write {
-			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
+			return topicUnder(topic, protocol.RulesCommandsRootForAccount(prefix, slug))
 		}
-		return topicUnder(topic, protocol.RulesEventsRoot(prefix))
+		return topicUnder(topic, protocol.RulesEventsRootForAccount(prefix, slug))
 	}
 	d := h.deviceFor(user)
 	if d == nil || !d.Enabled {
@@ -138,7 +147,11 @@ func (h *platHook) OnSessionEstablished(cl *mochi.Client, _ packets.Packet) {
 	remote := cl.Net.Remote
 	h.b.touchSession(cl.ID)
 	h.b.note("info", "connect", cl.ID, user, remote, "", h.b.clientKind(user), 0)
-	if user == "" || strings.HasPrefix(user, "extplg_") {
+	// External plugin: update status to online
+	if strings.HasPrefix(user, "extplg_") && h.b.plat.ExternalPlugins != nil {
+		if pluginID, ok := extPluginID(user); ok {
+			h.b.plat.ExternalPlugins.SetOnline(pluginID)
+		}
 		return
 	}
 	d := h.deviceFor(user)
@@ -162,7 +175,11 @@ func (h *platHook) OnDisconnect(cl *mochi.Client, err error, _ bool) {
 	}
 	h.b.note("info", "disconnect", cl.ID, user, cl.Net.Remote, "", reason, 0)
 	h.b.forgetSession(cl.ID)
-	if user == "" || strings.HasPrefix(user, "extplg_") {
+	// External plugin: update status to offline
+	if strings.HasPrefix(user, "extplg_") && h.b.plat.ExternalPlugins != nil {
+		if pluginID, ok := extPluginID(user); ok {
+			h.b.plat.ExternalPlugins.SetOffline(pluginID)
+		}
 		return
 	}
 	d := h.deviceFor(user)
@@ -201,6 +218,7 @@ func (h *platHook) OnPublished(cl *mochi.Client, pk packets.Packet) {
 		return
 	}
 	topic := pk.TopicName
+	// Skip rules bus topics (covers both legacy and account-scoped formats)
 	if h.b.cfg.RulesBusEnabled && strings.HasPrefix(topic, protocol.RulesEventsRoot(h.b.cfg.RulesBusPrefix)) {
 		return
 	}
@@ -229,4 +247,34 @@ func topicUnder(topicOrFilter, root string) bool {
 		return true
 	}
 	return strings.HasPrefix(topicOrFilter, root+"/")
+}
+
+// extPluginSlug extracts the account slug from an external plugin MQTT username.
+// Format: extplg_{slug}_{id} — returns slug, or "" if malformed.
+func extPluginSlug(user string) string {
+	// Strip "extplg_" prefix
+	rest := strings.TrimPrefix(user, "extplg_")
+	if rest == user {
+		return ""
+	}
+	// Find last underscore separating slug from plugin ID
+	idx := strings.LastIndex(rest, "_")
+	if idx <= 0 || idx >= len(rest)-1 {
+		return ""
+	}
+	return rest[:idx]
+}
+
+// extPluginID extracts the plugin ID from an external plugin MQTT username.
+// Format: extplg_{slug}_{id} — returns id, or ("", false) if malformed.
+func extPluginID(user string) (string, bool) {
+	rest := strings.TrimPrefix(user, "extplg_")
+	if rest == user {
+		return "", false
+	}
+	idx := strings.LastIndex(rest, "_")
+	if idx <= 0 || idx >= len(rest)-1 {
+		return "", false
+	}
+	return rest[idx+1:], true
 }

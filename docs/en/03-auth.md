@@ -123,3 +123,23 @@ curl -s -X POST http://localhost:8080/api/v1/me/tokens \
   -d '{"name":"mcp"}'
 # → { "token": "cip_…", "token_prefix": "cip_…", … }
 ```
+
+---
+
+## Audit log
+
+All admin actions are logged in the `audit_log` table with the following fields:
+
+- `user_id` — who performed the action (nullable for system actions)
+- `actor_kind` — type of actor: `user`, `platform_admin`, `api_token`, `setup`
+- `action` — what was done (e.g., `create`, `update`, `delete`)
+- `entity_type` — what was affected (e.g., `device`, `product`, `user`)
+- `entity_id` — identifier of the affected entity
+- `detail` — JSON with additional context
+- `created_at` — timestamp
+
+The `actor_kind` field distinguishes between:
+- `user` — regular account admin actions
+- `platform_admin` — platform-wide administrative actions (e.g., account deletion)
+- `api_token` — actions performed via API token
+- `setup` — actions during initial setup wizard

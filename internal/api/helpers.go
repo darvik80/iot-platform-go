@@ -1,14 +1,11 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
 	"strings"
-
-	"cogitor-iot-platform/internal/models"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -19,18 +16,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-func withUser(ctx context.Context, u models.User) context.Context {
-	return context.WithValue(ctx, userKey, u)
-}
-
-func userFrom(r *http.Request) *models.User {
-	v, _ := r.Context().Value(userKey).(models.User)
-	if v.ID == 0 {
-		return nil
-	}
-	return &v
 }
 
 func spaHandler(root fs.FS) http.Handler {

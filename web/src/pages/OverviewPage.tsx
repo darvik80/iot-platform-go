@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { SeverityBadge } from '../components/StatusBadge';
+import { useT } from '../i18n/I18nContext';
 import type { Device, EventRow, MQTTStatus, Overview } from '../types';
 
 export function OverviewPage() {
+  const t = useT();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [mqtt, setMqtt] = useState<MQTTStatus | null>(null);
@@ -41,17 +43,17 @@ export function OverviewPage() {
 
   return (
     <div>
-      <h1 className="h3 mb-3">Overview</h1>
+      <h1 className="h3 mb-3">{t('overview.title')}</h1>
       {error && <div className="alert alert-danger py-2">{error}</div>}
       <div className="row g-3 mb-4">
         {[
-          ['Online', o.online_devices || 0, 'var(--ok)'],
-          ['Offline', o.offline_devices || 0, 'var(--crit)'],
-          ['Total', o.total_devices || 0, undefined],
-          ['Events 24h', o.recent_events_24h || 0, undefined],
+          [t('overview.online'), o.online_devices || 0, 'var(--ok)'],
+          [t('overview.offline'), o.offline_devices || 0, 'var(--crit)'],
+          [t('overview.total'), o.total_devices || 0, undefined],
+          [t('overview.events24h'), o.recent_events_24h || 0, undefined],
           [
             'MQTT',
-            o.mqtt_connected ? `${o.mqtt_clients ?? mqtt?.client_count ?? 0} clients` : 'down',
+            o.mqtt_connected ? t('overview.clients', { count: o.mqtt_clients ?? mqtt?.client_count ?? 0 }) : t('common.down'),
             o.mqtt_connected ? 'var(--ok)' : 'var(--crit)',
           ],
         ].map(([label, value, color]) => (
@@ -67,19 +69,19 @@ export function OverviewPage() {
       </div>
       <div className="panel mb-4">
         <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
-          <h2 className="h6 text-uppercase muted mb-0">MQTT sessions</h2>
+          <h2 className="h6 text-uppercase muted mb-0">{t('overview.mqttSessions')}</h2>
           <Link className="small" to="/mqtt">
-            Open MQTT
+            {t('overview.openMqtt')}
           </Link>
         </div>
         <div className="table-responsive">
           <table className="table table-sm">
             <thead>
               <tr>
-                <th>Kind</th>
-                <th>User</th>
-                <th>Remote</th>
-                <th>Subscriptions</th>
+                <th>{t('overview.kind')}</th>
+                <th>{t('overview.user')}</th>
+                <th>{t('overview.remote')}</th>
+                <th>{t('overview.subscriptions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -97,7 +99,7 @@ export function OverviewPage() {
               ) : (
                 <tr>
                   <td colSpan={4} className="muted">
-                    No MQTT clients — {o.mqtt_connected ? 'broker is up, waiting for CONNECT' : 'broker down'}
+                    No MQTT clients — {o.mqtt_connected ? t('overview.brokerUp') : t('overview.brokerDown')}
                   </td>
                 </tr>
               )}
@@ -106,16 +108,16 @@ export function OverviewPage() {
         </div>
       </div>
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Recent events</h2>
+        <h2 className="h6 text-uppercase muted">{t('overview.recentEvents')}</h2>
         <div className="table-responsive">
           <table className="table table-sm">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Device</th>
-                <th>Severity</th>
-                <th>Code</th>
-                <th>Message</th>
+                <th>{t('common.time')}</th>
+                <th>{t('common.device')}</th>
+                <th>{t('overview.severity')}</th>
+                <th>{t('overview.code')}</th>
+                <th>{t('common.message')}</th>
               </tr>
             </thead>
             <tbody>
@@ -136,13 +138,31 @@ export function OverviewPage() {
               ) : (
                 <tr>
                   <td colSpan={5} className="muted">
-                    No events
+                    {t('overview.noEvents')}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="mt-4 d-flex flex-wrap gap-3 small">
+        <Link to="/docs" className="muted">
+          📖 {t('overview.documentation')}
+        </Link>
+        <Link to="/docs#getting-started" className="muted">
+          🚀 {t('overview.gettingStarted')}
+        </Link>
+        <Link to="/docs#mqtt-connection" className="muted">
+          🔌 {t('overview.mqttConnection')}
+        </Link>
+        <Link to="/docs#topic-reference" className="muted">
+          📋 {t('overview.topicReference')}
+        </Link>
+        <Link to="/docs#automation" className="muted">
+          🤖 {t('overview.automation')}
+        </Link>
       </div>
     </div>
   );

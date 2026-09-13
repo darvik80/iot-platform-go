@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 
 interface SetupState {
   current_step: number;
@@ -37,6 +38,7 @@ const STEPS = [
 
 export function SetupPage() {
   const navigate = useNavigate();
+  const { markSetupComplete } = useAuth();
   const [state, setState] = useState<SetupState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,6 +51,7 @@ export function SetupPage() {
       const s = await api<SetupState>('/setup/state');
       setState(s);
       if (s.completed) {
+        markSetupComplete();
         setApplied(true);
       }
     } catch (err) {
@@ -56,7 +59,7 @@ export function SetupPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [markSetupComplete]);
 
   useEffect(() => { fetchState(); }, [fetchState]);
 
@@ -81,6 +84,7 @@ export function SetupPage() {
     setError('');
     try {
       await api('/setup/apply', { method: 'POST' });
+      markSetupComplete();
       setApplied(true);
       await fetchState();
     } catch (err) {

@@ -1,4 +1,5 @@
 import type { PluginFormField, PluginFormOption } from '../types';
+import { useToast } from './Toast';
 
 const TZ_FALLBACK = [
   'UTC',
@@ -311,6 +312,7 @@ function ScalarField({
   platformTz: string;
   idPrefix: string;
 }) {
+  const toast = useToast();
   const off = disabled(field, root);
   if (field.type === 'checkbox') {
     return (
@@ -364,7 +366,7 @@ function ScalarField({
             try {
               onChange(JSON.parse(e.target.value || '{}'));
             } catch {
-              alert('Invalid JSON');
+              toast.warning('Invalid JSON');
             }
           }}
         />

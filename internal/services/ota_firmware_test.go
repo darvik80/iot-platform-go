@@ -26,7 +26,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 		PublicBaseURL:  "http://192.168.1.10:8080",
 	}, nil)
 
-	pr, err := p.CreateProduct(ProductInput{ProductID: "lamp", Name: "Lamp"})
+	pr, err := p.CreateProduct(0, ProductInput{ProductID: "lamp", Name: "Lamp"})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 		t.Fatalf("file=%q", data)
 	}
 
-	listed, err := p.ListFirmware("lamp")
+	listed, err := p.ListFirmware(0, "lamp")
 	if err != nil {
 		t.Fatalf("ListFirmware: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 	if string(data) != "hello-bin-v2" {
 		t.Fatalf("replaced file=%q", data)
 	}
-	listed, err = p.ListFirmware("lamp")
+	listed, err = p.ListFirmware(0, "lamp")
 	if err != nil {
 		t.Fatalf("ListFirmware after replace: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("hosted file still exists: %v", err)
 	}
-	listed, err = p.ListFirmware("lamp")
+	listed, err = p.ListFirmware(0, "lamp")
 	if err != nil {
 		t.Fatalf("ListFirmware after delete: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestRegisterFirmwareRequiresURL(t *testing.T) {
 		DatabaseDSN:    dbPath,
 		DataDir:        dir,
 	}, nil)
-	pr, err := p.CreateProduct(ProductInput{ProductID: "lamp", Name: "Lamp"})
+	pr, err := p.CreateProduct(0, ProductInput{ProductID: "lamp", Name: "Lamp"})
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}

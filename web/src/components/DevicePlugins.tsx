@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { useAuth } from '../auth/AuthContext';
 import type { DevicePluginBinding, PluginFormField, PluginInfo } from '../types';
+import { errorMsg, useToast } from './Toast';
 import { PluginForm } from './PluginForm';
 
 function asConfig(v: unknown): Record<string, unknown> {
@@ -16,6 +17,7 @@ function parseForm(raw: unknown): PluginFormField[] {
 
 export function DevicePlugins({ deviceId, online }: { deviceId: number; online: boolean }) {
   const platformTz = useAuth().settings?.timezone || 'UTC';
+  const toast = useToast();
   const [catalog, setCatalog] = useState<PluginInfo[]>([]);
   const [bindings, setBindings] = useState<DevicePluginBinding[]>([]);
   const [addId, setAddId] = useState('');
@@ -54,7 +56,7 @@ export function DevicePlugins({ deviceId, online }: { deviceId: number; online: 
       setAddId('');
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -119,6 +121,7 @@ function BindingCard({
   setBusy: (v: string) => void;
   onChanged: () => Promise<void>;
 }) {
+  const toast = useToast();
   const [cfg, setCfg] = useState<Record<string, unknown>>(() => asConfig(binding.config));
   useEffect(() => {
     setCfg(asConfig(binding.config));
@@ -137,7 +140,7 @@ function BindingCard({
       });
       await onChanged();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -148,7 +151,7 @@ function BindingCard({
     try {
       await api(`/devices/${deviceId}/plugins/${binding.id}/apply`, { method: 'POST', body: '{}' });
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -161,7 +164,7 @@ function BindingCard({
       await api(`/devices/${deviceId}/plugins/${binding.id}`, { method: 'DELETE' });
       await onChanged();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }

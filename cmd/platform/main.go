@@ -41,24 +41,36 @@ func main() {
 	defer database.Close()
 
 	plat := services.New(database, cfg, log)
-	if err := plat.EnsureAdmin(); err != nil {
-		log.Error("ensure admin failed", "err", err)
-		os.Exit(1)
-	}
-	_ = plat.ReloadDeviceMaps()
 
-	// Check if setup wizard is needed (no accounts exist)
+	// Check if setup wizard is needed BEFORE EnsureAdmin
 	var setupService *services.SetupService
-	var accountCount int
+	var userCount, accountCount int
+	
+	// Check if users table exists and has entries
+	if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
+		log.Warn("users table check failed", "err", err)
+		userCount = 0
+	}
+	
+	// Check if accounts table exists and has entries
 	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
-		// Table might not exist yet on first run
 		log.Warn("accounts table check failed, enabling setup wizard", "err", err)
 		accountCount = 0
 	}
-	if accountCount == 0 {
-		log.Info("no accounts found, enabling setup wizard")
+
+	// Setup wizard is needed if there are no users AND no accounts
+	if userCount == 0 && accountCount == 0 {
+		log.Info("fresh database detected, enabling setup wizard")
 		setupService = services.NewSetupService(log)
+	} else {
+		// Database already has data — ensure admin exists (migration case)
+		if err := plat.EnsureAdmin(); err != nil {
+			log.Error("ensure admin failed", "err", err)
+			os.Exit(1)
+		}
 	}
+
+	_ = plat.ReloadDeviceMaps()
 
 	hub := ws.NewHub()
 	plat.SetHub(hub)

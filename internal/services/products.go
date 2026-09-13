@@ -12,7 +12,7 @@ import (
 	"cogitor-iot-platform/internal/protocol"
 )
 
-const productSelect = `SELECT id, product_id, name, description, topic_style_default,
+const productSelect = `SELECT id, COALESCE(account_id,0), product_id, name, description, topic_style_default,
 	COALESCE(auto_ota,0), COALESCE(methods_json,'[]'), COALESCE(metrics_json,'[]'), COALESCE(attributes_json,'[]'),
 	created_at, updated_at FROM products`
 
@@ -20,7 +20,7 @@ func scanProduct(row interface{ Scan(dest ...any) error }) (*models.Product, err
 	var pr models.Product
 	var methodsJSON, metricsJSON, attrsJSON string
 	var autoOTA int
-	err := row.Scan(&pr.ID, &pr.ProductID, &pr.Name, &pr.Description, &pr.TopicStyleDefault, &autoOTA,
+	err := row.Scan(&pr.ID, &pr.AccountID, &pr.ProductID, &pr.Name, &pr.Description, &pr.TopicStyleDefault, &autoOTA,
 		&methodsJSON, &metricsJSON, &attrsJSON, &pr.CreatedAt, &pr.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
@@ -72,8 +72,14 @@ func decodeAttributes(s string) []models.ProductAttribute {
 	return v
 }
 
-func (p *Platform) ListProducts() ([]models.Product, error) {
-	rows, err := p.DB.Query(productSelect + ` ORDER BY name`)
+func (p *Platform) ListProducts(accountID int64) ([]models.Product, error) {
+	var rows *sql.Rows
+	var err error
+	if accountID > 0 {
+		rows, err = p.DB.Query(productSelect+` WHERE account_id=? ORDER BY name`, accountID)
+	} else {
+		rows, err = p.DB.Query(productSelect + ` ORDER BY name`)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +102,19 @@ func (p *Platform) GetProduct(id int64) (*models.Product, error) {
 	return scanProduct(p.DB.QueryRow(productSelect+` WHERE id=?`, id))
 }
 
+// GetProductScoped returns a product only if it belongs to the given account.
+// Pass accountID=0 to skip the account check (internal callers).
+func (p *Platform) GetProductScoped(accountID, id int64) (*models.Product, error) {
+	pr, err := scanProduct(p.DB.QueryRow(productSelect+` WHERE id=?`, id))
+	if err != nil {
+		return nil, err
+	}
+	if accountID > 0 && pr.AccountID != accountID {
+		return nil, errors.New("not found")
+	}
+	return pr, nil
+}
+
 func (p *Platform) GetProductBySlug(slug string) (*models.Product, error) {
 	return scanProduct(p.DB.QueryRow(productSelect+` WHERE product_id=?`, slug))
 }
@@ -116,7 +135,7 @@ type ProductInput struct {
 	SetAutoOTA    bool  `json:"-"`
 }
 
-func (p *Platform) CreateProduct(in ProductInput) (*models.Product, error) {
+func (p *Platform) CreateProduct(accountID int64, in ProductInput) (*models.Product, error) {
 	in.ProductID = strings.TrimSpace(in.ProductID)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.ProductID == "" && in.Name != "" {
@@ -148,9 +167,9 @@ func (p *Platform) CreateProduct(in ProductInput) (*models.Product, error) {
 		in.Attributes = []models.ProductAttribute{}
 	}
 	now := db.NowMS()
-	res, err := p.DB.Exec(`INSERT INTO products(product_id, name, description, topic_style_default, methods_json, metrics_json, attributes_json, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`,
-		in.ProductID, in.Name, in.Description, in.TopicStyleDefault,
+	res, err := p.DB.Exec(`INSERT INTO products(account_id, product_id, name, description, topic_style_default, methods_json, metrics_json, attributes_json, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		accountID, in.ProductID, in.Name, in.Description, in.TopicStyleDefault,
 		mustJSON(in.Methods), mustJSON(in.Metrics), mustJSON(in.Attributes), now, now)
 	if err != nil {
 		return nil, err

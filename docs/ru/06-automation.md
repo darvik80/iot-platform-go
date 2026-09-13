@@ -1,21 +1,52 @@
 # Автоматизация (Node-RED)
 
-Node-RED — отдельный процесс (compose / Synology). Страница **Automation** в дашборде встраивает редактор в iframe (`NODERED_URL`, напр. `http://192.168.1.100:1880`). Same-origin reverse proxy опционален; iframe достаточно для лабы, если Node-RED разрешает `frame-ancestors` (см. `deploy/nodered/settings.js`).
+Node-RED — отдельный процесс (compose / Synology). Платформа предоставляет шину правил для MQTT-автоматизации и интеграций с внешними системами, такими как Node-RED.
+
+## Руководство по интеграции
+
+Страница **Settings** в дашборде включает раздел **Automation & Integrations** (только для администраторов), который предоставляет:
+
+- Краткое описание шины правил
+- Шаблоны MQTT-топиков для вашего аккаунта
+- Кнопка быстрого копирования шаблонов топиков
+- Ссылку на эту документацию
+
+Чтобы получить шаблон MQTT-топика для вашего аккаунта:
+
+1. Перейдите в **Settings** в дашборде
+2. Прокрутите до раздела **Automation & Integrations**
+3. Нажмите **Copy MQTT topic template**, чтобы получить шаблон топика для вашего аккаунта
+
+Шаблон топика использует slug вашего аккаунта: `platform/v1/events/{account_slug}/...`
+
+## Мультиаккаунтные топики
+
+С мультиаккаунтным тенанси все топики привязаны к аккаунту. Топики шины правил следуют этому паттерну:
+
+```
+platform/v1/events/{account_slug}/{product_id}/{device_id}/status
+platform/v1/events/{account_slug}/{product_id}/{device_id}/telemetry
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{account_slug}/{product_id}/{device_id}/event
+platform/v1/events/{account_slug}/{product_id}/{device_id}/rpc/result
+platform/v1/events/{account_slug}/{product_id}/{device_id}/ota
+platform/v1/events/{account_slug}/{product_id}/{device_id}/log
+```
+
+Команды:
+
+```
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/rpc
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
+```
+
+Это обеспечивает изоляцию событий и команд каждого аккаунта. Внешние плагины (такие как Node-RED) могут получать доступ только к топикам того аккаунта, в котором они зарегистрированы.
 
 ## Шина правил
 
 ### События (платформа → Node-RED)
-
-```
-platform/v1/events/{product_id}/{device_id}/status
-platform/v1/events/{product_id}/{device_id}/telemetry
-platform/v1/events/{product_id}/{device_id}/attributes/reported
-platform/v1/events/{product_id}/{device_id}/attributes/desired
-platform/v1/events/{product_id}/{device_id}/event
-platform/v1/events/{product_id}/{device_id}/rpc/result
-platform/v1/events/{product_id}/{device_id}/ota
-platform/v1/events/{product_id}/{device_id}/log
-```
 
 Пример конверта телеметрии:
 
@@ -127,7 +158,7 @@ RPC-команда (платформа выделяет device-facing `id`):
 
 `deploy/nodered/flows.json` содержит пример: порог температуры → desired-attribute и offline debug-нода. В compose хост MQTT-брокера — `platform`.
 
-Дашборд → **Automation** показывает редактор inline (и «Open in new tab»). `NODERED_URL` должен быть доступен **из браузера**, не из Docker-хоста `nodered`.
+Чтобы получить доступ к Node-RED, откройте его напрямую в браузере, используя `NODERED_URL`, настроенный в настройках вашей платформы. URL должен быть доступен **из браузера**, не из Docker-хоста `nodered`.
 
 ## Docker-compose
 

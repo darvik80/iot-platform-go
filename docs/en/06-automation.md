@@ -1,21 +1,52 @@
 # Automation (Node-RED)
 
-Node-RED is a separate process (compose / Synology). The dashboard **Automation** page embeds the editor in an iframe (`NODERED_URL`, e.g. `http://192.168.1.100:1880`). Same-origin reverse proxy is optional; iframe is enough for the lab if Node-RED allows `frame-ancestors` (see `deploy/nodered/settings.js`).
+Node-RED is a separate process (compose / Synology). The platform provides a rules bus for MQTT-based automation and integrations with external systems like Node-RED.
+
+## Integration guide
+
+The dashboard **Settings** page includes an **Automation & Integrations** section (admin-only) that provides:
+
+- Brief description of the rules bus
+- MQTT topic templates for your account
+- Quick copy button for topic patterns
+- Link to this documentation
+
+To access the MQTT topic template for your account:
+
+1. Navigate to **Settings** in the dashboard
+2. Scroll to **Automation & Integrations** section
+3. Click **Copy MQTT topic template** to get the topic pattern for your account
+
+The topic template uses your account slug: `platform/v1/events/{account_slug}/...`
+
+## Multi-account topics
+
+With multi-account tenancy, all topics are scoped to the account. The rules bus topics follow this pattern:
+
+```
+platform/v1/events/{account_slug}/{product_id}/{device_id}/status
+platform/v1/events/{account_slug}/{product_id}/{device_id}/telemetry
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{account_slug}/{product_id}/{device_id}/event
+platform/v1/events/{account_slug}/{product_id}/{device_id}/rpc/result
+platform/v1/events/{account_slug}/{product_id}/{device_id}/ota
+platform/v1/events/{account_slug}/{product_id}/{device_id}/log
+```
+
+Commands:
+
+```
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/rpc
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
+```
+
+This ensures that each account's events and commands are isolated. External plugins (like Node-RED) can only access topics for the account they are registered under.
 
 ## Rules bus
 
 ### Events (platform → Node-RED)
-
-```
-platform/v1/events/{product_id}/{device_id}/status
-platform/v1/events/{product_id}/{device_id}/telemetry
-platform/v1/events/{product_id}/{device_id}/attributes/reported
-platform/v1/events/{product_id}/{device_id}/attributes/desired
-platform/v1/events/{product_id}/{device_id}/event
-platform/v1/events/{product_id}/{device_id}/rpc/result
-platform/v1/events/{product_id}/{device_id}/ota
-platform/v1/events/{product_id}/{device_id}/log
-```
 
 Example telemetry envelope:
 
@@ -127,7 +158,7 @@ The plugin has **no access** to device topics (`iot/v1/…`, `v1/…`) — only 
 
 `deploy/nodered/flows.json` ships a temperature-threshold → desired-attribute example and an offline status debug node. In compose the MQTT broker host is `platform`.
 
-Dashboard → **Automation** shows the editor inline (and "Open in new tab"). `NODERED_URL` must be reachable **from the browser**, not the Docker hostname `nodered`.
+To access Node-RED, open it directly in your browser using the `NODERED_URL` configured in your platform settings. The URL must be reachable **from the browser**, not the Docker hostname `nodered`.
 
 ## Docker-compose
 

@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
 import { useAuth } from '../auth/AuthContext';
+import { errorMsg, useToast } from '../components/Toast';
 import { formatBytes, formatOtaProgress } from '../utils/format';
+import { useT } from '../i18n/I18nContext';
 import type { Device, Firmware, OTAJob, OTANotifyResult, Product } from '../types';
 
 export function OtaPage() {
   const { settings } = useAuth();
+  const toast = useToast();
+  const t = useT();
   const [products, setProducts] = useState<Product[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [firmware, setFirmware] = useState<Firmware[]>([]);
@@ -79,7 +83,7 @@ export function OtaPage() {
       summarize(await api<OTANotifyResult>(`/ota/firmwares/${fw.id}/notify`, { method: 'POST', body: JSON.stringify(body) }));
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -94,7 +98,7 @@ export function OtaPage() {
       });
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -108,7 +112,7 @@ export function OtaPage() {
       setNote(`Deleted ${fw.version}`);
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     } finally {
       setBusy('');
     }
@@ -122,37 +126,33 @@ export function OtaPage() {
       });
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : String(e));
+      toast.error(errorMsg(e));
     }
   };
 
   return (
     <div>
-      <h1 className="h3 mb-2">OTA</h1>
+      <h1 className="h3 mb-2">{t('ota.title')}</h1>
       <p className="muted mb-3">
-        Upload a <span className="mono">.bin</span> here — platform stores it and gives a public download URL for ESP OTA.
-        Device reports <span className="code">v1/o/ver</span>, can ask <span className="code">v1/o/q</span>. Operator pushes{' '}
-        <span className="code">v1/o/upd</span> to one device or the whole product. Auto-OTA pushes latest firmware when a
-        device comes online or reports a version.
+        {t('ota.description')}
       </p>
       {publicLooksLocal && (
         <div className="alert alert-warning py-2">
-          <span className="mono">PUBLIC_BASE_URL</span> is <span className="mono">{publicBase}</span>. ESP on the LAN cannot
-          download from localhost — set it to the host IP the device can reach (e.g. <span className="mono">http://192.168.1.100:8080</span>).
+          <span className="mono">PUBLIC_BASE_URL</span> is <span className="mono">{publicBase}</span>. {t('ota.publicBaseUrlWarning')}
         </div>
       )}
       {error && <div className="alert alert-danger py-2">{error}</div>}
       {note && <div className="alert alert-info py-2">{note}</div>}
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Auto-OTA by product</h2>
+        <h2 className="h6 text-uppercase muted">{t('ota.autoOtaByProduct')}</h2>
         <div className="table-responsive">
           <table className="table table-sm align-middle">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>Devices</th>
-                <th>Auto-OTA</th>
+                <th>{t('common.product')}</th>
+                <th>{t('common.devices')}</th>
+                <th>{t('ota.autoOta')}</th>
               </tr>
             </thead>
             <tbody>
@@ -180,7 +180,7 @@ export function OtaPage() {
               {!products.length && (
                 <tr>
                   <td colSpan={3} className="muted">
-                    No products
+                    {t('products.noProducts')}
                   </td>
                 </tr>
               )}
@@ -190,16 +190,16 @@ export function OtaPage() {
       </div>
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Firmwares</h2>
+        <h2 className="h6 text-uppercase muted">{t('ota.firmwares')}</h2>
         <div className="table-responsive mb-3">
           <table className="table table-sm align-middle">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>Module</th>
-                <th>Version</th>
-                <th>Size</th>
-                <th>Download</th>
+                <th>{t('common.product')}</th>
+                <th>{t('common.module')}</th>
+                <th>{t('common.version')}</th>
+                <th>{t('common.size')}</th>
+                <th>{t('ota.download')}</th>
                 <th />
               </tr>
             </thead>
@@ -211,7 +211,7 @@ export function OtaPage() {
                   <td className="mono">{f.version}</td>
                   <td>{formatBytes(f.size)}</td>
                   <td className="small">
-                    {f.hosted ? <span className="badge text-bg-secondary me-1">hosted</span> : <span className="badge text-bg-light me-1">external</span>}
+                    {f.hosted ? <span className="badge text-bg-secondary me-1">{t('ota.hosted')}</span> : <span className="badge text-bg-light me-1">{t('ota.external')}</span>}
                     <a className="mono" href={f.url} target="_blank" rel="noreferrer">
                       {f.url}
                     </a>
@@ -220,12 +220,12 @@ export function OtaPage() {
                       className="btn btn-link btn-sm py-0"
                       onClick={() => {
                         void navigator.clipboard.writeText(f.url).then(
-                          () => setNote('Copied download URL'),
+                          () => setNote(t('common.copied')),
                           () => setNote(f.url),
                         );
                       }}
                     >
-                      Copy
+                      {t('common.copy')}
                     </button>
                   </td>
                   <td className="text-nowrap">
@@ -234,11 +234,11 @@ export function OtaPage() {
                       className="btn btn-primary btn-sm me-1"
                       disabled={!!busy}
                       onClick={() => {
-                        if (!confirm(`Notify all ${f.product_id} devices about ${f.version}?`)) return;
+                        if (!confirm(t('ota.notifyConfirm', { product: f.product_id, version: f.version }))) return;
                         void notify(f);
                       }}
                     >
-                      Notify product
+                      {t('ota.notifyProduct')}
                     </button>
                     <div className="d-inline-flex gap-1 align-items-center">
                       <select
@@ -261,7 +261,7 @@ export function OtaPage() {
                         disabled={!!busy || !notifyDev[f.id]}
                         onClick={() => void notify(f, Number(notifyDev[f.id]))}
                       >
-                        Notify
+                        {t('ota.notify')}
                       </button>
                     </div>
                     <button
@@ -270,7 +270,7 @@ export function OtaPage() {
                       disabled={!!busy}
                       onClick={() => void removeFirmware(f)}
                     >
-                      Delete
+                      {t('common.delete')}
                     </button>
                   </td>
                 </tr>
@@ -278,7 +278,7 @@ export function OtaPage() {
               {!firmware.length && (
                 <tr>
                   <td colSpan={6} className="muted">
-                    No firmware registered
+                    {t('ota.noFirmware')}
                   </td>
                 </tr>
               )}
@@ -286,14 +286,13 @@ export function OtaPage() {
           </table>
         </div>
 
-        <h3 className="h6 text-uppercase muted">Upload firmware</h3>
+        <h3 className="h6 text-uppercase muted">{t('ota.uploadFirmware')}</h3>
         <p className="small muted mb-2">
-          Upload needs product, version and a <span className="mono">.bin</span>. Same version on the same module
-          replaces the previous image (new download URL).
+          {t('ota.uploadDescription')}
         </p>
         <div className="row g-2 align-items-end mb-2">
           <div className="col-md-2">
-            <label className="form-label small mb-1">Product</label>
+            <label className="form-label small mb-1">{t('common.product')}</label>
             <select className="form-select" value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
               {products.map((p) => (
                 <option key={p.id} value={p.product_id}>
@@ -303,15 +302,15 @@ export function OtaPage() {
             </select>
           </div>
           <div className="col-md-1">
-            <label className="form-label small mb-1">Module</label>
+            <label className="form-label small mb-1">{t('common.module')}</label>
             <input className="form-control" placeholder="main" value={form.module} onChange={(e) => setForm({ ...form, module: e.target.value })} />
           </div>
           <div className="col-md-2">
-            <label className="form-label small mb-1">Version</label>
+            <label className="form-label small mb-1">{t('common.version')}</label>
             <input className="form-control" placeholder="1.2.0" value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} />
           </div>
           <div className="col-md-4">
-            <label className="form-label small mb-1">File (.bin)</label>
+            <label className="form-label small mb-1">{t('ota.fileBin')}</label>
             <input
               key={fileKey}
               className="form-control"
@@ -344,19 +343,19 @@ export function OtaPage() {
                   setNote(`${existingSameVersion ? 'Replaced' : 'Uploaded'} ${fw.version} · ${fw.url}`);
                   await load();
                 } catch (e) {
-                  alert(e instanceof Error ? e.message : String(e));
+                  toast.error(errorMsg(e));
                 } finally {
                   setBusy('');
                 }
               }}
             >
-              {existingSameVersion ? 'Replace' : 'Upload'}
+              {existingSameVersion ? t('ota.replace') : t('common.upload')}
             </button>
           </div>
         </div>
         {file && <div className="small muted mb-3">{file.name} · {formatBytes(file.size)}</div>}
 
-        <h3 className="h6 text-uppercase muted">Or register external URL</h3>
+        <h3 className="h6 text-uppercase muted">{t('ota.orRegisterUrl')}</h3>
         <div className="row g-2">
           <div className="col-md-3">
             <input className="form-control" placeholder="https://…/firmware.bin" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
@@ -387,32 +386,32 @@ export function OtaPage() {
                     }),
                   });
                   setForm((f) => ({ ...f, version: '', url: '', sha256: '', size: '' }));
-                  setNote('Firmware registered');
+                  setNote(t('ota.firmwareRegistered'));
                   await load();
                 } catch (e) {
-                  alert(e instanceof Error ? e.message : String(e));
+                  toast.error(errorMsg(e));
                 } finally {
                   setBusy('');
                 }
               }}
             >
-              Register URL
+              {t('ota.registerUrl')}
             </button>
           </div>
         </div>
       </div>
 
       <div className="panel">
-        <h2 className="h6 text-uppercase muted">Jobs</h2>
+        <h2 className="h6 text-uppercase muted">{t('ota.jobs')}</h2>
         <div className="table-responsive">
           <table className="table table-sm align-middle">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Device</th>
-                <th>Firmware</th>
-                <th>Status</th>
-                <th>Progress</th>
+                <th>{t('common.time')}</th>
+                <th>{t('common.device')}</th>
+                <th>{t('common.version')}</th>
+                <th>{t('common.status')}</th>
+                <th>{t('ota.progress')}</th>
                 <th />
               </tr>
             </thead>
@@ -433,7 +432,7 @@ export function OtaPage() {
                   <td>
                     {(j.status === 'pending' || j.status === 'running') && (
                       <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => void cancelJob(j)}>
-                        Cancel
+                        {t('common.cancel')}
                       </button>
                     )}
                   </td>
@@ -442,7 +441,7 @@ export function OtaPage() {
               {!jobs.length && (
                 <tr>
                   <td colSpan={6} className="muted">
-                    No OTA jobs yet
+                    {t('ota.noJobs')}
                   </td>
                 </tr>
               )}
