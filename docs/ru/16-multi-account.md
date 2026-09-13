@@ -2,10 +2,10 @@
 
 | Поле | Значение |
 |------|----------|
-| **Версия документа** | 1.1 |
+| **Версия документа** | 1.2 |
 | **Версия платформы** | v1.x (см. [§4.5 План релиза](#45-план-релиза--этапы)) |
 | **Статус** | Черновик → Активен |
-| **Обновлено** | Сентябрь 2026 |
+| **Обновлено** | 13.09.2026 |
 | **Область** | добавление multi-tenant изоляции, IAM-ролей, monitoring-плагинов и управления внутренними плагинами в текущий single-tenant дистрибутив |
 | **Каноническая версия** | этот документ ведётся на русском; английский ([en/16-multi-account.md](../en/16-multi-account.md)) будет переписан с нуля после стабилизации v1 |
 
@@ -71,7 +71,9 @@
 - Хочет встроенные графики (вместо «открой Grafana»).
 
 ### 3.3 Третичный — AI/LLM-агент
+- Доступ к платформе **только по JWT-токену** (в токене — информация о пользователе: `user_id`, `accounts[]`, `active_account_id`).
 - MCP-инструменты должны принимать параметр `account_id` (по умолчанию — активный) и отказывать, если пользователь не состоит в этом аккаунте.
+- AI/LLM-агенты не имеют отдельного механизма аутентификации — используются стандартные API-токены или JWT, выданный пользователю.
 
 ### 3.4 Без изменений
 - Устройства (ESP32 и др.). Со стороны устройства платформа по-прежнему «один MQTT-брокер + один токен», прозрачно для firmware.
@@ -163,7 +165,7 @@
 
 ## 7. Архитектура
 
-> **Диаграммы**: [Multi-Account Architecture](14-diagrams.md#multi-account-architecture), [Invitation Flow](14-diagrams.md#invitation-flow), [External Plugin Account ACL](14-diagrams.md#external-plugin-account-acl), [Prometheus Exporter Lifecycle](14-diagrams.md#prometheus-exporter-lifecycle), [Internal Plugin Policy](14-diagrams.md#internal-plugin-policy)
+> **Диаграммы**: см. §7 ниже (встроенные Mermaid-диаграммы)
 
 ### 7.1 Общая схема
 
@@ -262,11 +264,17 @@ graph TB
 2. **Запрос в API**: `GET /devices/42` с `Authorization: Bearer ...` и `X-Account-Id: 7` → middleware проверяет `membership(user, 7, active)` → handler читает `device` → проверяет `device.account_id == 7` → отдаёт 200.
 3. **Устройство → платформа**: `CONNECT` с `username=esp32-cam.cam-001`, `password=<token>`. `OnConnectAuthenticate` вызывает `deviceFor(user)` → `ResolveByToken` → находит device → берёт `product.account_id` → ACL scoped к `iot/v1/{product}/{device}/...`. Account — прозрачен для устройства.
 4. **Publish telemetry** → `Ingest` → `StoreTelemetry` (account_id из device) → `publishRules(account.slug, product, device, kind)` → MQTT `platform/v1/events/{account_slug}/{product}/{device}/{kind}`. Топик содержит `account_slug` — внешний плагин другого аккаунта через ACL не подпишется.
-5. **External plugin (polling)**: `POST /api/plugins/external/rpc` с токеном `extplg_acme_telegram-bot` → `ValidateToken` → `plugin.account_id = 1` → `platform.invoke_rpc` → middleware `RequireAccount(account_id=1)` → handler проверяет `device.account_id == 1` → 200. Cross-account → 403.
-6. **SSE**: `GET /api/v1/events/stream?token=...` с активным аккаунтом 7 → Hub подписывает SSE-соединение на фильтр `account_id=7` → события других аккаунтов не приходят. Браузер нативно переподключается через `Last-Event-ID`; HTTP-based, без sticky sessions.
-7. **Prometheus scrape**: внешний Prometheus с job `{account: "acme", scrape_url: "http://platform:9100/metrics"}` — на аккаунт свой порт (`prometheus-exporter` стартует инстанс на binding-defined port, все метрики с лейблом `account="acme"`).
+5. **RPC-вызов на устройство**: платформа генерирует UUID для `request_id`, сохраняет `{request_id → HTTP-канал}` в памяти (с таймаутом), публикует команду в MQTT с `id = request_id` (стандарт JSON-RPC). Устройство копирует `id` из запроса в ответ. Платформа сопоставляет ответ с ожидающим запросом по `request_id` и отправляет HTTP-ответ клиенту. Подробнее: [04-mqtt.md → RPC](04-mqtt.md#rpc), [17-ha-architecture.md → §3.2](17-ha-architecture.md#32-маршрутизация-команд-и-корреляция-ответов).
+6. **External plugin (polling)**: `POST /api/plugins/external/rpc` с токеном `extplg_acme_telegram-bot` → `ValidateToken` → `plugin.account_id = 1` → `platform.invoke_rpc` → middleware `RequireAccount(account_id=1)` → handler проверяет `device.account_id == 1` → 200. Cross-account → 403.
+7. **SSE**: `GET /api/v1/events/stream?token=...` с активным аккаунтом 7 → Hub подписывает SSE-соединение на фильтр `account_id=7` → события других аккаунтов не приходят. Браузер нативно переподключается через `Last-Event-ID`; HTTP-based, без sticky sessions.
+8. **Prometheus scrape**: внешний Prometheus с job `{account: "acme", scrape_url: "http://platform:9100/metrics"}` — на аккаунт свой порт (`prometheus-exporter` стартует инстанс на binding-defined port, все метрики с лейблом `account="acme"`).
 
 ### 7.3 Поток приглашений
+
+Поддерживаются **три способа** добавления пользователей в аккаунт:
+1. **Invite via email** — отправка письма со ссылкой
+2. **Create shareable link** — генерация ссылки для расшаривания через мессенджер
+3. **Create user manually** — прямое создание пользователя (без приглашения)
 
 ```mermaid
 sequenceDiagram
@@ -277,13 +285,27 @@ sequenceDiagram
     participant DB as SQLite
 
     Note over A: Активный аккаунт = acme
-    A->>P: POST /api/v1/accounts/{id}/invitations {email, role}
-    P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
-    P-->>A: {token: "raw-once", link: "/invite/{token}"}
-    P->>M: отправить email со ссылкой
-    M-->>R: письмо доставлено
+    
+    alt Способ 1: Invite via email
+        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "email"}
+        P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
+        P-->>A: {token: "raw-once", link: "/invite/{token}"}
+        P->>M: отправить email со ссылкой
+        M-->>R: письмо доставлено
+    else Способ 2: Create shareable link
+        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "link"}
+        P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
+        P-->>A: {link: "/invite/{token}"} (письмо НЕ отправляется)
+        A->>A: копирует ссылку, расшаривает через мессенджер
+        Note over A,R: Ссылка передаётся через Telegram, WhatsApp, лично и т.д.
+    else Способ 3: Create user manually
+        A->>P: POST /api/v1/accounts/{id}/members {login, email, password, role}
+        P->>DB: INSERT users + INSERT account_memberships (напрямую, без invitation)
+        P-->>A: {user_id, account_id, role}
+        Note over A: Email-верификация пропущена (admin подтверждает email вручную)
+    end
 
-    R->>P: GET /api/v1/invitations/{token}
+    R->>P: GET /api/v1/invitations/{token} (для способов 1 и 2)
     P->>DB: поиск по token_hash
     P-->>R: {account_name: "acme", role: "operator"}
 
@@ -301,10 +323,10 @@ sequenceDiagram
         P-->>R: {ok: true, account_id}
     end
 
-    Note over P: Resend / Revoke
+    Note over P: Resend / Revoke (только для способов 1 и 2)
     A->>P: POST /accounts/{id}/invitations/{id}/resend
     P->>DB: UPDATE old.status='revoked', INSERT new
-    P->>M: отправить новое письмо
+    P->>M: отправить новое письмо (только если delivery_method="email")
 ```
 
 ### 7.4 Account ACL внешнего плагина
@@ -359,6 +381,10 @@ sequenceDiagram
 
 ### 7.5 Жизненный цикл Prometheus Exporter
 
+Метрики делятся на два типа:
+- **Счётчики (counter)** — инкрементируются in-process при событиях (`StoreTelemetry`, `InvokeRPC` и т.д.) через атомарные операции Prometheus-клиента. SELECT-запросы не нужны.
+- **Гейджи (gauge)** — отражают текущее состояние (количество устройств, online-статус). Пересчитываются раз в `update_interval_ms` через SQL-запрос или обновляются атомарно при изменении состояния.
+
 ```mermaid
 sequenceDiagram
     participant Adm as Admin (UI)
@@ -377,16 +403,22 @@ sequenceDiagram
     H->>EX: ApplyConfig({port: 9100, bind: 0.0.0.0, bearer_token: ...})
     EX->>EX: http.Server.ListenAndServe на 0.0.0.0:9100
 
+    Note over EX: Счётчики (counter) — инкремент in-process
+    EX->>EX: cogitor_device_telemetry_samples_total++ при StoreTelemetry (hook)
+    EX->>EX: cogitor_device_rpc_calls_total++ при InvokeRPC (hook)
+    EX->>EX: cogitor_event_bus_published_total++ при publish rules (hook)
+
+    Note over EX: Гейджи (gauge) — периодический пересчёт
     loop каждые update_interval_ms
-        EX->>DB: SELECT counts grouped by account/product/device/status
-        EX->>EX: refresh atomic gauges
+        EX->>DB: SELECT status, count(*) FROM devices WHERE account_id=... GROUP BY status
+        EX->>EX: cogitor_devices_total{account,product,status} = result (atomic set)
+        EX->>DB: SELECT count(*) FROM devices WHERE account_id=... AND online=true
+        EX->>EX: cogitor_device_online{account,product,device} = 1/0 (atomic set)
     end
 
     Pr->>EX: GET /metrics (Authorization: Bearer <token>)
     EX->>EX: проверка bearer (если задан)
     EX-->>Pr: 200 text/plain (Prometheus exposition, account=acme labels)
-    EX->>EX: counter cogitor_device_telemetry_samples_total{account=acme,...}++ на StoreTelemetry (in-process hook)
-    EX->>EX: counter cogitor_device_rpc_calls_total{...}++ на InvokeRPC
 
     Note over Adm: Отключаем exporter для аккаунта
     Adm->>H: PATCH ... {enabled:false}
@@ -522,8 +554,9 @@ CREATE TABLE account_plugin_policies (
 ALTER TABLE api_tokens ADD COLUMN account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE;
 
 -- Account_id propagation: add column to all per-account tables
-ALTER TABLE products        ADD COLUMN account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE;
-ALTER TABLE external_plugins ADD COLUMN account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE;
+-- Для существующих строк используется account_id=1 (default account)
+ALTER TABLE products        ADD COLUMN account_id INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE;
+ALTER TABLE external_plugins ADD COLUMN account_id INTEGER NOT NULL DEFAULT 1 REFERENCES accounts(id) ON DELETE CASCADE;
 
 -- Replace UNIQUE(product_id) on products with UNIQUE(account_id, product_id)
 -- (migrated by convert-to-multi-account; new installs start with the new shape)
@@ -561,7 +594,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | | `DELETE /accounts/{id}/invitations/{id}` | новый |
 | Plugin policies | `GET /accounts/{id}/plugins/policies` | новый |
 | | `PATCH /accounts/{id}/plugins/policies/{pluginId}` `{enabled?, settings?}` | новый |
-| Existing | `GET/POST/PUT/DELETE /products|devices|…` — все требуют `X-Account-Id` (или берут из JWT active) и проверяют account-scope; `?account_id=` query поддерживается для platform-admin | все брейкинг |
+| Existing | `GET/POST/PUT/DELETE /products`, `/devices`, … — все требуют `X-Account-Id` (или берут из JWT active) и проверяют account-scope; `?account_id=` query поддерживается для platform-admin | все брейкинг |
 | MCP | Каждый list/get-тул получает параметр `account_id` (optional, default — active) | minor |
 | SSE (real-time) | `GET /api/v1/events/stream?token=...&account_id=<active>` — `text/event-stream`, фильтр по аккаунту, HTTP-based, auto-reconnect через `Last-Event-ID` | расширение |
 
@@ -653,22 +686,6 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Account B пытается scrape endpoint account A | ничего — порт у каждого свой; метрики лейблованы `account=acme` всегда |
 | Prometheus забыл bearer_token | `401` (если задан) — корректный fail-mode |
 
-### 11.6 Database driver (sqlite / postgres)
-
-| Кейс | Поведение |
-|------|-----------|
-| `DATABASE_DRIVER=postgres`, `DATABASE_DSN` пустой | Старт падает с `fatal: DATABASE_DSN required for driver=postgres` (до открытия порта) |
-| `DATABASE_DRIVER=sqlite`, путь к файлу не существует | Файл создаётся автоматически с правами 0600 (если позволяет ОС) |
-| Postgres недоступен на старте | Retry 3 раза с backoff (1s, 2s, 4s), потом fatal. Лог: `postgres unreachable after 3 retries` |
-| Миграция на Postgres падает посередине (например, constraint violation) | `migrate` оставляет БД в broken state; CLI `platform migrate-status` показывает, на какой версии застряли. **Ручной fix** — катить `down` до последней good версии; в продакшене — снапшот БД до миграции обязателен |
-| Параллельные миграции (два инстанса стартуют одновременно) | `golang-migrate` использует advisory lock в postgres; на sqlite — не применимо (v1 single-instance) |
-| `foreign_keys=ON` не сработала (sqlite) | Видно в логе `PRAGMA foreign_keys` warning; тест NF-13 падает в CI |
-| Запрос с `$1` отправлен в sqlite | `prepare error: near "$1"` — поймано на смоук-тесте (F-1306) |
-| Запрос с `?` отправлен в postgres | `prepare error: syntax error at or near "?"` — то же |
-| Переполнение `INTEGER` (devices > 2.1B) | Не в скоупе v1 — на таких объёмах уже давно надо переходить на v2 + read replica + partitioning |
-| `DATABASE_DSN` содержит пароль | Логи маскируют DSN (driver=postgres, host=…, user=…, password=***); отображается только в `/api/v1/admin/diagnostics` (platform-admin only) |
-| `WAL`-файл `data/platform.db-wal` не удаляется при kill -9 | Нормально: SQLite checkpoint при следующем открытии. Размер WAL — мониторим через `prometheus-exporter` (`cogitor_sqlite_wal_bytes`) |
-
 ### 11.7 Setup wizard
 
 | Кейс | Поведение |
@@ -684,20 +701,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Wizard работает по HTTPS, а `PUBLIC_BASE_URL=http://...` | UI подсвечивает несоответствие; invite-ссылки генерируются по PUBLIC_BASE_URL, не по текущему origin (важно для реверс-прокси) |
 | SMTP Step пропустили (`Skip`), но `EMAIL_MODE=smtp` в env | При попытке отправить invite (F-301) — `500 smtp_not_configured`; UI инструктирует «Run setup again to configure SMTP» (но `/setup` уже выключен — manual fix через SQL: `UPDATE accounts.settings_json SET...`) |
 
-### 11.8 HA-readiness bad cases (контракт с v2)
-
-Большинство HA-сценариев описаны в [17-ha-architecture.md](17-ha-architecture.md). В v1 (single mode) они не применимы, но **закладываются архитектурно**:
-
-| Кейс | v1 поведение | v2 поведение |
-|------|--------------|--------------|
-| Два инстанса с одной SQLite БД | v1 запрещает (NF-19: инвариант «single instance») | Не применимо (HA на Postgres) |
-| Два инстанса с одной Postgres БД | v1 формально не запрещает, но broadcast дублируется между instance'ами | Без изменений: SSE не требует sticky session; `instance_id` используется только для diagnostics/log. Каждый instance вещает свои события, клиент в любой момент может переподключиться к другому LB-target |
-| Один инстанс упал, второй подхватил | Не работает (real-time клиенты теряют события в момент переподключения) | SSE auto-reconnect через `Last-Event-ID`; события за downtime теряются (v2.x: persistent buffer) |
-| External plugin подключился, инстанс перезапустился | MQTT-сессия теряется; плагин переподключается | Через external broker + persistent sessions |
-| Cache изменился на инстансе A, запрос пришёл на B | v1: stale data до reload (per-request check) | Через PostgreSQL LISTEN/NOTIFY или cache TTL |
-| Postgres failover во время миграции | v1 не применимо (только sqlite) | `golang-migrate` retry + advisory lock; failed migration → manual recovery |
-
-### 11.9 Известные ограничения
+### 11.8 Известные ограничения
 
 - **Single-tenant БД SQLite** — все аккаунты в одной БД. Бэкап — общий, restore — общий. Multi-DB isolation — не в скоупе.
 - **MQTT broker** — один процесс mochi-mqtt обслуживает все аккаунты. Разделение по namespace — на уровне ACL. Горизонтальное масштабирование — не в скоупе.

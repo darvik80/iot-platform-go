@@ -21,19 +21,18 @@
 
 ---
 
-## 0. TL;DR
+## 0. Краткое содержание
 
-- **HA = альтернативный deployment**, не миграция с single. Single mode остаётся полностью поддерживаемым.
-- **3 бинарника** в одном monorepo:
-  - `platform-single` — single mode (v1.x, как сейчас)
-  - `platform-cluster` — UI/API/SSE (HTTP-based, не WebSocket) + Prometheus + RabbitMQ client
-  - `platform-worker` — stateless execution of internal plugins
-- **RabbitMQ** — обязательный middleware для cluster mode: MQTT broker для устройств, AMQP для inter-instance и external plugins
-- **PostgreSQL** — обязательная БД (SQLite не поддерживается в cluster)
-- **SSE (Server-Sent Events)** для real-time UI в **обоих** режимах — HTTP-based, не WebSocket, не требует sticky sessions, единый эндпоинт `GET /api/v1/events/stream`
-- **External Plugin SDK** — единый API; Transport выбирается режимом деплоя: `mqtt` в single, `amqp` в cluster. Один код плагина работает в обоих режимах.
-- **Device registry** (`device_instances` table) — для видимости device → instance mapping
-- **Встроенный MQTT broker остаётся** в single mode; в cluster не используется
+- **Кластер — это альтернативный способ развёртывания**, а не миграция с одиночного режима. Одиночный режим (single mode) остаётся полностью поддерживаемым.
+- **Три бинарника** в одном репозитории:
+  - `platform-single` — одиночный режим (v1.x, как сейчас)
+  - `platform-cluster` — интерфейс, REST API, SSE (на базе HTTP, не WebSocket) + Prometheus + клиент RabbitMQ
+  - `platform-worker` — выполнение внутренних плагинов без состояния
+- **RabbitMQ** — обязательный компонент для кластера: брокер MQTT для устройств, AMQP для связи между экземплярами и для внешних плагинов
+- **PostgreSQL** — обязательная база данных (SQLite не поддерживается в кластере)
+- **SSE (Server-Sent Events)** для обновлений интерфейса в **обоих** режимах — на базе HTTP, не WebSocket, не требует закреплённых сессий, единая конечная точка `GET /api/v1/events/stream`
+- **Внешние плагины** — единый SDK; транспорт выбирается режимом развёртывания: `mqtt` в одиночном режиме, `mqtt` или `amqp` в кластере (оба идут в RabbitMQ). Один код плагина работает в обоих режимах
+- **Встроенный брокер MQTT** (`mochi-mqtt) остаётся в одиночном режиме; в кластере не используется — вместо него RabbitMQ с модулем MQTT
 
 ---
 
@@ -46,7 +45,7 @@
 | **Бинарник** | `platform-single` | `platform-cluster` + `platform-worker` |
 | **MQTT broker** | Встроенный (`mochi-mqtt`) | RabbitMQ (с MQTT plugin) |
 | **БД** | SQLite или PostgreSQL | Только PostgreSQL |
-| **External plugins** | Только MQTT | Только AMQP (RabbitMQ) |
+| **Внешние плагины** | Только MQTT (встроенный брокер) | MQTT или AMQP (через RabbitMQ) |
 | **Real-time UI** | SSE (Server-Sent Events) | SSE (Server-Sent Events) |
 | **Internal plugins** | In-process | В workers (stateless) |
 | **Dependencies** | Только БД | RabbitMQ + PostgreSQL |
@@ -86,34 +85,33 @@ iot-platform-go/
 ```mermaid
 graph TB
     subgraph Clients["Клиенты"]
-        U1["UI (браузер)"]
-        D1["Device A"]
-        D2["Device B"]
-        EP1["External Plugin<br/>(AMQP)"]
+        U1["Интерфейс (браузер)"]
+        D1["Устройство A"]
+        D2["Устройство B"]
+        EP1["Внешний плагин<br/>(MQTT или AMQP)"]
     end
 
-    subgraph Edge["L7 Load Balancer"]
+    subgraph Edge["Балансировщик L7"]
         LB["LB<br/>(round-robin)"]
     end
 
-    subgraph Cluster["Cluster instances (stateless)"]
-        CI_A["platform-cluster A<br/>UI/API + SSE + Prometheus"]
-        CI_B["platform-cluster B<br/>UI/API + SSE + Prometheus"]
+    subgraph Cluster["Экземпляры кластера (без состояния)"]
+        CI_A["platform-cluster A<br/>Интерфейс/API + SSE + Prometheus"]
+        CI_B["platform-cluster B<br/>Интерфейс/API + SSE + Prometheus"]
     end
 
-    subgraph Workers["Workers (stateless)"]
-        W1["platform-worker 1<br/>internal plugins"]
-        W2["platform-worker 2<br/>internal plugins"]
+    subgraph Workers["Рабочие процессы (без состояния)"]
+        W1["platform-worker 1<br/>внутренние плагины"]
+        W2["platform-worker 2<br/>внутренние плагины"]
     end
 
     subgraph Bus["RabbitMQ (обязательный)"]
-        MQ_MQTT["MQTT plugin<br/>:1883"]
+        MQ_MQTT["Модуль MQTT<br/>:1883"]
         MQ_AMQP["AMQP<br/>:5672"]
     end
 
     subgraph DB["PostgreSQL (обязательный)"]
-        PG[("platform DB")]
-        DI[("device_instances<br/>(device → instance)")]
+        PG[("база платформы")]
     end
 
     U1 -->|"HTTPS / SSE"| LB
@@ -122,7 +120,7 @@ graph TB
     
     D1 -->|"MQTT"| MQ_MQTT
     D2 -->|"MQTT"| MQ_MQTT
-    EP1 -->|"AMQP"| MQ_AMQP
+    EP1 -->|"MQTT или AMQP"| MQ_AMQP
 
     MQ_MQTT -->|"iot.devices"| MQ_AMQP
     MQ_AMQP -->|"iot.cluster.events"| CI_A
@@ -130,15 +128,13 @@ graph TB
     MQ_AMQP -->|"iot.events"| W1
     MQ_AMQP -->|"iot.events"| W2
 
-    CI_A -->|"command routing"| DI
-    CI_B -->|"command routing"| DI
     CI_A -->|"HTTP API"| PG
     CI_B -->|"HTTP API"| PG
     W1 --> PG
     W2 --> PG
 
-    W1 -->|"publish cmd"| MQ_AMQP
-    W2 -->|"publish cmd"| MQ_AMQP
+    W1 -->|"публикация команд"| MQ_AMQP
+    W2 -->|"публикация команд"| MQ_AMQP
     MQ_AMQP -->|"downlink"| MQ_MQTT
 
     style Clients fill:#16213e,stroke:#1a1a2e,color:#eee
@@ -153,22 +149,22 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph Single["Single Mode (v1.x)"]
-        S_DEV["Device"] -->|"MQTT"| S_BROKER["Встроенный<br/>mochi-mqtt"]
-        S_BROKER --> S_APP["platform-single<br/>(всё in-process)"]
+    subgraph Single["Одиночный режим (v1.x)"]
+        S_DEV["Устройство"] -->|"MQTT"| S_BROKER["Встроенный<br/>mochi-mqtt"]
+        S_BROKER --> S_APP["platform-single<br/>(всё в процессе)"]
         S_APP --> S_DB[("SQLite/Postgres")]
-        S_UI["UI"] -->|"SSE"| S_APP
-        S_EP["External Plugin"] -->|"MQTT"| S_BROKER
+        S_UI["Интерфейс"] -->|"SSE"| S_APP
+        S_EP["Внешний плагин"] -->|"MQTT"| S_BROKER
     end
 
-    subgraph Cluster["Cluster Mode (v2.x)"]
-        C_DEV["Device"] -->|"MQTT"| C_MQ["RabbitMQ"]
-        C_MQ -->|"AMQP"| C_CI["platform-cluster<br/>UI/API + SSE"]
-        C_MQ -->|"AMQP"| C_W["platform-worker<br/>internal plugins"]
+    subgraph Cluster["Кластер (v2.x)"]
+        C_DEV["Устройство"] -->|"MQTT"| C_MQ["RabbitMQ"]
+        C_MQ -->|"AMQP"| C_CI["platform-cluster<br/>Интерфейс/API + SSE"]
+        C_MQ -->|"AMQP"| C_W["platform-worker<br/>внутренние плагины"]
         C_CI --> C_PG[("PostgreSQL")]
         C_W --> C_PG
-        C_UI["UI"] -->|"SSE"| C_CI
-        C_EP["External Plugin"] -->|"AMQP"| C_MQ
+        C_UI["Интерфейс"] -->|"SSE"| C_CI
+        C_EP["Внешний плагин"] -->|"MQTT или AMQP"| C_MQ
     end
 
     style Single fill:#1a1a2e,stroke:#0f3460,color:#eee
@@ -177,13 +173,13 @@ graph LR
 
 **Сравнение SDK по режимам:**
 
-| Аспект | Single Mode | Cluster Mode |
-|--------|-------------|--------------|
-| **External plugin transport** | `mqtt` | `amqp` |
-| **Broker** | Встроенный `mochi-mqtt` | RabbitMQ (AMQP) |
+| Аспект | Одиночный режим | Кластер |
+|--------|-----------------|---------|
+| **Транспорт внешнего плагина** | `mqtt` (встроенный брокер) | `mqtt` (RabbitMQ MQTT) или `amqp` (RabbitMQ AMQP) |
+| **Брокер** | Встроенный `mochi-mqtt` | RabbitMQ (порт MQTT :1883 или AMQP :5672) |
 | **Примеры в `examples/`** | C++, Go, Java, Python (MQTT) — все работают | Go (AMQP) — нужно добавить |
 
-> Один и тот же код плагина (через SDK) работает в обоих режимах. Разработчик пишет `p.Subscribe("events.#", ...)` один раз — SDK сам выбирает нужный transport и формат топика.
+> Один и тот же код плагина (через SDK) работает в обоих режимах. Разработчик пишет `p.Subscribe("events.#", ...)` один раз — SDK сам выбирает нужный транспорт и формат топика. В кластере плагин может подключиться как к MQTT-порту RabbitMQ (простой вариант, аналогично одиночному режиму), так и к AMQP-порту (для расширенных возможностей маршрутизации).
 
 ---
 
@@ -199,16 +195,17 @@ graph LR
 
 **Топология:**
 
-| Exchange | Type | Назначение |
-|----------|------|------------|
-| `iot.devices` | topic | Telemetry от устройств (routing по `account_slug.product_id.device_id.kind`) |
-| `iot.commands` | direct | Команды устройствам (routing по `instance_id`) |
-| `iot.cluster` | fanout | Inter-instance events (все instance'ы получают) |
-| `iot.external` | topic | События для external plugins (routing по `account_slug.#`) |
+| Обмен | Тип | Назначение |
+|-------|-----|------------|
+| `iot.devices` | topic | Телеметрия от устройств (маршрутизация по `account_slug.product_id.device_id.kind`) |
+| `iot.commands` | topic | Команды устройствам (маршрутизация по `account_slug.product_id.device_id.kind`) |
+| `iot.cluster` | fanout | События между экземплярами (все экземпляры получают) |
+| `iot.external` | topic | События для внешних плагинов (маршрутизация по `account_slug.#`) |
 
-**Queues per instance:**
-- `iot.instance.{instance_id}.commands` — команды для конкретного instance
-- `iot.cluster.events.{instance_id}` — events для instance (для SSE)
+**Очереди на экземпляр:**
+- `iot.cluster.events.{instance_id}` — события для экземпляра (для SSE)
+
+**Примечание:** RabbitMQ сам доставляет команды устройствам через MQTT-сессию (см. [§3.2](#32-маршрутизация-команд-и-корреляция-ответов)).
 
 **RabbitMQ topology:**
 
@@ -279,62 +276,38 @@ graph TB
 ### 2.2 PostgreSQL (обязательный)
 
 **Роль:**
-- Shared state для cluster instances
-- Device registry: `device_instances` (device → instance mapping)
-- Все данные (telemetry, devices, users, etc.)
+- Общее состояние для всех экземпляров кластера
+- Все данные (телеметрия, устройства, пользователи и т. д.)
 
-**Таблица device_instances:**
+**Отслеживание состояния устройств (онлайн/офлайн):**
 
-```sql
-CREATE TABLE device_instances (
-    device_pk      BIGINT PRIMARY KEY,
-    instance_id    VARCHAR(64) NOT NULL,
-    mqtt_client_id VARCHAR(128),
-    connected_at   TIMESTAMPTZ,
-    last_seen_at   TIMESTAMPTZ
-);
+RabbitMQ предоставляет встроенные механизмы:
+- **MQTT Last Will and Testament (LWT)** — устройство при подключении может задать «последнее волеизъявление» (сообщение, которое RabbitMQ опубликует при разрыве соединения)
+- **События подключения/отключения** — RabbitMQ MQTT plugin генерирует события `$SYS/broker/connected` и `$SYS/broker/disconnected`, которые можно подписать и использовать для обновления статуса устройства в PostgreSQL
 
-CREATE INDEX idx_device_instances_instance ON device_instances(instance_id);
-```
+Для отслеживания состояния устройств достаточно обновлять поле `last_seen_at` в существующей таблице `devices` на основе событий RabbitMQ.
 
-**Обновление:**
-- Cluster instance обновляет запись при device connect/disconnect через RabbitMQ MQTT plugin events
-- TTL: запись удаляется через N минут после `last_seen_at` (с помощью `last_seen_at` cursor в `iot.devices` exchange)
+**Таблицы для аудита и RPC:**
 
-**Зачем нужна таблица:**
+В кластерном режиме используются две **независимые** таблицы (не связаны между собой, даже если данные дублируются):
 
-| Use case | Описание |
-|----------|----------|
-| **Command routing** | AMQP topic exchange умеет роутить по routing key, **но не знает**, какой instance держит MQTT-соединение с device. Поэтому lookup в `device_instances` — единственный способ узнать, в чью очередь (`iot.instance.{id}.commands`) положить команду |
-| **UI visibility** | UI показывает "device X подключён к instance Y" — полезно для диагностики и балансировки |
-| **Health monitoring** | Prometheus метрика `iot_device_instance_age_seconds` — как давно device был активен на текущем instance |
+- **`rpc_calls`** — история RPC-вызовов (запросы и ответы). Запись создаётся при отправке команды (`status='pending'`), обновляется при получении ответа (`status='ok'/'error'/'timeout'`). Используется для отображения истории RPC в интерфейсе.
+- **`audit_log`** — общий журнал событий: подключения/отключения устройств, изменения статусов, логи устройств (через специальный MQTT-топик), RPC-запросы и ответы. Каждая запись содержит `event_type`, `device_pk`, `instance_id` (какой экземпляр записал), `payload` (JSONB). Используется для аудита и отладки.
 
-**Без этой таблицы:**
-- ❌ Каждый instance должен был бы подписываться на **все** команды для **всех** device'ов
-- ❌ Каждый instance пытался бы отправить команду, и только один получал бы PUBACK
-- ❌ Лишняя нагрузка на RabbitMQ + дублирование трафика
-
-**Альтернативы (отклонены):**
-- ❌ "Header-based routing" в AMQP — сложно, не даёт преимуществ над прямым routing key
-- ❌ "Sticky session в LB" — device reconnect может попасть на другой instance
-- ❌ "Publish в общую очередь и пусть все instance'ы пробуют" — race condition, неэффективно
-
-**Итого:** `device_instances` — обязательный registry, не оптимизация.
-
-### 2.3 Cluster Instance (`platform-cluster`)
+### 2.3 Экземпляр кластера (`platform-cluster`)
 
 **Роль:**
-- UI/API server (HTTP REST)
-- SSE server (HTTP-based, не WebSocket)
-- Prometheus exporter (simple, no embedded TSDB)
-- RabbitMQ client (consume events, publish commands)
+- Сервер интерфейса и REST API (HTTP)
+- Сервер SSE (на базе HTTP, не WebSocket)
+- Экспортёр Prometheus (простой, без встроенной TSDB)
+- Клиент RabbitMQ (приём событий, публикация команд)
 
 **НЕ имеет:**
-- Встроенного MQTT broker
-- Internal plugins (они в workers)
-- WebSocket server (заменён на SSE)
+- Встроенного брокера MQTT
+- Внутренних плагинов (они в рабочих процессах)
+- Сервера WebSocket (заменён на SSE)
 
-**Stateless:** может быть запущено N instance'ов за L7 LB. Каждый instance обрабатывает свои HTTP-запросы и SSE-соединения.
+**Без состояния:** может быть запущено N экземпляров за балансировщиком L7. Каждый экземпляр обрабатывает свои HTTP-запросы и SSE-соединения.
 
 **Конфигурация:**
 ```yaml
@@ -342,46 +315,46 @@ mode: cluster
 http_addr: ":8080"
 rabbitmq_url: "amqp://guest:guest@rabbitmq:5672/"
 postgres_dsn: "postgres://user:pass@postgres:5432/platform"
-instance_id: "${HOSTNAME}"  # автогенерация
+instance_id: "${HOSTNAME}"  # автогенерация, для диагностики и логов
 ```
 
-### 2.4 Worker (`platform-worker`)
+### 2.4 Рабочий процесс (`platform-worker`)
 
 **Роль:**
-- Запускает internal plugins (schedule, led-garland, и т.д.)
-- Stateless execution (без leader election)
-- Может быть запущено N workers
+- Запускает внутренние плагины (schedule, led-garland и т. д.)
+- Выполнение без состояния (без выбора лидера)
+- Может быть запущено N рабочих процессов
 
-**Архитектурно: worker = "SDK-consumer + in-process plugin handlers"**
+**Архитектурно: рабочий процесс = «потребитель SDK + обработчики плагинов в процессе»**
 
-> Концептуально worker не отличается от external plugin, который:
-> 1. Подписывается на `iot.external` exchange через SDK
-> 2. Обрабатывает event'ы
+> Концептуально рабочий процесс не отличается от внешнего плагина, который:
+> 1. Подписывается на обмен `iot.external` через SDK
+> 2. Обрабатывает события
 > 3. Публикует команды в `iot.commands`
 >
-> Единственное отличие: "код плагина" у worker'а — это **Go-пакеты, скомпилированные в бинарник** (in-process), а не отдельный процесс. Всё остальное — такое же.
+> Единственное отличие: «код плагина» у рабочего процесса — это **Go-пакеты, скомпилированные в бинарник** (в процессе), а не отдельный процесс. Всё остальное — такое же.
 
 **Функции:**
-- Подписан на RabbitMQ events (через тот же Plugin SDK)
-- Запускает internal plugins как handlers (in-process)
+- Подписан на события RabbitMQ (через тот же Plugin SDK)
+- Запускает внутренние плагины как обработчики (в процессе)
 - Публикует команды обратно в RabbitMQ
 
-**Stateless execution:**
-- Каждый worker получает все events
-- Обрабатывает свою часть (например, schedule plugin срабатывает на каждом worker — но **только** если у плагина есть built-in dedup через unique constraints в БД)
-- Нет координации между workers
+**Выполнение без состояния:**
+- Каждый рабочий процесс получает все события
+- Обрабатывает свою часть (например, плагин schedule срабатывает на каждом рабочем процессе — но **только** если у плагина есть встроенная дедупликация через уникальные ограничения в БД)
+- Нет координации между рабочими процессами
 
 **Сравнение:**
 
-| Аспект | External plugin | Worker + internal plugin |
-|--------|-----------------|--------------------------|
-| Транспорт | AMQP через SDK | AMQP через SDK (тот же) |
-| Код | Отдельный процесс | Go-пакет в бинарнике worker'а |
-| Subscribe events | ✓ | ✓ |
-| Publish commands | ✓ | ✓ |
+| Аспект | Внешний плагин | Рабочий процесс + внутренний плагин |
+|--------|----------------|-------------------------------------|
+| Транспорт | MQTT или AMQP через SDK | AMQP через SDK (тот же) |
+| Код | Отдельный процесс | Go-пакет в бинарнике рабочего процесса |
+| Подписка на события | ✓ | ✓ |
+| Публикация команд | ✓ | ✓ |
 | Язык | Любой (Go, Python, C++, Java) | Только Go |
-| Deployment | Отдельно (systemd, docker) | Вместе с `platform-worker` |
-| Lifecycle | Start/stop/restart отдельно | Вместе с worker'ом |
+| Развёртывание | Отдельно (systemd, docker) | Вместе с `platform-worker` |
+| Жизненный цикл | Запуск/остановка/перезапуск отдельно | Вместе с рабочим процессом |
 
 **Конфигурация:**
 ```yaml
@@ -395,52 +368,90 @@ internal_plugins:
   - prometheus-exporter  # опционально
 ```
 
-### 2.5 External Plugins (только AMQP)
+### 2.5 Внешние плагины (MQTT или AMQP)
 
-**Транспорт:** только AMQP через RabbitMQ
+В кластерном режиме внешние плагины подключаются **напрямую к RabbitMQ**, а не к конкретному экземпляру платформы. Поскольку RabbitMQ держит все MQTT-соединения (включая устройства), плагин может использовать тот же протокол, что и в одиночном режиме.
 
-**Подключение:**
-- AMQP client подключается к RabbitMQ
-- Подписывается на exchange `iot.external` с routing key `events.{account_slug}.#`
-- Публикует команды в exchange `iot.commands` с routing key `commands.{account_slug}.{product}.{device}.{kind}`
+**Два транспорта на выбор:**
+
+| Транспорт | Когда использовать | Подключение |
+|-----------|-------------------|-------------|
+| **MQTT** | Простой плагин, один экземпляр, совместимость с одиночным режимом | `mqtt://<rabbitmq>:1883` (порт MQTT RabbitMQ) |
+| **AMQP** | Расширенная маршрутизация, несколько плагинов, обмен сообщениями | `amqp://<rabbitmq>:5672` (порт AMQP RabbitMQ) |
+
+**Подключение через MQTT (простой вариант):**
+- Плагин подключается к порту MQTT RabbitMQ (:1883) с учётными данными `extplg_{slug}_{id}`
+- Подписывается на топики `platform/v1/events/{slug}/+/+/telemetry` (и другие виды событий)
+- Публикует команды в топики `platform/v1/commands/{slug}/{product}/{device}/rpc`
+- RabbitMQ MQTT plugin транслирует MQTT-подписки во внутренние очереди AMQP
+- **Преимущество:** код плагина не меняется при переходе с одиночного режима на кластер — меняется только адрес брокера
+
+**Подключение через AMQP (расширенный вариант):**
+- Плагин подключается к порту AMQP RabbitMQ (:5672) с теми же учётными данными
+- Подписывается на exchange `iot.external` с ключом маршрутизации `events.{slug}.#`
+- Публикует команды в exchange `iot.commands` с ключом маршрутизации `commands.{slug}.{product}.{device}.{kind}`
+- **Преимущество:** прямой доступ к механизмам маршрутизации RabbitMQ (обмены, ключи маршрутизации, очереди)
 
 **Разработка плагинов:**
-- Используют `pkg/plugin-sdk` (публичный Go модуль)
-- SDK абстрагирует transport — код плагина одинаковый для всех режимов
+- Используют `pkg/plugin-sdk` (публичный модуль Go)
+- SDK абстрагирует транспорт — код плагина одинаковый для обоих режимов
+- Транспорт выбирается параметром `Transport` в конфигурации SDK (`"mqtt"` или `"amqp"`)
 
-### 2.5.1 Node-RED: переход с MQTT на AMQP
+### 2.5.1 ACL внешних плагинов в кластере
 
-Node-RED — самый популярный external plugin. В single mode он подключается к платформе через **MQTT-ноды** (`node-red-contrib-mqtt-broker`). В cluster mode MQTT-ноды **не работают** — платформа не даёт external plugins доступ к MQTT-порту, только AMQP. Это значит, что flow нужно переписать на **AMQP-ноды** (`node-red-contrib-amqp` или `@iiot-rabbitmq/amqp`).
+Поскольку плагины подключаются напрямую к RabbitMQ, контроль доступа (ACL) обеспечивается **самим RabbitMQ**, а не экземпляром платформы.
 
-**Сравнение транспортов для Node-RED:**
+**Для MQTT-подключений:**
+- RabbitMQ MQTT plugin поддерживает проверку учётных данных через `auth_backend` (платформа регистрирует пользователя `extplg_{slug}_{id}` с паролем в RabbitMQ)
+- Проверка топиков: RabbitMQ MQTT plugin поддерживает `mqtt_topic_authorization` — проверка того, что плагин с username `extplg_{slug}_*` может подписываться только на топики, содержащие `{slug}`, и публиковать только в топики с `{slug}`
+- Пример правила: пользователь `extplg_acme_*` → подписка только на `platform/v1/events/acme/#`, публикация только в `platform/v1/commands/acme/#`
 
-| Аспект | Single mode (MQTT) | Cluster mode (AMQP) |
-|--------|---------------------|---------------------|
-| **Нода** | `mqtt in` / `mqtt out` | `amqp in` / `amqp out` |
-| **Палетт** | `node-red-contrib-mqtt-broker` (встроен) | `node-red-contrib-amqp` (установить) |
-| **Connection URL** | `mqtt://<platform>:1883` | `amqp://<rabbitmq>:5672` |
-| **Subscribe events** | Topic: `platform/v1/events/{slug}/{product}/{device}/#` | Exchange `iot.external` (topic) + routing key `events.{slug}.#` |
-| **Publish commands** | Topic: `platform/v1/commands/{slug}/{product}/{device}/rpc` | Exchange `iot.commands` (topic) + routing key `commands.{slug}.{product}.{device}.{kind}` |
-| **Username** | `extplg_{slug}_{id}` (тот же) | `extplg_{slug}_{id}` (тот же) |
-| **Пароль** | одноразовый из дашборда | **тот же** (не пересоздаётся) |
-| **Payload** | JSON | JSON (тот же) |
+**Для AMQP-подключений:**
+- RabbitMQ поддерживает права доступа на уровне виртуального хоста (vhost): `configure`, `write`, `read` с регулярными выражениями для обменов и ключей маршрутизации
+- Для каждого внешнего плагина создаётся пользователь RabbitMQ с правами:
+  - `write` на exchange `iot.commands` с шаблоном ключа маршрутизации `commands.{slug}.*`
+  - `read` на exchange `iot.external` с шаблоном ключа маршрутизации `events.{slug}.#`
+- Попытка подписаться на чужой аккаунт или опубликовать в чужой топик будет отклонена RabbitMQ
 
-**Credentials (`extplg_*`) не меняются при переходе single → cluster** — это один и тот же plugin account. Разный только transport.
+**Гарантия изоляции:** плагин аккаунта `acme` физически не может получить данные аккаунта `beta`, потому что RabbitMQ отклонит подписку/публикацию на уровне протокола.
 
-**Пошагово для существующего flow:**
+### 2.5.2 Node-RED: переход на кластер
+
+Node-RED — самый популярный внешний плагин. В одиночном режиме он подключается к платформе через **MQTT-ноды**. В кластерном режиме Node-RED может **продолжить использовать MQTT-ноды** — достаточно изменить адрес брокера с адреса платформы на адрес RabbitMQ (порт :1883).
+
+**Сравнение для Node-RED:**
+
+| Параметр | Одиночный режим | Кластер (MQTT) | Кластер (AMQP) |
+|----------|-----------------|----------------|----------------|
+| **Нода** | `mqtt in` / `mqtt out` | `mqtt in` / `mqtt out` (без изменений) | `amqp in` / `amqp out` |
+| **Адрес брокера** | `<platform>:1883` | `<rabbitmq>:1883` | `<rabbitmq>:5672` |
+| **Подписка на события** | Topic: `platform/v1/events/{slug}/#` | Topic: `platform/v1/events/{slug}/#` (тот же) | Exchange `iot.external` + routing key `events.{slug}.#` |
+| **Публикация команд** | Topic: `platform/v1/commands/{slug}/...` | Topic: `platform/v1/commands/{slug}/...` (тот же) | Exchange `iot.commands` + routing key `commands.{slug}...` |
+| **Учётные данные** | `extplg_{slug}_{id}` | `extplg_{slug}_{id}` (те же) | `extplg_{slug}_{id}` (те же) |
+
+**Рекомендация:** для простоты миграции используйте MQTT-ноды в кластере — нужно изменить только адрес брокера. AMQP-ноды стоит использовать, если нужна расширенная маршрутизация или работа с несколькими обменами.
+
+**Пошагово для MQTT (простой переход):**
+
+1. В конфигурации Node-RED изменить адрес MQTT-брокера: было `<platform>:1883`, стало `<rabbitmq>:1883`.
+2. Учётные данные (`extplg_{slug}_{id}` и пароль) остаются без изменений.
+3. Топики подписки и публикации остаются без изменений.
+4. **Deploy** — соединение должно стать зелёным.
+
+**Пошагово для AMQP:**
 
 1. Установить палетт: меню → Manage palette → Install `node-red-contrib-amqp`.
 2. Создать `amqp-broker` config-ноду:
-   - Host: `rabbitmq` (в docker-compose) или `<rabbitmq-host>` (bare-metal)
+   - Host: `<rabbitmq>` (в docker-compose) или `<rabbitmq-host>` (bare-metal)
    - Port: `5672`
-   - Username: `extplg_<account_slug>_<plugin_id>` (из дашборда, поле «MQTT User»)
-   - Password: сохранённый пароль из дашборда (тот же, что использовался в MQTT-нодах)
+   - Username: `extplg_<account_slug>_<plugin_id>` (из интерфейса)
+   - Password: тот же пароль из интерфейса
 3. В flow заменить `mqtt in` → `amqp in`, `mqtt out` → `amqp out`:
-   - **Subscribe events**: exchange = `iot.external`, exchange type = `topic`, routing key = `events.{account_slug}.#`
-   - **Publish RPC**: exchange = `iot.commands`, exchange type = `topic`, routing key = `commands.{account_slug}.{product_id}.{device_id}.rpc`
-4. **Deploy** — connection должен стать зелёным (статус `connect` на ноде).
+   - **Подписка на события**: exchange = `iot.external`, exchange type = `topic`, routing key = `events.{account_slug}.#`
+   - **Публикация команд**: exchange = `iot.commands`, exchange type = `topic`, routing key = `commands.{account_slug}.{product_id}.{device_id}.rpc`
+4. **Deploy** — соединение должно стать зелёным.
 
-**Куда положить Node-RED:** в cluster mode Node-RED должен иметь **сетевой доступ к RabbitMQ** (порт 5672), а не к MQTT-порту платформы. В docker-compose — `networks: [cluster_net]` на обоих сервисах. `NODERED_URL` остаётся как раньше (URL для iframe в дашборде).
+**Куда положить Node-RED:** в кластерном режиме Node-RED должен иметь **сетевой доступ к RabbitMQ** (порт 5672 для AMQP или 1883 для MQTT). В docker-compose — `networks: [cluster_net]` на обоих сервисах.
 
 **Полная инструкция с JSON-примерами нод:** см. [06-automation.md → HA / Cluster mode (RabbitMQ)](06-automation.md#ha--cluster-mode-rabbitmq).
 
@@ -484,34 +495,108 @@ sequenceDiagram
 
 **Worker coordination:** каждый worker получает все events → обрабатывает свою часть (stateless).
 
-### 3.2 Command flow
+### 3.2 Маршрутизация команд и корреляция ответов
+
+RabbitMQ держит все MQTT-соединения устройств, поэтому маршрутизация команд предельно проста: любой экземпляр `platform-cluster` публикует команду в RabbitMQ, а RabbitMQ доставляет её устройству через MQTT-сессию.
+
+#### 3.2.1 Отправка команды
 
 ```mermaid
 sequenceDiagram
-    participant U as UI/API
-    participant CIB as Cluster B
-    participant DB as PostgreSQL<br/>device_instances
+    participant U as Интерфейс / API
+    participant CI as Любой экземпляр<br/>platform-cluster
     participant EX as Exchange<br/>iot.commands
-    participant Q as Queue<br/>iot.instance.cluster-A.commands
-    participant CIA as Cluster A
     participant MQ as RabbitMQ<br/>(MQTT plugin)
-    participant D as Device
+    participant D as Устройство
 
-    U->>CIB: POST /api/v1/devices/{id}/rpc
-    CIB->>DB: SELECT device_instances<br/>WHERE device_pk=?
-    DB-->>CIB: instance_id = "cluster-A"
-    CIB->>EX: PUBLISH routing_key=commands.instance.cluster-A
-    EX->>Q: routing по instance_id
-    Q->>CIA: deliver to instance A
-    CIA->>MQ: PUBLISH iot/v1/{product}/{device}/rpc/{method}
-    MQ->>D: downlink (через MQTT)
+    U->>CI: POST /api/v1/devices/{id}/rpc
+    CI->>CI: генерация request_id (UUID)
+    CI->>EX: PUBLISH routing_key=<br/>commands.{account_slug}.{product}.{device}.{kind}<br/>payload: {"id": "uuid-...", "method": "...", "params": {...}}
+    EX->>MQ: маршрутизация в MQTT-топик
+    MQ->>D: downlink через MQTT-сессию<br/>(iot/v1/{product}/{device}/rpc/{method})
     D-->>MQ: PUBACK
-    MQ-->>CIA: подтверждение
-    CIA-->>CIB: status (через отдельный канал)
-    CIB-->>U: 200 OK
+    MQ-->>CI: подтверждение (через AMQP)
+    CI->>CI: сохранение {request_id → HTTP-канал} в памяти
+    CI-->>U: 200 OK (или ожидание ответа)
 ```
 
-**Routing key:** `commands.instance.{instance_id}` — RabbitMQ routing направляет команду в нужный instance.
+#### 3.2.2 Возврат ответа и корреляция
+
+Устройство обрабатывает команду и публикует ответ в MQTT-топик `iot/v1/{product}/{device}/rpc/response`. Поле `id` в ответе содержит тот же `request_id` (UUID), что и в запросе (стандарт JSON-RPC).
+
+```mermaid
+sequenceDiagram
+    participant D as Устройство
+    participant MQ as RabbitMQ<br/>(MQTT plugin)
+    participant EX as Exchange<br/>iot.devices
+    participant Q as Queue<br/>iot.cluster.events
+    participant CIA as Cluster Instance A
+    participant CIB as Cluster Instance B
+
+    D->>MQ: PUBLISH iot/v1/{product}/{device}/rpc/response<br/>payload: {"id": "uuid-...", "result": {...}}
+    MQ->>EX: пересылает в exchange iot.devices
+    EX->>Q: маршрутизация
+    Q->>CIA: fanout
+    Q->>CIB: fanout
+    
+    CIA->>CIA: проверка: есть ли ожидающий запрос<br/>с таким request_id?
+    CIA->>CIA: ДА → отправка HTTP-ответа клиенту
+    
+    CIB->>CIB: проверка: есть ли ожидающий запрос<br/>с таким request_id?
+    CIB->>CIB: НЕТ → игнорирование
+```
+
+**Механизм корреляции:**
+
+1. **Генерация `request_id`:** экземпляр, получивший HTTP-запрос, генерирует UUID для `request_id` и сохраняет в памяти связь `{request_id → HTTP-канал}` (с таймаутом).
+
+2. **Публикация команды:** `request_id` помещается в поле `id` полезной нагрузки MQTT-сообщения (стандарт JSON-RPC).
+
+3. **Ответ устройства:** устройство обрабатывает команду и публикует ответ с тем же `id` (копирует из запроса — стандартное поведение JSON-RPC).
+
+4. **Fanout и фильтрация:** RabbitMQ доставляет ответ всем экземплярам кластера через fanout. Каждый экземпляр проверяет: есть ли у него ожидающий запрос с таким `request_id`?
+   - Если **да** — отправляет HTTP-ответ клиенту.
+   - Если **нет** — игнорирует ответ.
+
+**Формат полезной нагрузки:**
+
+*Запрос (платформа → устройство):*
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "method": "reboot",
+  "params": {}
+}
+```
+
+*Ответ (устройство → платформа):*
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "result": {"status": "ok"}
+}
+```
+
+**Ключевые свойства:**
+
+- **Уникальность:** UUID гарантирует уникальность `request_id` без координации между экземплярами кластера.
+- **Простота устройства:** устройство не обязано понимать, что такое `instance_id` или кластер — оно просто копирует `id` из запроса в ответ (стандартное поведение JSON-RPC).
+- **Не требуется изменение прошивки:** любая нормальная реализация JSON-RPC уже эхоирует `id` из запроса в ответ.
+- **Масштабируемость:** fanout + фильтрация по `request_id` работает эффективно при умеренном количестве одновременных RPC-вызовов.
+
+#### 3.2.3 Синхронный RPC — только для интерфейса
+
+**Важно:** механизм синхронного ожидания ответа (fanout + проверка в памяти) используется **только для HTTP-API** (интерфейс пользователя). Внешние плагины и автоматизация работают **асинхронно**:
+
+- **Интерфейс (UI):** `POST /api/v1/devices/{id}/rpc?wait=1` → платформа генерирует `request_id`, сохраняет `{request_id → HTTP-канал}` в памяти, ждёт ответ через fanout, отправляет HTTP-ответ клиенту.
+- **Внешние плагины:** подписываются на MQTT-топики событий (`iot/v1/{product}/{device}/rpc/response`) и получают ответы асинхронно. Плагины сами фильтруют события по `request_id` или другим критериям.
+- **Автоматизация (Node-RED):** работает через MQTT-шину правил, получает события асинхронно.
+
+**Вывод:** сложная система корреляции (БД как арбитр, временные очереди, `instance_id` в payload) **не нужна**. Простой fanout + проверка `request_id` в памяти достаточно, потому что синхронный RPC используется только для UI, а UI не генерирует тысячи одновременных запросов.
+
+**Если RabbitMQ кластеризован** (несколько узлов RabbitMQ): MQTT-плагин RabbitMQ автоматически маршрутизирует сообщение к тому узлу, где установлена MQTT-сессия устройства. Это стандартное поведение RabbitMQ MQTT plugin — дополнительная маршрутизация на уровне платформы не требуется.
 
 ### 3.3 Event flow (SSE)
 
@@ -563,20 +648,46 @@ sequenceDiagram
 ```go
 package plugin
 
+// Event — событие от устройства или платформы
+type Event struct {
+    AccountSlug string
+    ProductID   string
+    DeviceID    string
+    Kind        string  // telemetry, rpc, status, log, etc.
+    Payload     []byte
+    Timestamp   int64
+}
+
+// EventHandler — функция обработки событий
+type EventHandler func(event Event)
+
+// Logger — интерфейс логирования
+type Logger interface {
+    Info(msg string, args ...any)
+    Error(msg string, args ...any)
+}
+
+// Metrics — интерфейс метрик
+type Metrics interface {
+    IncrCounter(name string, labels map[string]string)
+}
+
+// Plugin — основной интерфейс плагина
 type Plugin interface {
-    // Subscribe to events
+    // Подписка на события
     Subscribe(pattern string, handler EventHandler) error
     
-    // Publish command to device
+    // Публикация команды устройству
     Publish(topic string, payload []byte) error
     
-    // Run plugin (blocks)
+    // Запуск плагина (блокирующий вызов)
     Run() error
 }
 
+// Config — конфигурация плагина
 type Config struct {
-    Transport   string  // "amqp" (cluster mode) или "mqtt" (single mode)
-    Connection  string  // AMQP или MQTT connection string
+    Transport   string  // "mqtt" или "amqp"
+    Connection  string  // Строка подключения MQTT или AMQP
     AccountID   int64
     AccountSlug string
     PluginID    string
@@ -584,93 +695,93 @@ type Config struct {
     Logger      Logger
     Metrics     Metrics
 }
-
-func New(cfg Config) (Plugin, error)
 ```
 
-**Маппинг Transport → подключение:**
+**Конструктор:** `func New(cfg Config) (Plugin, error)` — создаёт новый экземпляр плагина. Реализация зависит от `Transport` (mqtt или amqp).
 
-| `Transport` | Когда использовать | Connection string format |
-|-------------|---------------------|--------------------------|
-| `mqtt` | Single mode (встроенный `mochi-mqtt`) | `mqtt://user:pass@host:1883/` |
-| `amqp` | Cluster mode (RabbitMQ) | `amqp://user:pass@host:5672/` |
+**Соответствие транспорта и режима развёртывания:**
 
-**Правило:** Transport выбирается режимом деплоя, не разработчиком плагина:
-- Single mode → `mqtt`
-- Cluster mode → `amqp`
-- Один и тот же код плагина работает в обоих режимах через SDK.
+| `Transport` | Когда использовать | Строка подключения |
+|-------------|---------------------|---------------------|
+| `mqtt` | Одиночный режим (встроенный брокер) | `mqtt://user:pass@host:1883/` |
+| `mqtt` | Кластер (RabbitMQ MQTT plugin) | `mqtt://user:pass@rabbitmq:1883/` |
+| `amqp` | Кластер (RabbitMQ AMQP) | `amqp://user:pass@rabbitmq:5672/` |
+
+**Правило:** транспорт выбирается режимом развёртывания, а не разработчиком плагина:
+- Одиночный режим → только `mqtt` (встроенный брокер)
+- Кластер → `mqtt` (RabbitMQ MQTT plugin, простой вариант) или `amqp` (RabbitMQ AMQP, расширенный вариант)
+- Один и тот же код плагина работает в обоих режимах через SDK
 
 ### 4.3 Использование
 
-```go
-import "github.com/iot-platform/plugin-sdk"
+*Пример кода внешнего плагина (псевдокод):*
 
-func main() {
-    // Cluster mode
-    p, _ := plugin.New(plugin.Config{
-        Transport:   "amqp",
-        Connection:  os.Getenv("IOT_CONNECTION"),
-        AccountID:   42,
-        AccountSlug: "factory-1",
-        PluginID:    "telemetry-logger",
-        Token:       os.Getenv("IOT_TOKEN"),
-    })
-    
-    // Subscribe (паттерн одинаковый для amqp/mqtt)
-    p.Subscribe("events.{account_slug}.{product_id}.{device_id}.#", func(e Event) {
-        log.Printf("event: %s", e.Kind)
-        // handle event
-    })
-    
-    // Publish
-    p.Publish("commands.{account_slug}.{product_id}.{device_id}.rpc", payload)
-    
-    p.Run()
-}
+```
+// Инициализация плагина
+p := plugin.New(Config{
+    Transport:   "mqtt",                                          // или "amqp" для кластера
+    Connection:  "mqtt://extplg_acme_bot:pass@rabbitmq:1883/",   // строка подключения
+    AccountID:   42,
+    AccountSlug: "factory-1",
+    PluginID:    "telemetry-logger",
+    Token:       "<api-token>",
+})
+
+// Подписка на события (паттерн одинаковый для mqtt/amqp)
+p.Subscribe("events.{account_slug}.{product_id}.{device_id}.#", func(e Event) {
+    log.Printf("событие: %s", e.Kind)
+    // обработка события
+})
+
+// Публикация команды устройству
+p.Publish("commands.{account_slug}.{product_id}.{device_id}.rpc", payload)
+
+// Запуск (блокирующий вызов)
+p.Run()
 ```
 
-### 4.4 Transport implementations
+### 4.4 Реализации транспорта
 
-| Transport | Topic → Routing Key | Protocol | Где работает |
-|-----------|---------------------|----------|--------------|
-| **MQTT** | `platform/v1/events/{slug}/{product}/{device}/{kind}` | MQTT pub/sub | Single (встроенный broker) |
-| **AMQP** | exchange `iot.external` + routing key `events.{slug}.{product}.{device}.{kind}` | AMQP pub/sub | Cluster (RabbitMQ) |
+| Транспорт | Топик → ключ маршрутизации | Протокол | Где работает |
+|-----------|---------------------------|----------|--------------|
+| **MQTT** | `platform/v1/events/{slug}/{product}/{device}/{kind}` | MQTT pub/sub | Одиночный режим (встроенный брокер) или кластер (RabbitMQ MQTT plugin) |
+| **AMQP** | exchange `iot.external` + ключ маршрутизации `events.{slug}.{product}.{device}.{kind}` | AMQP pub/sub | Кластер (RabbitMQ AMQP) |
 
 **SDK обрабатывает:**
-- Connection management (reconnect, heartbeat)
-- Topic/routing key translation (per transport)
-- Serialization (JSON, protobuf)
-- Error handling
-- Metrics
+- Управление соединением (переподключение, контрольные сигналы)
+- Преобразование топиков и ключей маршрутизации (для каждого транспорта)
+- Сериализация (JSON, protobuf)
+- Обработка ошибок
+- Метрики
 
 **Преимущества:**
-- External plugin developer пишет код **один раз**
-- SDK абстрагирует transport (но не скрывает — `Transport` явный в Config)
-- Легко добавить новый transport (только реализация в SDK)
+- Разработчик внешнего плагина пишет код **один раз**
+- SDK абстрагирует транспорт (но не скрывает — `Transport` задаётся явно в конфигурации)
+- Легко добавить новый транспорт (только реализация в SDK)
 
-### 4.5 SDK architecture
+### 4.5 Архитектура SDK
 
 ```mermaid
 graph TB
-    subgraph Plugin["External Plugin (код разработчика)"]
+    subgraph Plugin["Внешний плагин (код разработчика)"]
         CODE["p.Subscribe(pattern, handler)<br/>p.Publish(topic, payload)"]
     end
 
     subgraph SDK["Plugin SDK (pkg/plugin-sdk)"]
         API["API layer<br/>(Subscribe/Publish/Run)"]
-        TRANS["Transport abstraction"]
-        SER["Serialization<br/>(JSON/protobuf)"]
-        CONN["Connection management<br/>(reconnect, heartbeat)"]
+        TRANS["Абстракция транспорта"]
+        SER["Сериализация<br/>(JSON/protobuf)"]
+        CONN["Управление соединением<br/>(переподключение, контроль)"]
     end
 
-    subgraph Impl["Transport implementations"]
-        MQTT["MQTT transport<br/>(single)"]
-        AMQP["AMQP transport<br/>(cluster)"]
+    subgraph Impl["Реализации транспорта"]
+        MQTT["MQTT транспорт<br/>(одиночный + кластер)"]
+        AMQP["AMQP транспорт<br/>(кластер)"]
     end
 
-    subgraph Brokers["Brokers"]
-        MB["Встроенный<br/>mochi-mqtt<br/>(single)"]
-        RB["RabbitMQ<br/>(cluster)"]
+    subgraph Brokers["Брокеры"]
+        MB["Встроенный<br/>mochi-mqtt<br/>(одиночный)"]
+        RB["RabbitMQ<br/>(кластер)"]
     end
 
     CODE --> API
@@ -680,6 +791,7 @@ graph TB
     TRANS --> MQTT
     TRANS --> AMQP
     MQTT --> MB
+    MQTT --> RB
     AMQP --> RB
 
     style Plugin fill:#16213e,stroke:#1a1a2e,color:#eee
@@ -696,7 +808,7 @@ graph TB
 
 | Подсистема | Секция в sub-doc | ID-диапазон |
 |------------|------------------|-------------|
-| HA Foundation (v2.0): cluster instance, worker, RabbitMQ, device registry, command routing, SSE, Prometheus | [§5.1](17-ha-architecture-requirements.md#51-f2-01f2-07-ha-foundation-v20) | F2-01…F2-07 |
+| HA Foundation (v2.0): экземпляр кластера, рабочий процесс, RabbitMQ, маршрутизация команд, SSE, Prometheus | [§5.1](17-ha-architecture-requirements.md#51-f2-01f2-07-ha-foundation-v20) | F2-01…F2-07 |
 | Account-level features (v2.2): RBAC, rate limiting, retention, import/export, signing, remote_write | [§5.2](17-ha-architecture-requirements.md#52-f2-21f2-26-account-level-features-v22) | F2-21…F2-26 |
 | Future (v2.3+): SSO, SIEM, transfer, dashboards, DR, marketplace | [§5.3](17-ha-architecture-requirements.md#53-f2-31f2-36-future-v23) | F2-31…F2-36 |
 
@@ -824,6 +936,21 @@ graph TB
 
 ---
 
+## 7.6 HA-readiness: контракт с v1
+
+В v1 (single mode) HA-сценарии не применимы, но **закладываются архитектурно**, чтобы не заблокировать переход к HA в v2. Полный список инвариантов — в [NF-19 в 16-multi-account-requirements.md](16-multi-account-requirements.md).
+
+| Кейс | v1 поведение | v2 поведение |
+|------|--------------|--------------|
+| Два инстанса с одной SQLite БД | v1 запрещает (NF-19: инвариант «single instance») | Не применимо (HA на Postgres) |
+| Два инстанса с одной Postgres БД | v1 формально не запрещает, но broadcast дублируется между instance'ами | Без изменений: SSE не требует sticky session; `instance_id` используется только для diagnostics/log. Каждый instance вещает свои события, клиент в любой момент может переподключиться к другому LB-target |
+| Один инстанс упал, второй подхватил | Не работает (real-time клиенты теряют события в момент переподключения) | SSE auto-reconnect через `Last-Event-ID`; события за downtime теряются (v2.x: persistent buffer) |
+| External plugin подключился, инстанс перезапустился | MQTT-сессия теряется; плагин переподключается | Через external broker + persistent sessions |
+| Cache изменился на инстансе A, запрос пришёл на B | v1: stale data до reload (per-request check) | Через PostgreSQL LISTEN/NOTIFY или cache TTL |
+| Postgres failover во время миграции | v1 не применимо (только sqlite) | `golang-migrate` retry + advisory lock; failed migration → manual recovery |
+
+---
+
 ## 8. Связанная документация
 
 | Док | Что |
@@ -841,4 +968,7 @@ graph TB
 
 ## 9. Changelog
 
-- **v1.0** (Сентябрь 2026) — первая версия документа. Создан после обсуждения архитектуры HA/clustering (RabbitMQ, PostgreSQL, 3 бинарника, SSE вместо WebSocket, External Plugin SDK).
+| Дата | Тип | Описание |
+|------|-----|----------|
+| 12.09.2026 | Начало | Первая версия документа. Архитектура HA/clustering: RabbitMQ, PostgreSQL, три бинарника, SSE для интерфейса, External Plugin SDK |
+| 13.09.2026 | Корректировка | Переписан §0 (убраны англоязычные вставки). Переработан §2.5 — внешние плагины могут работать через MQTT или AMQP (оба транспорта идут в RabbitMQ). Упрощена маршрутизация команд (§3.2) — RabbitMQ сам держит MQTT-соединения устройств. Добавлен механизм корреляции запрос-ответ через `request_id` (UUID) с fanout-фильтрацией (§3.2.1–3.2.2). Добавлен §3.2.3 — синхронный RPC только для UI, плагины работают асинхронно. Добавлено описание таблиц `rpc_calls` и `audit_log` (§2.2). Добавлены подробности ACL для плагинов (§2.5.1). Обновлены §1.1, §4 |
