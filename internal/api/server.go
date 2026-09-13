@@ -27,6 +27,7 @@ type Server struct {
 	Plat  *services.Platform
 	Hub   *ws.Hub
 	SpaFS fs.FS // optional embedded SPA (dist contents)
+	Setup *services.SetupService // setup wizard service (nil if setup not needed)
 }
 
 func (s *Server) Router() http.Handler {
@@ -65,6 +66,16 @@ func (s *Server) Router() http.Handler {
 
 	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
 	r.Get("/api/v1/mqtt/ca.pem", s.mqttCACert)
+
+	// Setup wizard endpoints (public, no auth)
+	if s.Setup != nil {
+		setupHandler := &SetupHandler{Setup: s.Setup}
+		r.Route("/api/v1/setup", func(r chi.Router) {
+			r.Get("/state", setupHandler.GetState)
+			r.Post("/step", setupHandler.UpdateStep)
+			r.Post("/apply", setupHandler.Apply)
+		})
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/auth/config", s.authConfig)

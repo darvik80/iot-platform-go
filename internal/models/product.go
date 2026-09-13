@@ -42,6 +42,7 @@ type ProductAttribute struct {
 
 type Product struct {
 	ID                int64              `json:"id"`
+	AccountID         int64              `json:"account_id"`
 	ProductID         string             `json:"product_id"`
 	Name              string             `json:"name"`
 	Description       string             `json:"description"`

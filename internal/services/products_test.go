@@ -11,7 +11,7 @@ import (
 
 func TestUpdateProductMethods(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestUpdateProductMethods(t *testing.T) {
 
 func TestBuiltinRPCListAlwaysPresent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	database, err := db.Open(dbPath)
+	database, err := db.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

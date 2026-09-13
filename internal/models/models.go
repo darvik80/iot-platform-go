@@ -241,6 +241,7 @@ type DevicePluginBinding struct {
 // ExternalPlugin is an out-of-process plugin registered via API.
 type ExternalPlugin struct {
 	ID              string          `json:"id"`
+	AccountID       int64           `json:"account_id"`
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
 	Endpoint        string          `json:"endpoint"`

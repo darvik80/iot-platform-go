@@ -1,4 +1,4 @@
-﻿import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './layout/AppShell';
 import { AutomationPage } from './pages/AutomationPage';
@@ -13,6 +13,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SetupPage } from './pages/SetupPage';
 import { UsersPage } from './pages/UsersPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={<SetupPage />} />
       <Route
         element={
           <RequireAuth>

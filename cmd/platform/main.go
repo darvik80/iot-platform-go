@@ -33,9 +33,9 @@ func main() {
 		log.Info("google oauth disabled — set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env")
 	}
 
-	database, err := db.Open(cfg.SQLitePath)
+	database, err := db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
 	if err != nil {
-		log.Error("sqlite open failed", "err", err)
+		log.Error("database open failed", "driver", cfg.DatabaseDriver, "err", err)
 		os.Exit(1)
 	}
 	defer database.Close()
@@ -46,6 +46,19 @@ func main() {
 		os.Exit(1)
 	}
 	_ = plat.ReloadDeviceMaps()
+
+	// Check if setup wizard is needed (no accounts exist)
+	var setupService *services.SetupService
+	var accountCount int
+	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
+		// Table might not exist yet on first run
+		log.Warn("accounts table check failed, enabling setup wizard", "err", err)
+		accountCount = 0
+	}
+	if accountCount == 0 {
+		log.Info("no accounts found, enabling setup wizard")
+		setupService = services.NewSetupService(log)
+	}
 
 	hub := ws.NewHub()
 	plat.SetHub(hub)
@@ -73,7 +86,7 @@ func main() {
 		log.Info("serving dashboard from web/dist")
 	}
 
-	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa}
+	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService}
 	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
 
 	go func() {

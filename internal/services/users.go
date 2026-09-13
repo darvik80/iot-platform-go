@@ -37,15 +37,55 @@ func (p *Platform) EnsureAdmin() error {
 		_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.AdminEmail)
 		return nil
 	}
+
+	// Bootstrap: create admin user, default account, and membership
 	hash, err := auth.HashPassword(p.Cfg.AdminPassword)
 	if err != nil {
 		return err
 	}
 	now := db.NowMS()
-	_, err = p.DB.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`,
-		p.Cfg.AdminEmail, hash, models.RoleAdmin, p.Cfg.AdminLogin, "Admin", 1, now, now)
-	return err
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Create admin user with is_platform_admin flag
+	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, is_platform_admin, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
+		p.Cfg.AdminEmail, hash, models.RoleAdmin, p.Cfg.AdminLogin, "Admin", 1, 1, now, now)
+	if err != nil {
+		return err
+	}
+	adminID, _ := res.LastInsertId()
+
+	// Create default account
+	slug := p.Cfg.BootstrapAccountSlug
+	if slug == "" {
+		slug = "default"
+	}
+	name := p.Cfg.BootstrapAccountName
+	if name == "" {
+		name = "Default"
+	}
+	accRes, err := tx.Exec(`INSERT INTO accounts(slug, name, settings_json, status, created_at, updated_at)
+		VALUES(?,?,?,?,?,?)`,
+		slug, name, "{}", "active", now, now)
+	if err != nil {
+		return err
+	}
+	accountID, _ := accRes.LastInsertId()
+
+	// Create membership linking admin to default account
+	_, err = tx.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at)
+		VALUES(?,?,?,?,?)`,
+		adminID, accountID, models.RoleAdmin, "active", now)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 type RegisterInput struct {
@@ -182,21 +222,21 @@ func (p *Platform) Login(identity, password string) (*models.User, string, error
 func (p *Platform) FindUserByLoginOrEmail(identity string) (*models.User, error) {
 	identity = strings.ToLower(strings.TrimSpace(identity))
 	row := p.DB.QueryRow(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), created_at, updated_at
+		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
 		FROM users WHERE lower(email)=? OR lower(login)=?`, identity, identity)
 	return scanUser(row)
 }
 
 func (p *Platform) GetUser(id int64) (*models.User, error) {
 	row := p.DB.QueryRow(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), created_at, updated_at
+		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
 		FROM users WHERE id=?`, id)
 	return scanUser(row)
 }
 
 func (p *Platform) ListUsers() ([]models.User, error) {
 	rows, err := p.DB.Query(`SELECT id, COALESCE(login,''), email, COALESCE(display_name,''), password_hash, role,
-		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), created_at, updated_at
+		COALESCE(email_verified,0), COALESCE(google_sub,''), COALESCE(disabled,0), COALESCE(is_platform_admin,0), created_at, updated_at
 		FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -349,9 +389,9 @@ func (p *Platform) RevokeAPIToken(userID, tokenID int64) error {
 
 func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	var u models.User
-	var verified, disabled int
+	var verified, disabled, isPlatformAdmin int
 	err := row.Scan(&u.ID, &u.Login, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role,
-		&verified, &u.GoogleSub, &disabled, &u.CreatedAt, &u.UpdatedAt)
+		&verified, &u.GoogleSub, &disabled, &isPlatformAdmin, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("not found")
 	}
@@ -360,6 +400,7 @@ func scanUser(row interface{ Scan(dest ...any) error }) (*models.User, error) {
 	}
 	u.EmailVerified = verified == 1
 	u.Disabled = disabled == 1
+	u.IsPlatformAdmin = isPlatformAdmin == 1
 	switch {
 	case u.GoogleSub != "" && u.PasswordHash != "":
 		u.AuthProvider = "both"

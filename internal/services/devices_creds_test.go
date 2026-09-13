@@ -10,14 +10,17 @@ import (
 
 func TestDeviceProvisionJSON(t *testing.T) {
 	dir := t.TempDir()
-	database, err := db.Open(filepath.Join(dir, "test.db"))
+	dbPath := filepath.Join(dir, "test.db")
+	database, err := db.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 
 	p := New(database, config.Config{
-		SQLitePath:       filepath.Join(dir, "test.db"),
+		DatabaseDriver:   "sqlite",
+		DatabaseDSN:      dbPath,
+		DataDir:          dir,
 		BrokerHostPublic: "192.168.1.100",
 		MQTTAddr:         ":1883",
 		MQTTWSAddr:       ":8083",

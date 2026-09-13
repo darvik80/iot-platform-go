@@ -14,7 +14,11 @@ import (
 
 type Config struct {
 	HTTPAddr               string
-	SQLitePath             string
+	DatabaseDriver         string // sqlite | postgres
+	DatabaseDSN            string
+	SQLitePath             string // deprecated: use DatabaseDSN
+	DataDir                string // base directory for data files (firmware, etc.)
+	DBMaxOpenConns         int
 	MQTTAddr               string
 	MQTTWSAddr             string
 	MQTTTLSAddr            string
@@ -49,6 +53,8 @@ type Config struct {
 	GoogleClientID         string
 	GoogleClientSecret     string
 	GoogleRedirectURL      string
+	BootstrapAccountSlug   string
+	BootstrapAccountName   string
 }
 
 func Load() Config {
@@ -58,9 +64,47 @@ func Load() Config {
 	default:
 		role = models.RoleViewer
 	}
+
+	// Database driver auto-detection with backward compatibility
+	driver := getenv("DATABASE_DRIVER", "", "DATABASE_DRIVER")
+	dsn := getenv("DATABASE_DSN", "", "DATABASE_DSN")
+	sqlitePath := getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH")
+
+	// If no explicit driver, check for legacy SQLITE_PATH or default to sqlite
+	if driver == "" {
+		if os.Getenv("SQLITE_PATH") != "" || os.Getenv("DATABASE_SQLITE_PATH") != "" {
+			driver = "sqlite"
+			dsn = sqlitePath
+		} else {
+			driver = "sqlite"
+			dsn = sqlitePath
+		}
+	} else if dsn == "" {
+		// If driver is set but DSN is empty, use default for that driver
+		if driver == "postgres" {
+			dsn = "postgres://localhost:5432/iot_platform?sslmode=disable"
+		} else {
+			dsn = sqlitePath
+		}
+	}
+
+	dataDir := getenv("DATA_DIR", "", "DATA_DIR")
+	if dataDir == "" {
+		// Default to directory containing the database file
+		if driver == "sqlite" {
+			dataDir = filepath.Dir(dsn)
+		} else {
+			dataDir = "./data"
+		}
+	}
+
 	return Config{
 		HTTPAddr:               getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
-		SQLitePath:             getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH"),
+		DatabaseDriver:         driver,
+		DatabaseDSN:            dsn,
+		SQLitePath:             sqlitePath, // deprecated
+		DataDir:                dataDir,
+		DBMaxOpenConns:         getenvInt("DB_MAX_OPEN_CONNS", 8, "DATABASE_MAX_OPEN_CONNS"),
 		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
 		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ":8083"),
 		MQTTTLSAddr:            getenv("MQTT_TLS_ADDR", ":8883"),
@@ -95,6 +139,8 @@ func Load() Config {
 		GoogleClientID:         getenv("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret:     getenv("GOOGLE_CLIENT_SECRET", ""),
 		GoogleRedirectURL:      getenv("GOOGLE_REDIRECT_URL", ""),
+		BootstrapAccountSlug:   getenv("BOOTSTRAP_ACCOUNT_SLUG", "default"),
+		BootstrapAccountName:   getenv("BOOTSTRAP_ACCOUNT_NAME", "Default"),
 	}
 }
 
@@ -231,7 +277,7 @@ func (c Config) FirmwareDir() string {
 	if strings.TrimSpace(c.OTADir) != "" {
 		return c.OTADir
 	}
-	return filepath.Join(filepath.Dir(c.SQLitePath), "firmware")
+	return filepath.Join(c.DataDir, "firmware")
 }
 
 func (c Config) FirmwarePublicURL(token string) string {
