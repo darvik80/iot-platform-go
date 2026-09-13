@@ -8,21 +8,40 @@ Production-развёртывание платформы на виртуальн
 
 ## Архитектура
 
+```mermaid
+graph TB
+    Internet["Internet<br/>(клиенты: браузер, устройства, Node-RED)"]
+
+    subgraph VDS["VPS (Ubuntu / Debian)"]
+        direction TB
+        NGINX["nginx :80 / :443<br/>TLS termination"]
+        SYSTEMD["systemd<br/>iot-platform.service"]
+        PLAT["/opt/iot-platform-go/bin/platform<br/>:8080 HTTP (REST + SSE)<br/>:1883 MQTT TCP<br/>:8083 MQTT-over-WS"]
+        DB[("SQLite (WAL)<br/>/opt/iot-platform-go/data/")]
+
+        NGINX -->|"proxy_pass :8080"| PLAT
+        NGINX -->|"proxy_pass :8083"| PLAT
+        SYSTEMD -. "manages" .-> PLAT
+        PLAT --> DB
+    end
+
+    Internet -->|"https://iot.cogitor.dev<br/>(дашборд + API + SSE)"| NGINX
+    Internet -->|"wss://iot.cogitor.dev/mqtt"| NGINX
+    Internet -->|"iot.cogitor.dev:1883<br/>(MQTT TCP, напрямую)"| PLAT
 ```
-Internet
-  │
-  ├── https://iot.cogitor.dev        → nginx → localhost:8080 (HTTP)
-  ├── wss://iot.cogitor.dev/mqtt     → nginx → localhost:8083 (WS)
-  └── iot.cogitor.dev:1883           → MQTT TCP (напрямую)
-                                            │
-                                      ┌─────┴─────┐
-                                      │  systemd   │
-                                      │ iot-platform│
-                                      │  (Go binary)│
-                                      └─────┬─────┘
-                                            │
-                                      SQLite WAL
-                                      /opt/iot-platform-go/data/
+
+## CI/CD pipeline
+
+```mermaid
+graph LR
+    DEV["Разработчик<br/>push в ветку vds"] --> CI["Gitea Actions<br/>.gitea/workflows/deploy-vds.yml"]
+    CI -->|"npm ci + run build"| WEB["React SPA dist"]
+    CI -->|"go build<br/>CGO_ENABLED=0 GOOS=linux"| BIN["/bin/platform (linux/amd64)"]
+    CI -->|"scp + ssh"| VPS["VPS<br/>sudo install → /opt/.../bin/platform"]
+    CI -->|"systemctl restart"| SVC["iot-platform.service"]
+    CI -->|"curl /healthz"| CHECK{"200 OK?"}
+    CHECK -->|да| OK["✅ Деплой завершён"]
+    CHECK -->|нет| FAIL["❌ Провал → см. journalctl -u iot-platform"]
 ```
 
 ---

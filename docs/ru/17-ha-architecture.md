@@ -595,11 +595,6 @@ func New(cfg Config) (Plugin, error)
 | `mqtt` | Single mode (встроенный `mochi-mqtt`) | `mqtt://user:pass@host:1883/` |
 | `amqp` | Cluster mode (RabbitMQ) | `amqp://user:pass@host:5672/` |
 
-**Не поддерживаются (удалены в v2.0):**
-- ❌ `grpc` — заменён на AMQP для единообразия
-- ❌ `webhook` — заменён на AMQP (plugin подключается сам, без NAT traversal проблем)
-- ❌ `polling` — заменён на AMQP (push вместо poll)
-
 **Правило:** Transport выбирается режимом деплоя, не разработчиком плагина:
 - Single mode → `mqtt`
 - Cluster mode → `amqp`
@@ -652,16 +647,6 @@ func main() {
 - External plugin developer пишет код **один раз**
 - SDK абстрагирует transport (но не скрывает — `Transport` явный в Config)
 - Легко добавить новый transport (только реализация в SDK)
-
-**❌ Удалённые транспорты в v2.0:**
-
-| Транспорт | Почему удалён | Замена |
-|-----------|---------------|--------|
-| `gRPC` | Дублирует AMQP функциональность; усложняет SDK (нужны отдельные proto-файлы) | AMQP |
-| `webhook` (platform → plugin) | Требует публичный IP/DNS у плагина; NAT traversal проблема | AMQP (plugin подключается сам) |
-| `polling` (plugin → platform) | Неэффективно (latency = poll interval); лишняя нагрузка на API | AMQP (push) |
-
-**Результат:** SDK проще, у разработчика плагина один выбор — `mqtt` (single) или `amqp` (cluster). Transport диктуется режимом деплоя.
 
 ### 4.5 SDK architecture
 
@@ -836,23 +821,6 @@ graph TB
 - [ ] CI passes (нет импортов на удалённые пакеты)
 
 **Статус:** запланировано в v1.1.
-
-### 7.6 rabbitmq-bridge plugin — РЕШЕНО: удалить
-
-**Контекст:** §5.2 описывает `rabbitmq-bridge` как каталожный internal plugin, который публикует события в RabbitMQ exchange. Но в cluster mode (v2.0+) платформа **уже подключена к RabbitMQ** — plugin-мост не нужен.
-
-**Решение:** ✅ **Удалить F2-11..F2-15** (см. [§5.1](17-ha-architecture-requirements.md#51-f2-01f2-07-ha-foundation-v20)). External apps подключаются к тому же RabbitMQ напрямую через SDK (Transport=`amqp`).
-
-**Что делаем:**
-- ❌ Не реализуем `internal/plugins/rabbitmq_bridge.go`
-- ❌ Не добавляем F2-11..F2-15 в v2.1
-- ❌ Удаляем §5.2 из release plan
-- ❌ Удаляем упоминание `rabbitmq-bridge` из §8 (связанная документация)
-
-**Альтернатива (если кому-то нужен forwarding во внешний broker):**
-- Это не задача платформы. Используйте стандартный AMQP-клиент в external app + подписку на `iot.external` exchange.
-
-**Статус:** ✅ решено.
 
 ---
 

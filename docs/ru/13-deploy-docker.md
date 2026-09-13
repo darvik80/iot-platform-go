@@ -8,23 +8,27 @@ Production на VPS использует systemd — см. [12-deploy-vds.md](12
 
 ## Как это работает
 
-```
-docker compose up -d --build
-         │
-         ├── node:22      → npm ci && npm run build  (React SPA)
-         ├── golang:1.25  → go build                  (Go binary + embedded SPA)
-         └── alpine:3.20  → /platform                 (runtime: ~30 МБ)
-                                    │
-                              ┌─────┴──────┐
-                              │  Контейнер  │
-                              │  :8080 HTTP │
-                              │  :1883 MQTT │
-                              │  :8083 WS   │
-                              └─────┬──────┘
-                                    │
-                    /volume1/docker/iot-platform-go/
-                    ├── data/        → SQLite + firmware
-                    └── etc/.env     → конфигурация
+```mermaid
+graph TB
+    subgraph Build["Multi-stage build (Dockerfile)"]
+        direction TB
+        N["node:22<br/>npm ci && npm run build"] --> SPA["React SPA (dist/)"]
+        G["golang:1.25<br/>go build"] --> BIN["Go binary"]
+        SPA -. "embed.FS" .-> BIN
+    end
+
+    BIN --> ALP["alpine:3.20<br/>итоговый образ ~30 МБ"]
+
+    subgraph Runtime["Runtime container"]
+        direction TB
+        ALP --> P["/platform<br/>:8080 HTTP<br/>:1883 MQTT TCP<br/>:8083 MQTT-WS"]
+    end
+
+    P --> DATA[("data/<br/>SQLite + firmware")]
+    P --> ENV[("etc/.env<br/>конфиг (ro)")]
+
+    DEV["Device"] -->|"MQTT :1883"| P
+    UI["Браузер"] -->|"HTTP :9083"| P
 ```
 
 ---
@@ -75,6 +79,30 @@ SQLITE_PATH=/data/platform.db
 mkdir -p /volume1/docker/iot-platform-go/{data,etc}
 cp .env.example /volume1/docker/iot-platform-go/etc/.env
 # Отредактировать /volume1/docker/iot-platform-go/etc/.env
+```
+
+### Архитектура деплоя
+
+```mermaid
+graph LR
+    subgraph Host["Synology NAS (DSM)"]
+        subgraph FS["/volume1/docker/iot-platform-go/"]
+            DATADIR["data/"]
+            ETCDIR["etc/.env"]
+        end
+
+        CONT["iot-platform-go<br/>(container)"]
+
+        DATADIR -. "bind mount<br/>:rw" .-> CONT
+        ETCDIR -. "bind mount<br/>:ro" .-> CONT
+    end
+
+    DEV["Device"] -->|"MQTT :1883"| CONT
+    UI["Браузер"] -->|"HTTP :9083"| CONT
+
+    HOSTP1["Host :9083"] -->|"→ :8080"| CONT
+    HOSTP2["Host :1883"] -->|"→ :1883"| CONT
+    HOSTP3["Host :8083"] -->|"→ :8083"| CONT
 ```
 
 ### 2. Gitea workflow (автоматический деплой)
