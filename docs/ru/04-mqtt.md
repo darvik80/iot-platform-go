@@ -81,6 +81,28 @@ v1/{mnemonic}
 {"temperature": 23.5, "humidity": 60}
 ```
 
+Платформа принимает три формата payload:
+
+**Плоский объект** — ключи напрямую становятся сэмплами:
+```json
+{"temperature": 23.5, "humidity": 60, "voltage": 3.3}
+```
+
+**Объект с `values`** — ключи внутри `values`, опциональная метка времени:
+```json
+{"ts": 1710000000000, "values": {"temperature": 23.5, "humidity": 60}}
+```
+
+**Массив объектов** — batch-публикация нескольких наборов с разными метками времени:
+```json
+[
+  {"ts": 1710000000000, "values": {"temperature": 23.5}},
+  {"ts": 1710000001000, "values": {"temperature": 23.7}}
+]
+```
+
+Каждый ключ сохраняется как отдельный сэмпл с типом: `value_num` (float64), `value_text` (string), `value_bool` (bool). Поле `ts` — миллисекунды; если отсутствует, платформа подставляет время получения.
+
 ### Статус (LWT)
 
 При CONNECT устройство публикует на `v1/s` retained-сообщение:
@@ -96,6 +118,21 @@ v1/{mnemonic}
 - **Отчёт** (`v1/a`): устройство сообщает текущие атрибуты — `{"firmware": "1.2.3", "model": "A"}`
 - **Запрос** (`v1/a/req`): устройство запрашивает desired-атрибуты у платформы
 - **Обновление** (`v1/a/upd`, downlink): платформа отправляет желаемые атрибуты
+
+**Отчёт атрибутов** — плоский JSON-объект, каждый ключ merges в таблицу reported-атрибутов:
+```json
+{"firmwareVersion": "1.2.3", "model": "A", "serial": "SN-001"}
+```
+Ключ `firmwareVersion` автоматически обновляет поле `fw_version` в таблице devices.
+
+**Запрос атрибутов** — устройство запрашивает stored-атрибуты платформы:
+```json
+{"id": 1, "reported": ["*"], "desired": ["*"]}
+```
+`id` — идентификатор для корреляции ответа. `reported` / `desired` — массивы имён ключей; `["*"]` означает «все ключи». Платформа отвечает на `v1/a/res`:
+```json
+{"id": 1, "reported": {"firmwareVersion": "1.2.3"}, "desired": {"interval": 30}}
+```
 
 ### RPC
 
@@ -121,24 +158,101 @@ v1/{mnemonic}
 
 Устройство тоже может вызвать RPC на платформу через `v1/r/creq` (ответ придёт на `v1/r/cres`).
 
+**RPC-вызов от устройства** (`v1/r/creq`):
+```json
+{"id": 1, "method": "issueUploadUrl", "params": {}}
+```
+Платформа отвечает на `v1/r/cres`:
+```json
+{"id": 1, "code": 0, "message": "ok", "data": {"url": "https://…/upload/{product}/{device}", "expires_in": 3600}}
+```
+
 Встроенный метод **`rpc-list`** (алиас `rpc_list`) возвращает каталог методов устройства. Каждый параметр: `{ type, required, default? }` (`int` / `bool` / `string` / `number`). Дашборд вызывает его автоматически при онлайн-устройстве.
 
 ### OTA (обновление прошивки)
 
-1. Устройство публикует версию: `v1/o/ver` → `{"version": "1.2.3"}`
-2. Или запрашивает обновление: `v1/o/q`
-3. Платформа отвечает командой: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin"}`
-4. Устройство загружает прошивку и публикует прогресс: `v1/o/p` → `{"percent": 45}`
+1. Устройство публикует версию: `v1/o/ver` → `{"version": "1.2.3", "module": "main"}`
+2. Или запрашивает обновление: `v1/o/q` → `{"version": "1.2.3", "module": "main"}`
+3. Платформа отвечает командой: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288, "sha256": "…", "signMethod": "sha256", "sign": "…", "force": false}`
+4. Устройство загружает прошивку и публикует прогресс: `v1/o/p` → `{"step": 45, "module": "main", "desc": "downloading"}`
 5. Отмена: `v1/o/can`
+
+**Версия прошивки** (`v1/o/ver`):
+```json
+{"version": "1.2.3", "module": "main"}
+```
+`module` — опционален, по умолчанию `main`. Платформа обновляет `fw_version` устройства и проверяет авто-OTA.
+
+**Запрос обновления** (`v1/o/q`):
+```json
+{"version": "1.2.3", "module": "main"}
+```
+Платформа ищет последнюю прошивку для этого product/module; если версия отличается от текущей — запускает OTA-задачу.
+
+**Прогресс** (`v1/o/p`):
+```json
+{"step": 45, "module": "main", "desc": "downloading"}
+```
+| Значение `step` | Статус задачи |
+|-----------------|---------------|
+| 0–100 | `running` — обновление в процессе |
+| < 0 | `failed` — ошибка |
+| ≥ 101 | `done` — завершено |
 
 ### События и логи
 
-- **Событие** (`v1/e`): произвольное событие от устройства
-- **Логи** (`v1/l`): лог-сообщения устройства
+**Событие** (`v1/e`) — дискретный инцидент:
+```json
+{
+  "id": "evt-001",
+  "ts": 1710000000000,
+  "type": "alarm",
+  "severity": "warning",
+  "code": "OVERTEMP",
+  "message": "Temperature exceeded threshold",
+  "data": {"temperature": 85.3, "threshold": 80}
+}
+```
+| Поле | Обязательное | Описание |
+|------|-------------|----------|
+| `id` | нет | Идентификатор события (уникальный на устройстве) |
+| `ts` | нет | Миллисекунды; если 0 или отсутствует — время получения |
+| `type` | нет | Тип события (`alarm`, `info`, …); по умолчанию `info` |
+| `severity` | нет | `info`, `warning`, `error`, `critical`; по умолчанию `info` |
+| `code` | нет | Код события (строка) |
+| `message` | нет | Текстовое описание |
+| `data` | нет | Произвольный объект с дополнительными данными |
+
+**Логи** (`v1/l`) — одно сообщение или массив:
+```json
+[
+  {"ts": 1710000000000, "level": "INFO", "module": "wifi", "message": "Connected to AP"},
+  {"ts": 1710000001000, "level": "ERROR", "module": "sensor", "code": "E_TIMEOUT", "message": "Read timeout", "context": {"retries": 3}}
+]
+```
+| Поле | Обязательное | Описание |
+|------|-------------|----------|
+| `ts` | нет | Миллисекунды; если 0 — время получения |
+| `level` | нет | Уровень лога (`INFO`, `WARN`, `ERROR`, `DEBUG`) |
+| `module` | нет | Модуль устройства (`wifi`, `sensor`, …) |
+| `code` | нет | Код события (строка) |
+| `message` | нет | Текст сообщения |
+| `context` | нет | Произвольный объект с контекстом |
 
 ### NTP
 
 Устройство запрашивает время: `v1/n/req` → платформа отвечает `v1/n/res` с текущим timestamp.
+
+**Запрос от устройства:**
+```json
+{"id": 1, "deviceSendTime": 1710000000000}
+```
+
+**Ответ платформы** (`v1/n/res`):
+```json
+{"id": 1, "deviceSendTime": 1710000000000, "serverRecvTime": 1710000000012, "serverSendTime": 1710000000015}
+```
+Три метки времени позволяют устройству рассчитать смещение часов: `serverRecvTime` и `serverSendTime` — время приёма и отправки на сервере, `deviceSendTime` — время отправки на устройстве (эхо из запроса).
 
 ---
 
@@ -167,7 +281,7 @@ v1/{mnemonic}
 
 Страница **MQTT** в дашборде (`GET /api/v1/mqtt`): активные сессии (client id, username, IP, подписки) и лента событий (авторизация, connect/disconnect, ACL deny, ingest, publish).
 
-Логи в stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (кроме телеметрии), `command`, downlink `publish`. Телеметрия — Debug. Docker: `docker compose logs -f platform`.
+Логи в stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest`, `command`, downlink `publish`. Docker: `docker compose logs -f platform`.
 
 WebSocket-событие `mqtt` транслируется при connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 

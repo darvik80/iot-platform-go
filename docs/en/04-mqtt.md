@@ -81,6 +81,28 @@ Publish to `v1/t` (or `iot/v1/{p}/{d}/up/telemetry/data`):
 {"temperature": 23.5, "humidity": 60}
 ```
 
+The platform accepts three payload formats:
+
+**Flat object** — keys become samples directly:
+```json
+{"temperature": 23.5, "humidity": 60, "voltage": 3.3}
+```
+
+**Object with `values`** — keys inside `values`, optional timestamp:
+```json
+{"ts": 1710000000000, "values": {"temperature": 23.5, "humidity": 60}}
+```
+
+**Array of objects** — batch publish of multiple sets with different timestamps:
+```json
+[
+  {"ts": 1710000000000, "values": {"temperature": 23.5}},
+  {"ts": 1710000001000, "values": {"temperature": 23.7}}
+]
+```
+
+Each key is stored as an individual sample with type: `value_num` (float64), `value_text` (string), `value_bool` (bool). The `ts` field is milliseconds; if absent, the platform substitutes the receive time.
+
 ### Status (LWT)
 
 On CONNECT the device publishes a retained message to `v1/s`:
@@ -96,6 +118,21 @@ Last Will and Testament: `{"online": false, "reason": "lwt"}`. The platform cons
 - **Report** (`v1/a`): device reports current attributes — `{"firmware": "1.2.3", "model": "A"}`
 - **Request** (`v1/a/req`): device requests desired attributes from the platform
 - **Update** (`v1/a/upd`, downlink): platform sends desired attributes
+
+**Attribute report** — flat JSON object, each key is merged into the reported-attributes table:
+```json
+{"firmwareVersion": "1.2.3", "model": "A", "serial": "SN-001"}
+```
+The `firmwareVersion` key automatically updates the `fw_version` field in the devices table.
+
+**Attribute request** — device requests stored attributes from the platform:
+```json
+{"id": 1, "reported": ["*"], "desired": ["*"]}
+```
+`id` is a correlation identifier for the response. `reported` / `desired` are arrays of key names; `["*"]` means "all keys". The platform responds on `v1/a/res`:
+```json
+{"id": 1, "reported": {"firmwareVersion": "1.2.3"}, "desired": {"interval": 30}}
+```
 
 ### RPC
 
@@ -115,24 +152,101 @@ Platform calls a method on the device:
 
 The device can also call RPC on the platform via `v1/r/creq` (response arrives on `v1/r/cres`).
 
+**Device-initiated RPC** (`v1/r/creq`):
+```json
+{"id": 1, "method": "issueUploadUrl", "params": {}}
+```
+Platform responds on `v1/r/cres`:
+```json
+{"id": 1, "code": 0, "message": "ok", "data": {"url": "https://…/upload/{product}/{device}", "expires_in": 3600}}
+```
+
 Built-in method **`rpc-list`** (alias `rpc_list`) returns the device method catalog. Each param: `{ type, required, default? }` (`int` / `bool` / `string` / `number`). The dashboard calls it automatically when the device is online.
 
 ### OTA (firmware update)
 
-1. Device publishes its version: `v1/o/ver` → `{"version": "1.2.3"}`
-2. Or queries for an update: `v1/o/q`
-3. Platform replies with a command: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin"}`
-4. Device downloads firmware and publishes progress: `v1/o/p` → `{"percent": 45}`
+1. Device publishes its version: `v1/o/ver` → `{"version": "1.2.3", "module": "main"}`
+2. Or queries for an update: `v1/o/q` → `{"version": "1.2.3", "module": "main"}`
+3. Platform replies with a command: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288, "sha256": "…", "signMethod": "sha256", "sign": "…", "force": false}`
+4. Device downloads firmware and publishes progress: `v1/o/p` → `{"step": 45, "module": "main", "desc": "downloading"}`
 5. Cancel: `v1/o/can`
+
+**Firmware version** (`v1/o/ver`):
+```json
+{"version": "1.2.3", "module": "main"}
+```
+`module` is optional, defaults to `main`. The platform updates the device `fw_version` and checks for auto-OTA.
+
+**Update query** (`v1/o/q`):
+```json
+{"version": "1.2.3", "module": "main"}
+```
+The platform looks for the latest firmware for this product/module; if the version differs from current, it starts an OTA job.
+
+**Progress** (`v1/o/p`):
+```json
+{"step": 45, "module": "main", "desc": "downloading"}
+```
+| `step` value | Job status |
+|--------------|------------|
+| 0–100 | `running` — update in progress |
+| < 0 | `failed` — error |
+| ≥ 101 | `done` — completed |
 
 ### Events and logs
 
-- **Event** (`v1/e`): arbitrary event from the device
-- **Logs** (`v1/l`): device log messages
+**Event** (`v1/e`) — a discrete incident:
+```json
+{
+  "id": "evt-001",
+  "ts": 1710000000000,
+  "type": "alarm",
+  "severity": "warning",
+  "code": "OVERTEMP",
+  "message": "Temperature exceeded threshold",
+  "data": {"temperature": 85.3, "threshold": 80}
+}
+```
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | no | Event identifier (unique on the device) |
+| `ts` | no | Milliseconds; if 0 or absent — receive time |
+| `type` | no | Event type (`alarm`, `info`, …); defaults to `info` |
+| `severity` | no | `info`, `warning`, `error`, `critical`; defaults to `info` |
+| `code` | no | Event code (string) |
+| `message` | no | Text description |
+| `data` | no | Arbitrary object with additional data |
+
+**Logs** (`v1/l`) — single message or array:
+```json
+[
+  {"ts": 1710000000000, "level": "INFO", "module": "wifi", "message": "Connected to AP"},
+  {"ts": 1710000001000, "level": "ERROR", "module": "sensor", "code": "E_TIMEOUT", "message": "Read timeout", "context": {"retries": 3}}
+]
+```
+| Field | Required | Description |
+|-------|----------|-------------|
+| `ts` | no | Milliseconds; if 0 — receive time |
+| `level` | no | Log level (`INFO`, `WARN`, `ERROR`, `DEBUG`) |
+| `module` | no | Device module (`wifi`, `sensor`, …) |
+| `code` | no | Event code (string) |
+| `message` | no | Message text |
+| `context` | no | Arbitrary object with context |
 
 ### NTP
 
 Device requests time: `v1/n/req` → platform replies `v1/n/res` with the current timestamp.
+
+**Device request:**
+```json
+{"id": 1, "deviceSendTime": 1710000000000}
+```
+
+**Platform response** (`v1/n/res`):
+```json
+{"id": 1, "deviceSendTime": 1710000000000, "serverRecvTime": 1710000000012, "serverSendTime": 1710000000015}
+```
+Three timestamps allow the device to calculate clock offset: `serverRecvTime` and `serverSendTime` are server-side receive/send times, `deviceSendTime` is echoed back from the request.
 
 ---
 
@@ -161,7 +275,7 @@ Subscribe to events: `platform/v1/events/#`
 
 Dashboard **MQTT** page (`GET /api/v1/mqtt`): live sessions (client id, username, IP, subscriptions) and an in-memory event trail (auth, connect/disconnect, ACL deny, ingest, publish).
 
-Stdout logs (`slog`, `LOG_LEVEL`, default Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest` (except telemetry), `command`, downlink `publish`. Telemetry is Debug. Docker: `docker compose logs -f platform`.
+Stdout logs (`slog`, `LOG_LEVEL`, default Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest`, `command`, downlink `publish`. Docker: `docker compose logs -f platform`.
 
 WebSocket event `mqtt` is broadcast on connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 

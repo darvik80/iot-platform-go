@@ -27,11 +27,7 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 		return
 	}
 	kind := protocol.NormalizeCapOp(capOp)
-	level := "debug"
-	if kind == protocol.KindTelemetry {
-		level = "debug"
-	}
-	b.note(level, "ingest", "", userID, "", topic, kind, len(payload))
+	b.note("info", "ingest", "", userID, "", topic, kind, len(payload))
 	switch kind {
 	case protocol.KindStatus:
 		var st struct {
