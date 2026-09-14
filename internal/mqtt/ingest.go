@@ -45,7 +45,9 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 	case protocol.KindTelemetry:
 		_ = b.plat.StoreTelemetry(dev, payload)
 	case protocol.KindEvent:
-		_ = b.plat.StoreEvent(dev, payload)
+		if err := b.plat.StoreEvent(dev, payload); err != nil {
+			b.note("warn", "event_error", "", userID, "", topic, err.Error(), len(payload))
+		}
 	case protocol.KindAttrReport:
 		var attrs map[string]any
 		if err := json.Unmarshal(payload, &attrs); err == nil {
