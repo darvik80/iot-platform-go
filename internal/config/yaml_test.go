@@ -73,11 +73,11 @@ mqtt:
 	}
 	LoadYAML(path)
 	cfg := Load()
-	if cfg.PublicBaseURL != "http://localhost:8081" || cfg.HTTPAddr != ":9090" {
-		t.Fatalf("got public=%q http=%q", cfg.PublicBaseURL, cfg.HTTPAddr)
+	if cfg.Platform.PublicBaseURL != "http://localhost:8081" || cfg.HTTP.Addr != ":9090" {
+		t.Fatalf("got public=%q http=%q", cfg.Platform.PublicBaseURL, cfg.HTTP.Addr)
 	}
-	if cfg.BrokerHostPublic != "192.0.2.1" {
-		t.Fatalf("broker=%q", cfg.BrokerHostPublic)
+	if cfg.Platform.BrokerHostPublic != "192.0.2.1" {
+		t.Fatalf("broker=%q", cfg.Platform.BrokerHostPublic)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestEnvPublicBaseURLWinsOverYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 	LoadYAML(path)
-	if got := Load().PublicBaseURL; got != "http://from-env:1" {
+	if got := Load().Platform.PublicBaseURL; got != "http://from-env:1" {
 		t.Fatalf("env must win, got %q", got)
 	}
 }

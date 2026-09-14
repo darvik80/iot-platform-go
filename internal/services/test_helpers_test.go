@@ -33,9 +33,9 @@ func newTestPlatform(t *testing.T, cfg config.Config) *Platform {
 	if cfg.DataDir == "" {
 		cfg.DataDir = dir
 	}
-	if cfg.DatabaseDriver == "" {
-		cfg.DatabaseDriver = "sqlite"
-		cfg.DatabaseDSN = dbPath
+	if cfg.Database.Driver == "" {
+		cfg.Database.Driver = "sqlite"
+		cfg.Database.DSN = dbPath
 	}
 
 	return New(database, cfg, nil)

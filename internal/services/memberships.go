@@ -79,7 +79,7 @@ func (p *Platform) SwitchAccount(userID int64, newAccountID int64) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return auth.IssueJWT(p.Cfg.JWTSecret, *u, refs, newAccountID, 24*time.Hour)
+	return auth.IssueJWT(p.Cfg.Auth.JWTSecret, *u, refs, newAccountID, 24*time.Hour)
 }
 
 // ListAccountMembers returns all members of an account with user info.

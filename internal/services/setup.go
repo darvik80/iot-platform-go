@@ -201,22 +201,36 @@ func (s *SetupService) Apply() error {
 
 	// Build config from wizard state
 	cfg := config.Config{
-		DatabaseDriver:       s.state.DatabaseDriver,
-		DatabaseDSN:          s.state.DatabaseDSN,
-		AdminLogin:           s.state.AdminLogin,
-		AdminEmail:           s.state.AdminEmail,
-		AdminPassword:        s.state.AdminPassword,
-		BootstrapAccountSlug: s.state.AccountSlug,
-		BootstrapAccountName: s.state.AccountName,
-		JWTSecret:            s.state.JWTSecret,
-		SMTPHost:             s.state.SMTPHost,
-		SMTPPort:             s.state.SMTPPort,
-		SMTPUser:             s.state.SMTPUser,
-		SMTPPass:             s.state.SMTPPass,
-		SMTPFrom:             s.state.SMTPFrom,
-		MQTTTLSCert:          s.state.MQTTTLSCert,
-		MQTTTLSKey:           s.state.MQTTTLSKey,
-		PublicBaseURL:        s.state.PublicBaseURL,
+		Database: config.DatabaseConfig{
+			Driver: s.state.DatabaseDriver,
+			DSN:    s.state.DatabaseDSN,
+		},
+		Admin: config.AdminConfig{
+			Login:    s.state.AdminLogin,
+			Email:    s.state.AdminEmail,
+			Password: s.state.AdminPassword,
+		},
+		Bootstrap: config.BootstrapConfig{
+			AccountSlug: s.state.AccountSlug,
+			AccountName: s.state.AccountName,
+		},
+		Auth: config.AuthConfig{
+			JWTSecret: s.state.JWTSecret,
+		},
+		Email: config.EmailConfig{
+			SMTPHost: s.state.SMTPHost,
+			SMTPPort: s.state.SMTPPort,
+			SMTPUser: s.state.SMTPUser,
+			SMTPPass: s.state.SMTPPass,
+			SMTPFrom: s.state.SMTPFrom,
+		},
+		MQTT: config.MQTTConfig{
+			TLSCert: s.state.MQTTTLSCert,
+			TLSKey:  s.state.MQTTTLSKey,
+		},
+		Platform: config.PlatformConfig{
+			PublicBaseURL: s.state.PublicBaseURL,
+		},
 	}
 
 	// Create bootstrap admin and default account
@@ -244,7 +258,7 @@ func (s *SetupService) Apply() error {
 
 // bootstrapSetup creates the initial admin user and default account.
 func bootstrapSetup(database *db.DB, cfg config.Config) error {
-	hash, err := auth.HashPassword(cfg.AdminPassword)
+	hash, err := auth.HashPassword(cfg.Admin.Password)
 	if err != nil {
 		return err
 	}
@@ -259,7 +273,7 @@ func bootstrapSetup(database *db.DB, cfg config.Config) error {
 	// Create admin user (wrapper auto-converts ? → $N and handles RETURNING id for PostgreSQL)
 	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
-		cfg.AdminEmail, hash, models.RoleAdmin, cfg.AdminLogin, "Admin", 1, now, now)
+		cfg.Admin.Email, hash, models.RoleAdmin, cfg.Admin.Login, "Admin", 1, now, now)
 	if err != nil {
 		return fmt.Errorf("create admin: %w", err)
 	}
@@ -268,7 +282,7 @@ func bootstrapSetup(database *db.DB, cfg config.Config) error {
 	// Create default account
 	accRes, err := tx.Exec(`INSERT INTO accounts(slug, name, settings_json, status, created_at, updated_at)
 		VALUES(?,?,?,?,?,?)`,
-		cfg.BootstrapAccountSlug, cfg.BootstrapAccountName, "{}", "active", now, now)
+		cfg.Bootstrap.AccountSlug, cfg.Bootstrap.AccountName, "{}", "active", now, now)
 	if err != nil {
 		return fmt.Errorf("create account: %w", err)
 	}
@@ -288,15 +302,15 @@ func bootstrapSetup(database *db.DB, cfg config.Config) error {
 // storeSettings persists wizard configuration to the settings table.
 func storeSettings(database *db.DB, cfg config.Config) error {
 	settings := map[string]string{
-		"jwt_secret":      cfg.JWTSecret,
-		"smtp_host":       cfg.SMTPHost,
-		"smtp_port":       fmt.Sprintf("%d", cfg.SMTPPort),
-		"smtp_user":       cfg.SMTPUser,
-		"smtp_pass":       cfg.SMTPPass,
-		"smtp_from":       cfg.SMTPFrom,
-		"mqtt_tls_cert":   cfg.MQTTTLSCert,
-		"mqtt_tls_key":    cfg.MQTTTLSKey,
-		"public_base_url": cfg.PublicBaseURL,
+		"jwt_secret":      cfg.Auth.JWTSecret,
+		"smtp_host":       cfg.Email.SMTPHost,
+		"smtp_port":       fmt.Sprintf("%d", cfg.Email.SMTPPort),
+		"smtp_user":       cfg.Email.SMTPUser,
+		"smtp_pass":       cfg.Email.SMTPPass,
+		"smtp_from":       cfg.Email.SMTPFrom,
+		"mqtt_tls_cert":   cfg.MQTT.TLSCert,
+		"mqtt_tls_key":    cfg.MQTT.TLSKey,
+		"public_base_url": cfg.Platform.PublicBaseURL,
 	}
 
 	for key, value := range settings {
@@ -325,21 +339,21 @@ func generateSecret() string {
 func writeConfigYAML(cfg config.Config) error {
 	// Build a minimal config structure for YAML
 	data := map[string]any{
-		"database_driver": cfg.DatabaseDriver,
-		"database_dsn":    cfg.DatabaseDSN,
-		"jwt_secret":      cfg.JWTSecret,
-		"public_base_url": cfg.PublicBaseURL,
+		"database_driver": cfg.Database.Driver,
+		"database_dsn":    cfg.Database.DSN,
+		"jwt_secret":      cfg.Auth.JWTSecret,
+		"public_base_url": cfg.Platform.PublicBaseURL,
 	}
-	if cfg.SMTPHost != "" {
-		data["smtp_host"] = cfg.SMTPHost
-		data["smtp_port"] = cfg.SMTPPort
-		data["smtp_user"] = cfg.SMTPUser
-		data["smtp_pass"] = cfg.SMTPPass
-		data["smtp_from"] = cfg.SMTPFrom
+	if cfg.Email.SMTPHost != "" {
+		data["smtp_host"] = cfg.Email.SMTPHost
+		data["smtp_port"] = cfg.Email.SMTPPort
+		data["smtp_user"] = cfg.Email.SMTPUser
+		data["smtp_pass"] = cfg.Email.SMTPPass
+		data["smtp_from"] = cfg.Email.SMTPFrom
 	}
-	if cfg.MQTTTLSCert != "" {
-		data["mqtt_tls_cert"] = cfg.MQTTTLSCert
-		data["mqtt_tls_key"] = cfg.MQTTTLSKey
+	if cfg.MQTT.TLSCert != "" {
+		data["mqtt_tls_cert"] = cfg.MQTT.TLSCert
+		data["mqtt_tls_key"] = cfg.MQTT.TLSKey
 	}
 
 	// Marshal to YAML

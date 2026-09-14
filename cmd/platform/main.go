@@ -27,11 +27,11 @@ func main() {
 	cfg := config.Load()
 
 	// Use defaults if not configured
-	if cfg.HTTPAddr == "" {
-		cfg.HTTPAddr = ":8080"
+	if cfg.HTTP.Addr == "" {
+		cfg.HTTP.Addr = ":8080"
 	}
-	if cfg.MQTTAddr == "" {
-		cfg.MQTTAddr = ":1883"
+	if cfg.MQTT.Addr == "" {
+		cfg.MQTT.Addr = ":1883"
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
@@ -49,12 +49,12 @@ func main() {
 	var plat *services.Platform
 	needSetup := false
 
-	if cfg.DatabaseDriver != "" && cfg.DatabaseDSN != "" {
+	if cfg.Database.Driver != "" && cfg.Database.DSN != "" {
 		// Database is configured — try to open it
 		var err error
-		database, err = db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
+		database, err = db.Open(cfg.Database.Driver, cfg.Database.DSN)
 		if err != nil {
-			log.Error("database open failed", "driver", cfg.DatabaseDriver, "err", err)
+			log.Error("database open failed", "driver", cfg.Database.Driver, "err", err)
 			os.Exit(1)
 		}
 
@@ -100,9 +100,9 @@ func main() {
 		}
 
 		srv := &api.Server{Setup: setupService, SpaFS: spa}
-		httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
+		httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 
-		log.Info("setup wizard listening", "addr", cfg.HTTPAddr)
+		log.Info("setup wizard listening", "addr", cfg.HTTP.Addr)
 		go func() {
 			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Error("http server failed", "err", err)
@@ -124,16 +124,16 @@ func main() {
 		// Reload config (wizard wrote config.yml) — force override any existing env vars
 		config.LoadYAMLForce("./config.yml")
 		cfg = config.Load()
-		if cfg.HTTPAddr == "" {
-			cfg.HTTPAddr = ":8080"
+		if cfg.HTTP.Addr == "" {
+			cfg.HTTP.Addr = ":8080"
 		}
-		if cfg.MQTTAddr == "" {
-			cfg.MQTTAddr = ":1883"
+		if cfg.MQTT.Addr == "" {
+			cfg.MQTT.Addr = ":1883"
 		}
 
 		// Open the database configured by the wizard
 		var err error
-		database, err = db.Open(cfg.DatabaseDriver, cfg.DatabaseDSN)
+		database, err = db.Open(cfg.Database.Driver, cfg.Database.DSN)
 		if err != nil {
 			log.Error("database open failed after setup", "err", err)
 			os.Exit(1)
@@ -151,7 +151,7 @@ func main() {
 	plat.SetPublisher(brk)
 	plat.SetMQTTSession(brk)
 	if err := brk.Start(); err != nil {
-		log.Error("mqtt broker failed", "addr", cfg.MQTTAddr, "err", err)
+		log.Error("mqtt broker failed", "addr", cfg.MQTT.Addr, "err", err)
 		os.Exit(1)
 	}
 	defer brk.Close()
@@ -171,10 +171,10 @@ func main() {
 	}
 
 	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService}
-	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Router()}
+	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 
 	go func() {
-		log.Info("platform listening", "addr", cfg.HTTPAddr, "mqtt", cfg.MQTTAddr, "public", cfg.PublicBaseURL, "name", cfg.PlatformName, "tz", cfg.TimezoneOrUTC(), "log", cfg.LogLevel)
+		log.Info("platform listening", "addr", cfg.HTTP.Addr, "mqtt", cfg.MQTT.Addr, "public", cfg.Platform.PublicBaseURL, "name", cfg.Platform.Name, "tz", cfg.TimezoneOrUTC(), "log", cfg.LogLevel)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("http server failed", "err", err)
 			os.Exit(1)

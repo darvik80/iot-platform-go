@@ -37,23 +37,23 @@ func TestMQTTPublicPort(t *testing.T) {
 		"1887":           1887,
 	}
 	for in, want := range cases {
-		c := Config{MQTTAddr: in}
-		if got := c.MQTTPublicPort(); got != want {
+		c := Config{MQTT: MQTTConfig{Addr: in}}
+		if got := c.MQTT.PublicPort(); got != want {
 			t.Errorf("MQTTPublicPort(%q)=%d want %d", in, got, want)
 		}
 	}
 }
 
 func TestMQTTWSPublicURL(t *testing.T) {
-	c := Config{MQTTWSAddr: ":8083", BrokerHostPublic: "192.168.1.22"}
-	if !c.MQTTWSEnabled() || c.MQTTWSPublicPort() != 8083 {
+	c := Config{MQTT: MQTTConfig{WSAddr: ":8083"}, Platform: PlatformConfig{BrokerHostPublic: "192.168.1.22"}}
+	if !c.MQTT.WSEnabled() || c.MQTT.WSPublicPort() != 8083 {
 		t.Fatalf("enabled/port %+v", c)
 	}
-	if got := c.MQTTWSPublicURL(); got != "ws://192.168.1.22:8083/" {
+	if got := c.MQTT.WSPublicURL(c.Platform.BrokerHostPublic); got != "ws://192.168.1.22:8083/" {
 		t.Fatalf("url=%q", got)
 	}
-	off := Config{MQTTWSAddr: "off", BrokerHostPublic: "x"}
-	if off.MQTTWSEnabled() || off.MQTTWSPublicURL() != "" {
+	off := Config{MQTT: MQTTConfig{WSAddr: "off"}, Platform: PlatformConfig{BrokerHostPublic: "x"}}
+	if off.MQTT.WSEnabled() || off.MQTT.WSPublicURL(off.Platform.BrokerHostPublic) != "" {
 		t.Fatal("off should disable")
 	}
 }
@@ -83,7 +83,7 @@ func TestParseListenPort(t *testing.T) {
 
 func TestFirmwareDir(t *testing.T) {
 	// With OTADir set
-	c := Config{OTADir: "/custom/firmware"}
+	c := Config{OTA: OTAConfig{Dir: "/custom/firmware"}}
 	if got := c.FirmwareDir(); got != "/custom/firmware" {
 		t.Errorf("FirmwareDir() = %q, want '/custom/firmware'", got)
 	}
@@ -96,14 +96,14 @@ func TestFirmwareDir(t *testing.T) {
 	}
 
 	// Empty OTADir with spaces (should use DataDir)
-	c = Config{OTADir: "   ", DataDir: "data"}
+	c = Config{OTA: OTAConfig{Dir: "   "}, DataDir: "data"}
 	if got := c.FirmwareDir(); got != want {
 		t.Errorf("FirmwareDir() = %q, want %q", got, want)
 	}
 }
 
 func TestFirmwarePublicURL(t *testing.T) {
-	c := Config{PublicBaseURL: "https://iot.example.com"}
+	c := Config{Platform: PlatformConfig{PublicBaseURL: "https://iot.example.com"}}
 	got := c.FirmwarePublicURL("abc123")
 	want := "https://iot.example.com/ota/fw/abc123.bin"
 	if got != want {
@@ -111,7 +111,7 @@ func TestFirmwarePublicURL(t *testing.T) {
 	}
 
 	// Trailing slash should be trimmed
-	c = Config{PublicBaseURL: "https://iot.example.com/"}
+	c = Config{Platform: PlatformConfig{PublicBaseURL: "https://iot.example.com/"}}
 	got = c.FirmwarePublicURL("token")
 	want = "https://iot.example.com/ota/fw/token.bin"
 	if got != want {
@@ -121,13 +121,13 @@ func TestFirmwarePublicURL(t *testing.T) {
 
 func TestGoogleCallbackURL(t *testing.T) {
 	// With explicit redirect URL
-	c := Config{GoogleRedirectURL: "https://custom.example.com/callback"}
+	c := Config{Google: GoogleConfig{RedirectURL: "https://custom.example.com/callback"}}
 	if got := c.GoogleCallbackURL(); got != "https://custom.example.com/callback" {
 		t.Errorf("GoogleCallbackURL() = %q", got)
 	}
 
 	// Without redirect URL (should use PublicBaseURL)
-	c = Config{PublicBaseURL: "https://iot.example.com"}
+	c = Config{Platform: PlatformConfig{PublicBaseURL: "https://iot.example.com"}}
 	if got := c.GoogleCallbackURL(); got != "https://iot.example.com/api/v1/auth/google/callback" {
 		t.Errorf("GoogleCallbackURL() = %q", got)
 	}
@@ -152,15 +152,15 @@ func TestFirstNonEmpty(t *testing.T) {
 }
 
 func TestGoogleEnabled(t *testing.T) {
-	c := Config{GoogleClientID: "id", GoogleClientSecret: "secret"}
+	c := Config{Google: GoogleConfig{ClientID: "id", ClientSecret: "secret"}}
 	if !c.GoogleEnabled() {
 		t.Error("should be enabled with both ID and Secret")
 	}
-	c = Config{GoogleClientID: "id"}
+	c = Config{Google: GoogleConfig{ClientID: "id"}}
 	if c.GoogleEnabled() {
 		t.Error("should be disabled without Secret")
 	}
-	c = Config{GoogleClientSecret: "secret"}
+	c = Config{Google: GoogleConfig{ClientSecret: "secret"}}
 	if c.GoogleEnabled() {
 		t.Error("should be disabled without ID")
 	}
@@ -171,41 +171,41 @@ func TestGoogleEnabled(t *testing.T) {
 }
 
 func TestMQTTTLSEnabled(t *testing.T) {
-	c := Config{MQTTTLSCert: "cert.pem", MQTTTLSKey: "key.pem"}
-	if !c.MQTTTLSEnabled() {
+	c := Config{MQTT: MQTTConfig{TLSCert: "cert.pem", TLSKey: "key.pem"}}
+	if !c.MQTT.TLSEnabled() {
 		t.Error("should be enabled with cert and key")
 	}
-	c = Config{MQTTTLSCert: "cert.pem"}
-	if c.MQTTTLSEnabled() {
+	c = Config{MQTT: MQTTConfig{TLSCert: "cert.pem"}}
+	if c.MQTT.TLSEnabled() {
 		t.Error("should be disabled without key")
 	}
 	c = Config{}
-	if c.MQTTTLSEnabled() {
+	if c.MQTT.TLSEnabled() {
 		t.Error("should be disabled with neither")
 	}
 }
 
 func TestMQTTTLSPublicURL(t *testing.T) {
 	// MQTTTLSEnabled() requires both cert AND key
-	c := Config{MQTTTLSAddr: ":8883", MQTTTLSCert: "cert.pem", MQTTTLSKey: "key.pem", BrokerHostPublic: "mqtt.example.com"}
-	if !c.MQTTTLSEnabled() {
+	c := Config{MQTT: MQTTConfig{TLSAddr: ":8883", TLSCert: "cert.pem", TLSKey: "key.pem"}, Platform: PlatformConfig{BrokerHostPublic: "mqtt.example.com"}}
+	if !c.MQTT.TLSEnabled() {
 		t.Fatal("should be enabled")
 	}
-	// Note: MQTTTLSPublicURL does NOT add trailing slash (unlike MQTTWSPublicURL)
-	if got := c.MQTTTLSPublicURL(); got != "mqtts://mqtt.example.com:8883" {
+	// Note: TLSPublicURL does NOT add trailing slash (unlike WSPublicURL)
+	if got := c.MQTT.TLSPublicURL(c.Platform.BrokerHostPublic); got != "mqtts://mqtt.example.com:8883" {
 		t.Errorf("MQTTTLSPublicURL() = %q", got)
 	}
 
 	// Disabled TLS
 	c = Config{}
-	if got := c.MQTTTLSPublicURL(); got != "" {
+	if got := c.MQTT.TLSPublicURL(""); got != "" {
 		t.Errorf("disabled should return empty: %q", got)
 	}
 }
 
 func TestMQTTPublicURL(t *testing.T) {
-	c := Config{MQTTAddr: ":1883", BrokerHostPublic: "mqtt.example.com"}
-	if got := c.MQTTPublicURL(); got != "mqtt://mqtt.example.com:1883" {
+	c := Config{MQTT: MQTTConfig{Addr: ":1883"}, Platform: PlatformConfig{BrokerHostPublic: "mqtt.example.com"}}
+	if got := c.MQTT.PublicURL(c.Platform.BrokerHostPublic); got != "mqtt://mqtt.example.com:1883" {
 		t.Errorf("MQTTPublicURL() = %q", got)
 	}
 }

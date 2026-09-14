@@ -20,7 +20,7 @@ import (
 )
 
 func (p *Platform) StoreEvent(d *models.Device, payload []byte) error {
-	if p.SeenRecently(d.ID, protocol.BusEvent, payload, 2*time.Second) {
+	if p.SeenRecently(d.AccountID, d.ID, protocol.BusEvent, payload, 2*time.Second) {
 		if p.Log != nil {
 			p.Log.Info("event dedup",
 				"product", d.ProductID, "device", d.DeviceID,
@@ -67,8 +67,8 @@ func (p *Platform) RecordEvent(d *models.Device, eventID, typ, severity, code, m
 		dataJSON = &s
 	}
 	now := db.NowMS()
-	res, err := p.DB.Exec(`INSERT INTO events(device_pk, event_id, type, severity, code, message, data_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		d.ID, eventID, typ, severity, code, message, dataJSON, ts, now)
+	res, err := p.DB.Exec(`INSERT INTO events(device_pk, account_id, event_id, type, severity, code, message, data_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		d.ID, d.AccountID, eventID, typ, severity, code, message, dataJSON, ts, now)
 	if err != nil {
 		return err
 	}
@@ -162,8 +162,8 @@ func (p *Platform) StoreLogs(d *models.Device, payload []byte) error {
 			s := jsonValue(it.Context)
 			ctx = &s
 		}
-		_, _ = p.DB.Exec(`INSERT INTO device_logs(device_pk, level, module, code, message, context_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
-			d.ID, it.Level, it.Module, it.Code, it.Message, ctx, it.TS, now)
+		_, _ = p.DB.Exec(`INSERT INTO device_logs(device_pk, account_id, level, module, code, message, context_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+			d.ID, d.AccountID, it.Level, it.Module, it.Code, it.Message, ctx, it.TS, now)
 		p.emit("log", map[string]any{"device_id": d.ID, "level": it.Level, "module": it.Module, "message": it.Message, "ts": it.TS})
 		p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusLog, map[string]any{
 			"ts": it.TS, "product_id": d.ProductID, "device_id": d.DeviceID,
@@ -389,8 +389,8 @@ func (p *Platform) RegisterFirmware(in FirmwareInput) (*models.OTAFirmware, erro
 		}
 		return &fw, nil
 	}
-	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, module, version, size, sha256, sign_method, sign, url, created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-		pr.ID, in.Module, in.Version, in.Size, in.SHA256, in.SignMethod, in.Sign, in.URL, now)
+	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, account_id, module, version, size, sha256, sign_method, sign, url, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		pr.ID, pr.AccountID, in.Module, in.Version, in.Size, in.SHA256, in.SignMethod, in.Sign, in.URL, now)
 	if err != nil {
 		return nil, uniqueFirmwareErr(err)
 	}
@@ -484,8 +484,8 @@ func (p *Platform) StoreFirmwareFile(in FirmwareInput, r io.Reader) (*models.OTA
 		}
 		return &fw, nil
 	}
-	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, module, version, size, sha256, sign_method, sign, url, download_token, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		pr.ID, in.Module, in.Version, n, sum, in.SignMethod, in.Sign, url, token, now)
+	res, err := p.DB.Exec(`INSERT INTO ota_firmwares(product_pk, account_id, module, version, size, sha256, sign_method, sign, url, download_token, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		pr.ID, pr.AccountID, in.Module, in.Version, n, sum, in.SignMethod, in.Sign, url, token, now)
 	if err != nil {
 		_ = os.Remove(dest)
 		return nil, uniqueFirmwareErr(err)
@@ -690,8 +690,8 @@ func (p *Platform) StartOTAJob(devicePK, firmwareID int64, force bool) (*models.
 		}
 		return job, nil
 	}
-	res, err := p.DB.Exec(`INSERT INTO ota_jobs(device_pk, firmware_id, status, step, description, created_at, updated_at) VALUES(?,?, 'pending', 0, 'queued', ?, ?)`,
-		devicePK, firmwareID, now, now)
+	res, err := p.DB.Exec(`INSERT INTO ota_jobs(device_pk, account_id, firmware_id, status, step, description, created_at, updated_at) VALUES(?,?,?, 'pending', 0, 'queued', ?, ?)`,
+		devicePK, d.AccountID, firmwareID, now, now)
 	if err != nil {
 		return nil, err
 	}

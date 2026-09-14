@@ -58,7 +58,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := "registered"
-	if s.Plat.Cfg.RequireEmailVerify {
+	if s.Plat.Cfg.Register.RequireVerify {
 		msg = "registered; check email to verify (EMAIL_MODE=log prints link in server logs)"
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"user": u, "message": msg})

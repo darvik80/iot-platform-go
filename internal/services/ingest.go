@@ -13,7 +13,7 @@ import (
 )
 
 func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
-	if p.SeenRecently(d.ID, protocol.BusTelemetry, payload, 2*time.Second) {
+	if p.SeenRecently(d.AccountID, d.ID, protocol.BusTelemetry, payload, 2*time.Second) {
 		return nil
 	}
 	now := db.NowMS()
@@ -47,8 +47,8 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 			vb = b
 			keys[s.Key] = *s.ValueBool
 		}
-		if _, err := tx.Exec(`INSERT INTO telemetry_samples(device_pk, key, value_num, value_text, value_bool, ts, ingested_at) VALUES(?,?,?,?,?,?,?)`,
-			d.ID, s.Key, vn, vt, vb, s.TS, now); err != nil {
+		if _, err := tx.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, value_text, value_bool, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
+			d.ID, d.AccountID, s.Key, vn, vt, vb, s.TS, now); err != nil {
 			return err
 		}
 	}
@@ -245,13 +245,13 @@ func (p *Platform) MergeReported(d *models.Device, attrs map[string]any) error {
 	defer tx.Rollback()
 	for k, v := range attrs {
 		vj := jsonValue(v)
-		if _, err := tx.Exec(`INSERT INTO device_attributes_reported(device_pk, key, value_json, updated_at) VALUES(?,?,?,?)
+		if _, err := tx.Exec(`INSERT INTO device_attributes_reported(device_pk, account_id, key, value_json, updated_at) VALUES(?,?,?,?,?)
 			ON CONFLICT(device_pk, key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
-			d.ID, k, vj, now); err != nil {
+			d.ID, d.AccountID, k, vj, now); err != nil {
 			return err
 		}
-		_, _ = tx.Exec(`INSERT INTO attribute_history(device_pk, scope, key, value_json, updated_at) VALUES(?,?,?,?,?)`,
-			d.ID, "reported", k, vj, now)
+		_, _ = tx.Exec(`INSERT INTO attribute_history(device_pk, account_id, scope, key, value_json, updated_at) VALUES(?,?,?,?,?,?)`,
+			d.ID, d.AccountID, "reported", k, vj, now)
 		if k == "firmwareVersion" {
 			if s, ok := v.(string); ok {
 				_, _ = tx.Exec(`UPDATE devices SET fw_version=?, updated_at=? WHERE id=?`, s, now, d.ID)
@@ -278,13 +278,13 @@ func (p *Platform) SetDesired(d *models.Device, attrs map[string]any, publish bo
 	defer tx.Rollback()
 	for k, v := range attrs {
 		vj := jsonValue(v)
-		if _, err := tx.Exec(`INSERT INTO device_attributes_desired(device_pk, key, value_json, updated_at) VALUES(?,?,?,?)
+		if _, err := tx.Exec(`INSERT INTO device_attributes_desired(device_pk, account_id, key, value_json, updated_at) VALUES(?,?,?,?,?)
 			ON CONFLICT(device_pk, key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`,
-			d.ID, k, vj, now); err != nil {
+			d.ID, d.AccountID, k, vj, now); err != nil {
 			return err
 		}
-		_, _ = tx.Exec(`INSERT INTO attribute_history(device_pk, scope, key, value_json, updated_at) VALUES(?,?,?,?,?)`,
-			d.ID, "desired", k, vj, now)
+		_, _ = tx.Exec(`INSERT INTO attribute_history(device_pk, account_id, scope, key, value_json, updated_at) VALUES(?,?,?,?,?,?)`,
+			d.ID, d.AccountID, "desired", k, vj, now)
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -355,15 +355,15 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 	if req.Params == nil {
 		req.Params = map[string]any{}
 	}
-	timeout := p.Cfg.RPCDefaultTimeout
+	timeout := p.Cfg.Platform.RPCDefaultTimeout
 	if req.TimeoutMS > 0 {
 		timeout = time.Duration(req.TimeoutMS) * time.Millisecond
 	}
 	rid := p.nextRPCID()
 	now := db.NowMS()
 	paramsJSON := jsonValue(req.Params)
-	res, err := p.DB.Exec(`INSERT INTO rpc_calls(device_pk, request_id, method, params_json, status, correlation_id, created_at) VALUES(?,?,?,?, 'pending', ?,?)`,
-		d.ID, rid, req.Method, paramsJSON, req.CorrelationID, now)
+	res, err := p.DB.Exec(`INSERT INTO rpc_calls(device_pk, account_id, request_id, method, params_json, status, correlation_id, created_at) VALUES(?,?,?,?,?, 'pending', ?,?)`,
+		d.ID, d.AccountID, rid, req.Method, paramsJSON, req.CorrelationID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +511,7 @@ func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 	case "issueUploadUrl":
 		resp = map[string]any{
 			"id": req.ID, "code": 0, "message": "ok",
-			"data": map[string]any{"url": fmt.Sprintf("https://%s/upload/%s/%s", p.Cfg.BrokerHostPublic, d.ProductID, d.DeviceID), "expires_in": 3600},
+			"data": map[string]any{"url": fmt.Sprintf("https://%s/upload/%s/%s", p.Cfg.Platform.BrokerHostPublic, d.ProductID, d.DeviceID), "expires_in": 3600},
 		}
 	}
 	b, _ := json.Marshal(resp)

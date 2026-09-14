@@ -15,7 +15,7 @@ type Sender struct {
 }
 
 func (s *Sender) Send(to, subject, body string) error {
-	from := s.Cfg.SMTPFrom
+	from := s.Cfg.Email.SMTPFrom
 	if from == "" {
 		from = "noreply@cogitor.local"
 	}
@@ -29,8 +29,8 @@ func (s *Sender) Send(to, subject, body string) error {
 		body,
 	}, "\r\n")
 
-	mode := s.Cfg.EmailMode
-	if mode == "" || (mode == "smtp" && s.Cfg.SMTPHost == "") {
+	mode := s.Cfg.Email.Mode
+	if mode == "" || (mode == "smtp" && s.Cfg.Email.SMTPHost == "") {
 		mode = "log"
 	}
 	if mode == "log" {
@@ -38,10 +38,10 @@ func (s *Sender) Send(to, subject, body string) error {
 		return nil
 	}
 
-	addr := fmt.Sprintf("%s:%d", s.Cfg.SMTPHost, s.Cfg.SMTPPort)
+	addr := fmt.Sprintf("%s:%d", s.Cfg.Email.SMTPHost, s.Cfg.Email.SMTPPort)
 	var auth smtp.Auth
-	if s.Cfg.SMTPUser != "" {
-		auth = smtp.PlainAuth("", s.Cfg.SMTPUser, s.Cfg.SMTPPass, s.Cfg.SMTPHost)
+	if s.Cfg.Email.SMTPUser != "" {
+		auth = smtp.PlainAuth("", s.Cfg.Email.SMTPUser, s.Cfg.Email.SMTPPass, s.Cfg.Email.SMTPHost)
 	}
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }

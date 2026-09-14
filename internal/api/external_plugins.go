@@ -48,10 +48,10 @@ func (s *Server) registerExternalPlugin(w http.ResponseWriter, r *http.Request) 
 		"id":        plugin.ID,
 		"mqtt_user": plugin.MQTTUser,
 		"mqtt_pass": mqttPass,
-		"mqtt_port": s.Plat.Cfg.MQTTPublicPort(),
-		"mqtt_host": s.Plat.Cfg.BrokerHostPublic,
-		"mqtt_ws":   s.Plat.Cfg.MQTTWSPublicURL(),
-		"rules_bus": s.Plat.Cfg.RulesBusPrefix,
+		"mqtt_port": s.Plat.Cfg.MQTT.PublicPort(),
+		"mqtt_host": s.Plat.Cfg.Platform.BrokerHostPublic,
+		"mqtt_ws":   s.Plat.Cfg.MQTT.WSPublicURL(s.Plat.Cfg.Platform.BrokerHostPublic),
+		"rules_bus": s.Plat.Cfg.Rules.Prefix,
 	})
 }
 

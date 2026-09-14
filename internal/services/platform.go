@@ -130,12 +130,12 @@ func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, p
 	if p.Plugins != nil {
 		p.Plugins.Dispatch(productID, deviceID, kind, payload)
 	}
-	if p.Pub == nil || !p.Cfg.RulesBusEnabled {
+	if p.Pub == nil || !p.Cfg.Rules.Enabled {
 		if p.Log != nil {
 			p.Log.Warn("rules bus skipped",
 				"kind", kind, "account", accountSlug,
 				"product", productID, "device", deviceID,
-				"pub_nil", p.Pub == nil, "enabled", p.Cfg.RulesBusEnabled)
+				"pub_nil", p.Pub == nil, "enabled", p.Cfg.Rules.Enabled)
 		}
 		return
 	}
@@ -149,7 +149,7 @@ func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, p
 		}
 		return
 	}
-	topic := fmt.Sprintf("%s/events/%s/%s/%s/%s", p.Cfg.RulesBusPrefix, accountSlug, productID, deviceID, kind)
+	topic := fmt.Sprintf("%s/events/%s/%s/%s/%s", p.Cfg.Rules.Prefix, accountSlug, productID, deviceID, kind)
 	if p.Log != nil {
 		p.Log.Info("rules bus publish",
 			"topic", topic, "kind", kind,
@@ -207,7 +207,7 @@ func fingerprint(payload []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func (p *Platform) SeenRecently(devicePK int64, capability string, payload []byte, window time.Duration) bool {
+func (p *Platform) SeenRecently(accountID, devicePK int64, capability string, payload []byte, window time.Duration) bool {
 	fp := fingerprint(payload)
 	now := db.NowMS()
 	var seenAt int64
@@ -216,9 +216,9 @@ func (p *Platform) SeenRecently(devicePK int64, capability string, payload []byt
 	if err == nil && now-seenAt < window.Milliseconds() {
 		return true
 	}
-	_, _ = p.DB.Exec(`INSERT INTO ingest_dedup(device_pk, capability, fingerprint, seen_at) VALUES(?,?,?,?)
+	_, _ = p.DB.Exec(`INSERT INTO ingest_dedup(device_pk, account_id, capability, fingerprint, seen_at) VALUES(?,?,?,?,?)
 		ON CONFLICT(device_pk, capability, fingerprint) DO UPDATE SET seen_at=excluded.seen_at`,
-		devicePK, capability, fp, now)
+		devicePK, accountID, capability, fp, now)
 	return false
 }
 
@@ -301,7 +301,7 @@ func (p *Platform) RetentionLoop(ctx context.Context) {
 }
 
 func (p *Platform) runRetention() {
-	days := p.Cfg.TelemetryRetentionDays
+	days := p.Cfg.Platform.TelemetryRetentionDays
 	if days <= 0 {
 		return
 	}

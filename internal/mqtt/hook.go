@@ -121,7 +121,7 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 		if slug == "" {
 			return false // malformed username
 		}
-		prefix := strings.TrimRight(h.b.cfg.RulesBusPrefix, "/")
+		prefix := strings.TrimRight(h.b.cfg.Rules.Prefix, "/")
 		if write {
 			return topicUnder(topic, protocol.RulesCommandsRootForAccount(prefix, slug))
 		}
@@ -219,7 +219,7 @@ func (h *platHook) OnPublished(cl *mochi.Client, pk packets.Packet) {
 	}
 	topic := pk.TopicName
 	// Skip rules bus topics (covers both legacy and account-scoped formats)
-	if h.b.cfg.RulesBusEnabled && strings.HasPrefix(topic, protocol.RulesEventsRoot(h.b.cfg.RulesBusPrefix)) {
+	if h.b.cfg.Rules.Enabled && strings.HasPrefix(topic, protocol.RulesEventsRoot(h.b.cfg.Rules.Prefix)) {
 		return
 	}
 	user := string(cl.Properties.Username)

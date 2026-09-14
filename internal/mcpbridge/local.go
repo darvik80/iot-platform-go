@@ -52,8 +52,8 @@ func (l *Local) GetDevice(_ context.Context, id int64) (any, error) {
 		"connection": map[string]any{
 			"client_id":    d.ProductID + "." + d.DeviceID,
 			"username":     d.ProductID + "." + d.DeviceID,
-			"broker_host":  l.Plat.Cfg.BrokerHostPublic,
-			"broker_port":  l.Plat.Cfg.MQTTPublicPort(),
+			"broker_host":  l.Plat.Cfg.Platform.BrokerHostPublic,
+			"broker_port":  l.Plat.Cfg.MQTT.PublicPort(),
 			"topic_style":  d.TopicStyle,
 			"token_prefix": d.TokenPrefix,
 			"note":         "MQTT username = product.device; password = access token (shown only at create/rotate)",

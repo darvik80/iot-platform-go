@@ -72,7 +72,7 @@ func New(cfg config.Config, plat *services.Platform, log *slog.Logger) *Broker {
 func (b *Broker) Connected() bool { return b.ok.Load() }
 
 func (b *Broker) Start() error {
-	addr := b.cfg.MQTTAddr
+	addr := b.cfg.MQTT.Addr
 	if addr == "" {
 		addr = ":1883"
 	}
@@ -94,21 +94,21 @@ func (b *Broker) Start() error {
 		_ = ln.Close()
 		return fmt.Errorf("mqtt listener: %w", err)
 	}
-	if b.cfg.MQTTWSEnabled() {
-		ws := normalizeMQTTAddr(b.cfg.MQTTWSAddr)
+	if b.cfg.MQTT.WSEnabled() {
+		ws := normalizeMQTTAddr(b.cfg.MQTT.WSAddr)
 		if err := s.AddListener(listeners.NewWebsocket(listeners.Config{ID: "ws", Address: ws})); err != nil {
 			_ = ln.Close()
 			return fmt.Errorf("mqtt ws listen %s: %w", ws, err)
 		}
-		b.log.Info("mqtt websocket listening", "addr", ws, "url", b.cfg.MQTTWSPublicURL())
+		b.log.Info("mqtt websocket listening", "addr", ws, "url", b.cfg.MQTT.WSPublicURL(b.cfg.Platform.BrokerHostPublic))
 	}
-	if b.cfg.MQTTTLSEnabled() {
+	if b.cfg.MQTT.TLSEnabled() {
 		tlsCfg, err := b.loadTLSConfig()
 		if err != nil {
 			_ = ln.Close()
 			return fmt.Errorf("mqtt tls config: %w", err)
 		}
-		tlsAddr := normalizeMQTTAddr(b.cfg.MQTTTLSAddr)
+		tlsAddr := normalizeMQTTAddr(b.cfg.MQTT.TLSAddr)
 		tcpL := listeners.NewTCP(listeners.Config{
 			ID:        "tls",
 			Address:   tlsAddr,
@@ -119,8 +119,8 @@ func (b *Broker) Start() error {
 			return fmt.Errorf("mqtt tls listen %s: %w", tlsAddr, err)
 		}
 		b.tlsListenAddr = tlsAddr
-		b.log.Info("mqtt tls listening", "addr", tlsAddr, "url", b.cfg.MQTTTLSPublicURL(),
-			"mutual_tls", b.cfg.MQTTTLSCA != "")
+		b.log.Info("mqtt tls listening", "addr", tlsAddr, "url", b.cfg.MQTT.TLSPublicURL(b.cfg.Platform.BrokerHostPublic),
+			"mutual_tls", b.cfg.MQTT.TLSCA != "")
 	}
 	b.server = s
 	errCh := make(chan error, 1)
@@ -137,7 +137,7 @@ func (b *Broker) Start() error {
 	case <-time.After(150 * time.Millisecond):
 	}
 	b.ok.Store(true)
-	b.log.Info("mqtt broker listening", "addr", b.listenAddr, "ws", b.cfg.MQTTWSAddr, "tls", b.tlsListenAddr)
+	b.log.Info("mqtt broker listening", "addr", b.listenAddr, "ws", b.cfg.MQTT.WSAddr, "tls", b.tlsListenAddr)
 	return nil
 }
 
@@ -145,8 +145,8 @@ func (b *Broker) Start() error {
 // If MQTT_TLS_CA is set, mutual TLS (client certificate verification) is enabled.
 // Paths may be absolute or relative (resolved against the executable directory).
 func (b *Broker) loadTLSConfig() (*tls.Config, error) {
-	certPath := resolveTLSPath(b.cfg.MQTTTLSCert)
-	keyPath := resolveTLSPath(b.cfg.MQTTTLSKey)
+	certPath := resolveTLSPath(b.cfg.MQTT.TLSCert)
+	keyPath := resolveTLSPath(b.cfg.MQTT.TLSKey)
 
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
@@ -156,7 +156,7 @@ func (b *Broker) loadTLSConfig() (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
-	if caFile := b.cfg.MQTTTLSCA; caFile != "" {
+	if caFile := b.cfg.MQTT.TLSCA; caFile != "" {
 		caPath := resolveTLSPath(caFile)
 		caCert, err := os.ReadFile(caPath)
 		if err != nil {

@@ -370,5 +370,5 @@ func hashInviteToken(token string) string {
 }
 
 func (p *Platform) inviteURL(rawToken string) string {
-	return fmt.Sprintf("%s/invite/%s", p.Cfg.PublicBaseURL, url.PathEscape(rawToken))
+	return fmt.Sprintf("%s/invite/%s", p.Cfg.Platform.PublicBaseURL, url.PathEscape(rawToken))
 }

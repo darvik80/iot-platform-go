@@ -12,50 +12,103 @@ import (
 	"cogitor-iot-platform/internal/models"
 )
 
-type Config struct {
-	HTTPAddr               string
-	DatabaseDriver         string // sqlite | postgres
-	DatabaseDSN            string
-	SQLitePath             string // deprecated: use DatabaseDSN
-	DataDir                string // base directory for data files (firmware, etc.)
-	DBMaxOpenConns         int
-	MQTTAddr               string
-	MQTTWSAddr             string
-	MQTTTLSAddr            string
-	MQTTTLSCert            string
-	MQTTTLSKey             string
-	MQTTTLSCA              string
-	JWTSecret              string
-	TelemetryRetentionDays int
-	RPCDefaultTimeout      time.Duration
-	LabAllowUnknown        bool
-	RulesBusEnabled        bool
-	RulesBusPrefix         string
+// ── Sub-structs ──────────────────────────────────────────────────────
+
+type DatabaseConfig struct {
+	Driver       string // sqlite | postgres
+	DSN          string
+	MaxOpenConns int
+}
+
+type HTTPConfig struct {
+	Addr string
+}
+
+type MQTTConfig struct {
+	Addr    string
+	WSAddr  string
+	TLSAddr string
+	TLSCert string
+	TLSKey  string
+	TLSCA   string
+}
+
+type AuthConfig struct {
+	JWTSecret string
+}
+
+type EmailConfig struct {
+	SMTPHost string
+	SMTPPort int
+	SMTPUser string
+	SMTPPass string
+	SMTPFrom string
+	Mode     string // smtp | log
+}
+
+type RegisterConfig struct {
+	Enabled       bool
+	DefaultRole   models.Role
+	RequireVerify bool
+}
+
+type GoogleConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+}
+
+type RulesBusConfig struct {
+	Enabled bool
+	Prefix  string
+}
+
+type OTAConfig struct {
+	Dir string
+}
+
+type PlatformConfig struct {
+	Name                   string
+	PublicBaseURL          string
 	NodeRedURL             string
 	BrokerHostPublic       string
-	AdminEmail             string
-	AdminPassword          string
-	AdminLogin             string
-	PlatformName           string
-	PublicBaseURL          string
-	Timezone               string
-	LogLevel               string
-	OTADir                 string
-	RegisterEnabled        bool
-	RegisterDefaultRole    models.Role
-	RequireEmailVerify     bool
-	SMTPHost               string
-	SMTPPort               int
-	SMTPUser               string
-	SMTPPass               string
-	SMTPFrom               string
-	EmailMode              string // smtp | log
-	GoogleClientID         string
-	GoogleClientSecret     string
-	GoogleRedirectURL      string
-	BootstrapAccountSlug   string
-	BootstrapAccountName   string
+	TelemetryRetentionDays int
+	RPCDefaultTimeout      time.Duration
+	LabAllowUnknownDevices bool
 }
+
+// ── Top-level Config ─────────────────────────────────────────────────
+
+type Config struct {
+	Database  DatabaseConfig
+	HTTP      HTTPConfig
+	MQTT      MQTTConfig
+	Auth      AuthConfig
+	Email     EmailConfig
+	Register  RegisterConfig
+	Google    GoogleConfig
+	Rules     RulesBusConfig
+	OTA       OTAConfig
+	Platform  PlatformConfig
+	Timezone  string
+	LogLevel  string
+	DataDir   string
+	Admin     AdminConfig
+	Bootstrap BootstrapConfig
+}
+
+type AdminConfig struct {
+	Email    string
+	Password string
+	Login    string
+}
+
+type BootstrapConfig struct {
+	AccountSlug string
+	AccountName string
+}
+
+// ── Load ─────────────────────────────────────────────────────────────
 
 func Load() Config {
 	role := models.Role(getenv("REGISTER_DEFAULT_ROLE", "admin", "AUTH_REGISTER_DEFAULT_ROLE"))
@@ -99,54 +152,75 @@ func Load() Config {
 	}
 
 	return Config{
-		HTTPAddr:               getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
-		DatabaseDriver:         driver,
-		DatabaseDSN:            dsn,
-		SQLitePath:             sqlitePath, // deprecated
-		DataDir:                dataDir,
-		DBMaxOpenConns:         getenvInt("DB_MAX_OPEN_CONNS", 8, "DATABASE_MAX_OPEN_CONNS"),
-		MQTTAddr:               getenv("MQTT_ADDR", ":1883"),
-		MQTTWSAddr:             getenv("MQTT_WS_ADDR", ":8083"),
-		MQTTTLSAddr:            getenv("MQTT_TLS_ADDR", ":8883"),
-		MQTTTLSCert:            getenv("MQTT_TLS_CERT", ""),
-		MQTTTLSKey:             getenv("MQTT_TLS_KEY", ""),
-		MQTTTLSCA:              getenv("MQTT_TLS_CA", ""),
-		JWTSecret:              getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
-		TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
-		RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
-		LabAllowUnknown:        getenvBool("LAB_ALLOW_UNKNOWN_DEVICES", false),
-		RulesBusEnabled:        getenvBool("RULES_BUS_ENABLED", true),
-		RulesBusPrefix:         strings.TrimRight(getenv("RULES_BUS_PREFIX", "platform/v1"), "/"),
-		NodeRedURL:             getenv("NODERED_URL", "http://localhost:1880"),
-		BrokerHostPublic:       firstNonEmpty(os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
-		AdminEmail:             getenv("ADMIN_EMAIL", "admin@cogitor.local"),
-		AdminPassword:          getenv("ADMIN_PASSWORD", "admin"),
-		AdminLogin:             getenv("ADMIN_LOGIN", "admin"),
-		PlatformName:           getenv("PLATFORM_NAME", "Cogitor IoT", "SERVER_PLATFORM_NAME"),
-		PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL"), "/"),
-		Timezone:               strings.TrimSpace(getenv("TIMEZONE", "UTC")),
-		LogLevel:               strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
-		OTADir:                 getenv("OTA_DIR", ""),
-		RegisterEnabled:        getenvBool("REGISTER_ENABLED", true, "AUTH_REGISTER_ENABLED"),
-		RegisterDefaultRole:    role,
-		RequireEmailVerify:     getenvBool("REQUIRE_EMAIL_VERIFY", false, "AUTH_REQUIRE_EMAIL_VERIFY"),
-		SMTPHost:               getenv("SMTP_HOST", "", "EMAIL_SMTP_HOST"),
-		SMTPPort:               getenvInt("SMTP_PORT", 587, "EMAIL_SMTP_PORT"),
-		SMTPUser:               getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),
-		SMTPPass:               getenv("SMTP_PASS", "", "EMAIL_SMTP_PASS"),
-		SMTPFrom:               getenv("SMTP_FROM", "noreply@cogitor.local", "EMAIL_SMTP_FROM"),
-		EmailMode:              strings.ToLower(getenv("EMAIL_MODE", "log")),
-		GoogleClientID:         getenv("GOOGLE_CLIENT_ID", ""),
-		GoogleClientSecret:     getenv("GOOGLE_CLIENT_SECRET", ""),
-		GoogleRedirectURL:      getenv("GOOGLE_REDIRECT_URL", ""),
-		BootstrapAccountSlug:   getenv("BOOTSTRAP_ACCOUNT_SLUG", "default"),
-		BootstrapAccountName:   getenv("BOOTSTRAP_ACCOUNT_NAME", "Default"),
+		Database: DatabaseConfig{
+			Driver:       driver,
+			DSN:          dsn,
+			MaxOpenConns: getenvInt("DB_MAX_OPEN_CONNS", 8, "DATABASE_MAX_OPEN_CONNS"),
+		},
+		HTTP: HTTPConfig{
+			Addr: getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
+		},
+		MQTT: MQTTConfig{
+			Addr:    getenv("MQTT_ADDR", ":1883"),
+			WSAddr:  getenv("MQTT_WS_ADDR", ":8083"),
+			TLSAddr: getenv("MQTT_TLS_ADDR", ":8883"),
+			TLSCert: getenv("MQTT_TLS_CERT", ""),
+			TLSKey:  getenv("MQTT_TLS_KEY", ""),
+			TLSCA:   getenv("MQTT_TLS_CA", ""),
+		},
+		Auth: AuthConfig{
+			JWTSecret: getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
+		},
+		Email: EmailConfig{
+			SMTPHost: getenv("SMTP_HOST", "", "EMAIL_SMTP_HOST"),
+			SMTPPort: getenvInt("SMTP_PORT", 587, "EMAIL_SMTP_PORT"),
+			SMTPUser: getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),
+			SMTPPass: getenv("SMTP_PASS", "", "EMAIL_SMTP_PASS"),
+			SMTPFrom: getenv("SMTP_FROM", "noreply@cogitor.local", "EMAIL_SMTP_FROM"),
+			Mode:     strings.ToLower(getenv("EMAIL_MODE", "log")),
+		},
+		Register: RegisterConfig{
+			Enabled:       getenvBool("REGISTER_ENABLED", true, "AUTH_REGISTER_ENABLED"),
+			DefaultRole:   role,
+			RequireVerify: getenvBool("REQUIRE_EMAIL_VERIFY", false, "AUTH_REQUIRE_EMAIL_VERIFY"),
+		},
+		Google: GoogleConfig{
+			ClientID:     getenv("GOOGLE_CLIENT_ID", ""),
+			ClientSecret: getenv("GOOGLE_CLIENT_SECRET", ""),
+			RedirectURL:  getenv("GOOGLE_REDIRECT_URL", ""),
+		},
+		Rules: RulesBusConfig{
+			Enabled: getenvBool("RULES_BUS_ENABLED", true),
+			Prefix:  strings.TrimRight(getenv("RULES_BUS_PREFIX", "platform/v1"), "/"),
+		},
+		OTA: OTAConfig{
+			Dir: getenv("OTA_DIR", ""),
+		},
+		Platform: PlatformConfig{
+			Name:                   getenv("PLATFORM_NAME", "Cogitor IoT", "SERVER_PLATFORM_NAME"),
+			PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL"), "/"),
+			NodeRedURL:             getenv("NODERED_URL", "http://localhost:1880"),
+			BrokerHostPublic:       firstNonEmpty(os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
+			TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30),
+			RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000)) * time.Millisecond,
+			LabAllowUnknownDevices: getenvBool("LAB_ALLOW_UNKNOWN_DEVICES", false),
+		},
+		Timezone: strings.TrimSpace(getenv("TIMEZONE", "UTC")),
+		LogLevel: strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
+		DataDir:  dataDir,
+		Admin: AdminConfig{
+			Email:    getenv("ADMIN_EMAIL", "admin@cogitor.local"),
+			Password: getenv("ADMIN_PASSWORD", "admin"),
+			Login:    getenv("ADMIN_LOGIN", "admin"),
+		},
+		Bootstrap: BootstrapConfig{
+			AccountSlug: getenv("BOOTSTRAP_ACCOUNT_SLUG", "default"),
+			AccountName: getenv("BOOTSTRAP_ACCOUNT_NAME", "Default"),
+		},
 	}
 }
 
-func (c Config) GoogleEnabled() bool {
-	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
-}
+// ── Methods ──────────────────────────────────────────────────────────
 
 func (c Config) SlogLevel() slog.Level {
 	switch strings.ToLower(strings.TrimSpace(c.LogLevel)) {
@@ -165,83 +239,102 @@ func (c Config) SlogLevel() slog.Level {
 func (c Config) TimezoneOrUTC() string {
 	tz := strings.TrimSpace(c.Timezone)
 	if tz == "" {
-		return "UTC"
+		return time.UTC.String()
 	}
-	if _, err := time.LoadLocation(tz); err != nil {
-		return "UTC"
+	if _, err := time.LoadLocation(tz); err == nil {
+		return tz
 	}
-	return tz
+	return time.UTC.String()
 }
 
-func (c Config) MQTTPublicPort() int {
-	return parseListenPort(c.MQTTAddr, 1883)
+func (c Config) GoogleEnabled() bool {
+	return c.Google.ClientID != "" && c.Google.ClientSecret != ""
 }
 
-// MQTTPublicURL is mqtt://{BROKER_HOST_PUBLIC}:{MQTT_PORT}.
-func (c Config) MQTTPublicURL() string {
-	port := c.MQTTPublicPort()
+func (c Config) GoogleCallbackURL() string {
+	if c.Google.RedirectURL != "" {
+		return c.Google.RedirectURL
+	}
+	return c.Platform.PublicBaseURL + "/api/v1/auth/google/callback"
+}
+
+// ── MQTT helpers ─────────────────────────────────────────────────────
+
+func (m MQTTConfig) PublicPort() int {
+	return parseListenPort(m.Addr, 1883)
+}
+
+// PublicURL is mqtt://{BROKER_HOST_PUBLIC}:{MQTT_PORT}.
+func (m MQTTConfig) PublicURL(host string) string {
+	port := m.PublicPort()
 	if port <= 0 {
 		return ""
 	}
-	host := strings.TrimSpace(c.BrokerHostPublic)
 	if host == "" {
 		host = "localhost"
 	}
 	return "mqtt://" + host + ":" + strconv.Itoa(port)
 }
 
-// MQTTTLSEnabled reports whether MQTT-over-TLS is configured (cert + key present).
-func (c Config) MQTTTLSEnabled() bool {
-	return c.MQTTTLSCert != "" && c.MQTTTLSKey != ""
+func (m MQTTConfig) TLSEnabled() bool {
+	return m.TLSCert != "" && m.TLSKey != ""
 }
 
-// MQTTTLSPublicPort is the advertised MQTT-TLS port (0 if disabled).
-func (c Config) MQTTTLSPublicPort() int {
-	if !c.MQTTTLSEnabled() {
+func (m MQTTConfig) TLSPublicPort() int {
+	if !m.TLSEnabled() {
 		return 0
 	}
-	return parseListenPort(c.MQTTTLSAddr, 8883)
+	return parseListenPort(m.TLSAddr, 8883)
 }
 
-// MQTTTLSPublicURL is mqtts://{BROKER_HOST_PUBLIC}:{MQTT_TLS_PORT}/ (empty if TLS off).
-func (c Config) MQTTTLSPublicURL() string {
-	port := c.MQTTTLSPublicPort()
+func (m MQTTConfig) TLSPublicURL(host string) string {
+	port := m.TLSPublicPort()
 	if port <= 0 {
 		return ""
 	}
-	host := strings.TrimSpace(c.BrokerHostPublic)
 	if host == "" {
 		host = "localhost"
 	}
 	return "mqtts://" + host + ":" + strconv.Itoa(port)
 }
 
-// MQTTWSEnabled reports whether MQTT-over-WebSocket listener is configured.
-func (c Config) MQTTWSEnabled() bool {
-	ws := strings.TrimSpace(c.MQTTWSAddr)
+func (m MQTTConfig) WSEnabled() bool {
+	ws := strings.TrimSpace(m.WSAddr)
 	return ws != "" && !strings.EqualFold(ws, "off") && ws != "-"
 }
 
-// MQTTWSPublicPort is the advertised MQTT WebSocket port (0 if disabled).
-func (c Config) MQTTWSPublicPort() int {
-	if !c.MQTTWSEnabled() {
+func (m MQTTConfig) WSPublicPort() int {
+	if !m.WSEnabled() {
 		return 0
 	}
-	return parseListenPort(c.MQTTWSAddr, 8083)
+	return parseListenPort(m.WSAddr, 8083)
 }
 
-// MQTTWSPublicURL is ws://{BROKER_HOST_PUBLIC}:{MQTT_WS_PORT}/ (empty if WS off).
-func (c Config) MQTTWSPublicURL() string {
-	port := c.MQTTWSPublicPort()
+func (m MQTTConfig) WSPublicURL(host string) string {
+	port := m.WSPublicPort()
 	if port <= 0 {
 		return ""
 	}
-	host := strings.TrimSpace(c.BrokerHostPublic)
 	if host == "" {
 		host = "localhost"
 	}
 	return "ws://" + host + ":" + strconv.Itoa(port) + "/"
 }
+
+// ── OTA / Firmware helpers ───────────────────────────────────────────
+
+func (c Config) FirmwareDir() string {
+	if strings.TrimSpace(c.OTA.Dir) != "" {
+		return c.OTA.Dir
+	}
+	return filepath.Join(c.DataDir, "firmware")
+}
+
+func (c Config) FirmwarePublicURL(token string) string {
+	return strings.TrimRight(c.Platform.PublicBaseURL, "/") + "/ota/fw/" + token + ".bin"
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────
 
 func parseListenPort(addr string, def int) int {
 	addr = strings.TrimSpace(addr)
@@ -271,24 +364,6 @@ func parseListenPort(addr string, def int) int {
 		return def
 	}
 	return n
-}
-
-func (c Config) FirmwareDir() string {
-	if strings.TrimSpace(c.OTADir) != "" {
-		return c.OTADir
-	}
-	return filepath.Join(c.DataDir, "firmware")
-}
-
-func (c Config) FirmwarePublicURL(token string) string {
-	return strings.TrimRight(c.PublicBaseURL, "/") + "/ota/fw/" + token + ".bin"
-}
-
-func (c Config) GoogleCallbackURL() string {
-	if c.GoogleRedirectURL != "" {
-		return c.GoogleRedirectURL
-	}
-	return c.PublicBaseURL + "/api/v1/auth/google/callback"
 }
 
 func firstNonEmpty(vals ...string) string {

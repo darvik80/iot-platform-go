@@ -70,7 +70,7 @@ func (s *Server) Router() http.Handler {
 		writeJSON(w, status, map[string]any{
 			"db":           true,
 			"mqtt":         mqttOK,
-			"mqtt_addr":    s.Plat.Cfg.MQTTAddr,
+			"mqtt_addr":    s.Plat.Cfg.MQTT.Addr,
 			"mqtt_clients": st.ClientCount,
 		})
 	})
@@ -282,7 +282,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, "missing token")
 			return
 		}
-		claims, err := auth.ParseJWT(s.Plat.Cfg.JWTSecret, tok)
+		claims, err := auth.ParseJWT(s.Plat.Cfg.Auth.JWTSecret, tok)
 		if err == nil {
 			u, err := s.Plat.GetUser(claims.UserID)
 			if err != nil || u.Disabled {
@@ -412,7 +412,7 @@ func (s *Server) mqttCACert(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "platform not initialized")
 		return
 	}
-	caFile := s.Plat.Cfg.MQTTTLSCA
+	caFile := s.Plat.Cfg.MQTT.TLSCA
 	if caFile == "" {
 		writeErr(w, http.StatusNotFound, "MQTT TLS CA not configured")
 		return
@@ -603,10 +603,10 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 		"connection": map[string]any{
 			"client_id":      username,
 			"username":       username,
-			"broker_host":    s.Plat.Cfg.BrokerHostPublic,
-			"broker_port":    s.Plat.Cfg.MQTTPublicPort(),
-			"broker_ws_url":  s.Plat.Cfg.MQTTWSPublicURL(),
-			"broker_ws_port": s.Plat.Cfg.MQTTWSPublicPort(),
+			"broker_host":    s.Plat.Cfg.Platform.BrokerHostPublic,
+			"broker_port":    s.Plat.Cfg.MQTT.PublicPort(),
+			"broker_ws_url":  s.Plat.Cfg.MQTT.WSPublicURL(s.Plat.Cfg.Platform.BrokerHostPublic),
+			"broker_ws_port": s.Plat.Cfg.MQTT.WSPublicPort(),
 			"topic_style":    d.TopicStyle,
 			"token_prefix":   d.TokenPrefix,
 			"note":           "MQTT username = product.device; password = access token (shown only at create/rotate). TCP :1883 or WebSocket MQTT_WS_ADDR (default :8083).",
@@ -988,20 +988,20 @@ func (s *Server) listAuditLog(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"platform_name":            s.Plat.Cfg.PlatformName,
-		"telemetry_retention_days": s.Plat.Cfg.TelemetryRetentionDays,
-		"rpc_default_timeout_ms":   int(s.Plat.Cfg.RPCDefaultTimeout / time.Millisecond),
-		"nodered_url":              s.Plat.Cfg.NodeRedURL,
-		"rules_bus_enabled":        s.Plat.Cfg.RulesBusEnabled,
-		"rules_bus_prefix":         s.Plat.Cfg.RulesBusPrefix,
-		"broker_host":              s.Plat.Cfg.BrokerHostPublic,
-		"mqtt_port":                s.Plat.Cfg.MQTTPublicPort(),
-		"mqtt_ws_url":              s.Plat.Cfg.MQTTWSPublicURL(),
-		"mqtt_ws_port":             s.Plat.Cfg.MQTTWSPublicPort(),
-		"register_enabled":         s.Plat.Cfg.RegisterEnabled,
-		"require_email_verify":     s.Plat.Cfg.RequireEmailVerify,
+		"platform_name":            s.Plat.Cfg.Platform.Name,
+		"telemetry_retention_days": s.Plat.Cfg.Platform.TelemetryRetentionDays,
+		"rpc_default_timeout_ms":   int(s.Plat.Cfg.Platform.RPCDefaultTimeout / time.Millisecond),
+		"nodered_url":              s.Plat.Cfg.Platform.NodeRedURL,
+		"rules_bus_enabled":        s.Plat.Cfg.Rules.Enabled,
+		"rules_bus_prefix":         s.Plat.Cfg.Rules.Prefix,
+		"broker_host":              s.Plat.Cfg.Platform.BrokerHostPublic,
+		"mqtt_port":                s.Plat.Cfg.MQTT.PublicPort(),
+		"mqtt_ws_url":              s.Plat.Cfg.MQTT.WSPublicURL(s.Plat.Cfg.Platform.BrokerHostPublic),
+		"mqtt_ws_port":             s.Plat.Cfg.MQTT.WSPublicPort(),
+		"register_enabled":         s.Plat.Cfg.Register.Enabled,
+		"require_email_verify":     s.Plat.Cfg.Register.RequireVerify,
 		"google_enabled":           s.Plat.Cfg.GoogleEnabled(),
-		"public_base_url":          s.Plat.Cfg.PublicBaseURL,
+		"public_base_url":          s.Plat.Cfg.Platform.PublicBaseURL,
 		"timezone":                 s.Plat.Cfg.TimezoneOrUTC(),
 	})
 }

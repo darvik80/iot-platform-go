@@ -162,8 +162,8 @@ func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceC
 		return nil, nil, err
 	}
 	id, _ := res.LastInsertId()
-	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, token_hash, token_prefix, created_at) VALUES(?,?,?,?)`,
-		id, hash, prefix, now)
+	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
+		id, pr.AccountID, hash, prefix, now)
 	_ = p.ReloadDeviceMaps()
 	d, err := p.GetDevice(id)
 	if err != nil {
@@ -193,7 +193,7 @@ func (p *Platform) RotateDeviceToken(id int64) (*models.DeviceCredentials, error
 	if err != nil {
 		return nil, err
 	}
-	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, token_hash, token_prefix, created_at) VALUES(?,?,?,?)`, id, hash, prefix, now)
+	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`, id, d.AccountID, hash, prefix, now)
 	_ = p.ReloadDeviceMaps()
 	user := DeviceMQTTUsername(d.ProductID, d.DeviceID)
 	if p.MQTT != nil {
@@ -274,13 +274,13 @@ func (p *Platform) DeleteDevice(id int64) error {
 
 func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models.DeviceCredentials {
 	user := DeviceMQTTUsername(productID, deviceID)
-	host := p.Cfg.BrokerHostPublic
-	port := p.Cfg.MQTTPublicPort()
-	wsURL := p.Cfg.MQTTWSPublicURL()
-	wsPort := p.Cfg.MQTTWSPublicPort()
-	tlsEnabled := p.Cfg.MQTTTLSEnabled()
+	host := p.Cfg.Platform.BrokerHostPublic
+	port := p.Cfg.MQTT.PublicPort()
+	wsURL := p.Cfg.MQTT.WSPublicURL(host)
+	wsPort := p.Cfg.MQTT.WSPublicPort()
+	tlsEnabled := p.Cfg.MQTT.TLSEnabled()
 	if tlsEnabled {
-		port = p.Cfg.MQTTTLSPublicPort()
+		port = p.Cfg.MQTT.TLSPublicPort()
 	}
 	return &models.DeviceCredentials{
 		ProductID:    productID,
@@ -402,8 +402,8 @@ func (p *Platform) Overview(accountID int64) (models.Overview, error) {
 		cutoff := db.NowMS() - 24*3600*1000
 		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ?`, cutoff).Scan(&o.RecentEvents)
 	}
-	o.PlatformName = p.Cfg.PlatformName
-	o.NodeRedURL = p.Cfg.NodeRedURL
+	o.PlatformName = p.Cfg.Platform.Name
+	o.NodeRedURL = p.Cfg.Platform.NodeRedURL
 	if p.MQTT != nil {
 		st := p.MQTT.Status()
 		o.MQTTConnected = st.Listening

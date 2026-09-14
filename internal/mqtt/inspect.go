@@ -151,12 +151,12 @@ func clientSubscriptions(cl *mochi.Client) []string {
 }
 
 func (b *Broker) Status() models.MQTTStatus {
-	addr := b.cfg.MQTTPublicURL()
+	addr := b.cfg.MQTT.PublicURL(b.cfg.Platform.BrokerHostPublic)
 	if addr == "" {
 		addr = b.listenAddr
 	}
 	if addr == "" {
-		addr = b.cfg.MQTTAddr
+		addr = b.cfg.MQTT.Addr
 	}
 	st := models.MQTTStatus{
 		Listening: b.ok.Load(),
@@ -164,14 +164,14 @@ func (b *Broker) Status() models.MQTTStatus {
 		Clients:   []models.MQTTClient{},
 		Events:    []models.MQTTEvent{},
 	}
-	if b.cfg.MQTTWSEnabled() {
-		st.WSAddr = b.cfg.MQTTWSPublicURL()
+	if b.cfg.MQTT.WSEnabled() {
+		st.WSAddr = b.cfg.MQTT.WSPublicURL(b.cfg.Platform.BrokerHostPublic)
 		if st.WSAddr == "" {
-			st.WSAddr = b.cfg.MQTTWSAddr
+			st.WSAddr = b.cfg.MQTT.WSAddr
 		}
 	}
-	if b.cfg.MQTTTLSEnabled() {
-		st.TLSAddr = b.cfg.MQTTTLSPublicURL()
+	if b.cfg.MQTT.TLSEnabled() {
+		st.TLSAddr = b.cfg.MQTT.TLSPublicURL(b.cfg.Platform.BrokerHostPublic)
 		if st.TLSAddr == "" {
 			st.TLSAddr = b.tlsListenAddr
 		}

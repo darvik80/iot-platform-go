@@ -45,8 +45,8 @@ func (p *Platform) EnsureAdmin() error {
 
 	// Ensure migration columns filled for bootstrap admin if needed.
 	_, _ = p.DB.Exec(`UPDATE users SET login=? WHERE (login IS NULL OR login='') AND email=?`,
-		p.Cfg.AdminLogin, p.Cfg.AdminEmail)
-	_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.AdminEmail)
+		p.Cfg.Admin.Login, p.Cfg.Admin.Email)
+	_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.Admin.Email)
 
 	return nil
 }
@@ -60,7 +60,7 @@ type RegisterInput struct {
 }
 
 func (p *Platform) Register(in RegisterInput) (*models.User, error) {
-	if !p.Cfg.RegisterEnabled {
+	if !p.Cfg.Register.Enabled {
 		return nil, errors.New("registration disabled")
 	}
 	in.Login = strings.ToLower(strings.TrimSpace(in.Login))
@@ -84,7 +84,7 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	}
 	now := db.NowMS()
 	verified := 0
-	if !p.Cfg.RequireEmailVerify {
+	if !p.Cfg.Register.RequireVerify {
 		verified = 1
 	}
 
@@ -97,7 +97,7 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	// 1. Create user
 	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
-		in.Email, hash, p.Cfg.RegisterDefaultRole, in.Login, in.DisplayName, verified, now, now)
+		in.Email, hash, p.Cfg.Register.DefaultRole, in.Login, in.DisplayName, verified, now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return nil, errors.New("login or email already registered")
@@ -151,7 +151,7 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.Cfg.RequireEmailVerify {
+	if p.Cfg.Register.RequireVerify {
 		if err := p.sendVerificationEmail(u); err != nil {
 			p.Log.Warn("verification email failed", "err", err)
 			return u, fmt.Errorf("registered but email send failed: %w", err)
@@ -245,7 +245,7 @@ func (p *Platform) sendVerificationEmail(u *models.User) error {
 	if err != nil {
 		return err
 	}
-	link := fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", p.Cfg.PublicBaseURL, url.QueryEscape(raw))
+	link := fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", p.Cfg.Platform.PublicBaseURL, url.QueryEscape(raw))
 	return p.Mailer().SendVerification(u.Email, u.Login, link)
 }
 
@@ -296,7 +296,7 @@ func (p *Platform) Login(identity, password string) (*models.User, string, error
 	if !auth.CheckPassword(u.PasswordHash, password) {
 		return nil, "", errors.New("invalid credentials")
 	}
-	if p.Cfg.RequireEmailVerify && !u.EmailVerified {
+	if p.Cfg.Register.RequireVerify && !u.EmailVerified {
 		return nil, "", errors.New("email not verified")
 	}
 	refs, activeID, err := p.LoadAccountRefs(u.ID)
@@ -306,7 +306,7 @@ func (p *Platform) Login(identity, password string) (*models.User, string, error
 	if len(refs) == 0 {
 		return nil, "", errors.New("no account membership — contact administrator")
 	}
-	tok, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, refs, activeID, 24*time.Hour)
+	tok, err := auth.IssueJWT(p.Cfg.Auth.JWTSecret, *u, refs, activeID, 24*time.Hour)
 	if err != nil {
 		return nil, "", err
 	}
@@ -583,7 +583,7 @@ func (p *Platform) GoogleAuthURL() (string, error) {
 		return "", err
 	}
 	q := url.Values{}
-	q.Set("client_id", p.Cfg.GoogleClientID)
+	q.Set("client_id", p.Cfg.Google.ClientID)
 	q.Set("redirect_uri", p.Cfg.GoogleCallbackURL())
 	q.Set("response_type", "code")
 	q.Set("scope", "openid email profile")
@@ -609,8 +609,8 @@ func (p *Platform) GoogleCallback(ctx context.Context, code, state string) (*mod
 	tokenURL := "https://oauth2.googleapis.com/token"
 	form := url.Values{}
 	form.Set("code", code)
-	form.Set("client_id", p.Cfg.GoogleClientID)
-	form.Set("client_secret", p.Cfg.GoogleClientSecret)
+	form.Set("client_id", p.Cfg.Google.ClientID)
+	form.Set("client_secret", p.Cfg.Google.ClientSecret)
 	form.Set("redirect_uri", p.Cfg.GoogleCallbackURL())
 	form.Set("grant_type", "authorization_code")
 
@@ -680,7 +680,7 @@ func (p *Platform) GoogleCallback(ctx context.Context, code, state string) (*mod
 	if len(refs) == 0 {
 		return nil, "", errors.New("no account membership — contact administrator")
 	}
-	jwt, err := auth.IssueJWT(p.Cfg.JWTSecret, *u, refs, activeID, 24*time.Hour)
+	jwt, err := auth.IssueJWT(p.Cfg.Auth.JWTSecret, *u, refs, activeID, 24*time.Hour)
 	if err != nil {
 		return nil, "", err
 	}
@@ -709,7 +709,7 @@ func (p *Platform) upsertGoogleUser(sub, email, name string, emailVerified bool)
 		return p.GetUser(id)
 	}
 
-	if !p.Cfg.RegisterEnabled {
+	if !p.Cfg.Register.Enabled {
 		return nil, errors.New("registration disabled")
 	}
 	login := suggestLogin(email, name)
@@ -736,7 +736,7 @@ func (p *Platform) upsertGoogleUser(sub, email, name string, emailVerified bool)
 	// Google users may have empty password_hash — store placeholder empty bcrypt-incompatible ""
 	res, err := p.DB.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, google_sub, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?)`,
-		email, "", p.Cfg.RegisterDefaultRole, login, name, verified, sub, now, now)
+		email, "", p.Cfg.Register.DefaultRole, login, name, verified, sub, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -771,10 +771,10 @@ func suggestLogin(email, name string) string {
 
 func (p *Platform) AuthPublicConfig() map[string]any {
 	return map[string]any{
-		"register_enabled":     p.Cfg.RegisterEnabled,
-		"require_email_verify": p.Cfg.RequireEmailVerify,
+		"register_enabled":     p.Cfg.Register.Enabled,
+		"require_email_verify": p.Cfg.Register.RequireVerify,
 		"google_enabled":       p.Cfg.GoogleEnabled(),
-		"platform_name":        p.Cfg.PlatformName,
+		"platform_name":        p.Cfg.Platform.Name,
 	}
 }
 
