@@ -115,17 +115,18 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if user == "" || strings.HasPrefix(topic, "$") {
 		return false
 	}
-	// External plugin ACL — read account-scoped events, write account-scoped commands
+	// External plugin ACL — read account-scoped events, write product/device commands
 	if strings.HasPrefix(user, "extplg_") {
-		slug := extPluginSlug(user)
-		if slug == "" {
+		if extPluginSlug(user) == "" {
 			return false // malformed username
 		}
 		prefix := strings.TrimRight(h.b.cfg.Rules.Prefix, "/")
 		if write {
-			return topicUnder(topic, protocol.RulesCommandsRootForAccount(prefix, slug))
+			// Commands topic: {prefix}/commands/{productID}/{deviceID}/{capability}
+			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
 		}
-		return topicUnder(topic, protocol.RulesEventsRootForAccount(prefix, slug))
+		// Events topic: {prefix}/events/{accountSlug}/{productID}/{deviceID}/{kind}
+		return topicUnder(topic, protocol.RulesEventsRootForAccount(prefix, extPluginSlug(user)))
 	}
 	d := h.deviceFor(user)
 	if d == nil || !d.Enabled {
@@ -251,14 +252,14 @@ func topicUnder(topicOrFilter, root string) bool {
 
 // extPluginSlug extracts the account slug from an external plugin MQTT username.
 // Format: extplg_{slug}_{id} — returns slug, or "" if malformed.
+// The slug is the FIRST underscore-separated segment after the extplg_ prefix;
+// the plugin id may itself contain dashes/underscores, so we split at the first "_".
 func extPluginSlug(user string) string {
-	// Strip "extplg_" prefix
 	rest := strings.TrimPrefix(user, "extplg_")
 	if rest == user {
 		return ""
 	}
-	// Find last underscore separating slug from plugin ID
-	idx := strings.LastIndex(rest, "_")
+	idx := strings.Index(rest, "_")
 	if idx <= 0 || idx >= len(rest)-1 {
 		return ""
 	}
@@ -267,12 +268,13 @@ func extPluginSlug(user string) string {
 
 // extPluginID extracts the plugin ID from an external plugin MQTT username.
 // Format: extplg_{slug}_{id} — returns id, or ("", false) if malformed.
+// The id is everything after the first "_" following the extplg_ prefix.
 func extPluginID(user string) (string, bool) {
 	rest := strings.TrimPrefix(user, "extplg_")
 	if rest == user {
 		return "", false
 	}
-	idx := strings.LastIndex(rest, "_")
+	idx := strings.Index(rest, "_")
 	if idx <= 0 || idx >= len(rest)-1 {
 		return "", false
 	}
