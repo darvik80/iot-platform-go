@@ -21,6 +21,11 @@ import (
 
 func (p *Platform) StoreEvent(d *models.Device, payload []byte) error {
 	if p.SeenRecently(d.ID, protocol.BusEvent, payload, 2*time.Second) {
+		if p.Log != nil {
+			p.Log.Info("event dedup",
+				"product", d.ProductID, "device", d.DeviceID,
+				"bytes", len(payload))
+		}
 		return nil
 	}
 	var e struct {
