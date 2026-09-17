@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+# Stop the service before files are removed
+if [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop iot-platform.service >/dev/null 2>&1 || true
+    systemctl disable iot-platform.service >/dev/null 2>&1 || true
+fi

@@ -1,0 +1,41 @@
+#!/bin/sh
+set -e
+
+# Reload systemd units
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi
+
+# Enable and start (or restart on upgrade)
+if [ -d /run/systemd/system ]; then
+    if [ "$1" = "configure" ] || [ "$1" = "abort-remove" ] || [ "$1" = "abort-deconfigure" ]; then
+        systemctl enable iot-platform.service
+        systemctl restart iot-platform.service
+    fi
+fi
+
+# Print setup instructions
+HOSTNAME=$(hostname -I 2>/dev/null | awk '{print $1}')
+HOSTNAME=${HOSTNAME:-localhost}
+
+cat <<EOF
+
+==========================================================
+  IoT Platform Go — installed successfully
+==========================================================
+
+  Setup wizard :  http://${HOSTNAME}:8080
+  MQTT broker  :  mqtt://${HOSTNAME}:1883
+  MQTT over WS :  ws://${HOSTNAME}:8083/
+
+  Open the setup wizard in your browser to complete
+  the initial configuration (database, admin account,
+  SMTP, MQTT TLS, etc.).
+
+  Service management:
+    sudo systemctl status  iot-platform
+    sudo systemctl restart iot-platform
+    sudo journalctl -u iot-platform -f
+
+==========================================================
+EOF

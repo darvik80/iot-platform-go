@@ -1,13 +1,22 @@
 package services
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
+	"net"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"cogitor-iot-platform/internal/auth"
 	"cogitor-iot-platform/internal/config"
@@ -48,6 +57,7 @@ type SetupState struct {
 	// Step 6: MQTT TLS
 	MQTTTLSCert string `json:"mqtt_tls_cert"`
 	MQTTTLSKey  string `json:"mqtt_tls_key"`
+	MQTTTLSCA   string `json:"mqtt_tls_ca,omitempty"`
 
 	// Step 7: Public URL
 	PublicBaseURL string `json:"public_base_url"`
@@ -152,6 +162,9 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 		if v, ok := data["mqtt_tls_key"].(string); ok {
 			s.state.MQTTTLSKey = v
 		}
+		if v, ok := data["mqtt_tls_ca"].(string); ok {
+			s.state.MQTTTLSCA = v
+		}
 	case 7: // Public URL
 		if v, ok := data["public_base_url"].(string); ok && v != "" {
 			s.state.PublicBaseURL = v
@@ -227,6 +240,7 @@ func (s *SetupService) Apply() error {
 		MQTT: config.MQTTConfig{
 			TLSCert: s.state.MQTTTLSCert,
 			TLSKey:  s.state.MQTTTLSKey,
+			TLSCA:   s.state.MQTTTLSCA,
 		},
 		Platform: config.PlatformConfig{
 			PublicBaseURL: s.state.PublicBaseURL,
@@ -310,6 +324,7 @@ func storeSettings(database *db.DB, cfg config.Config) error {
 		"smtp_from":       cfg.Email.SMTPFrom,
 		"mqtt_tls_cert":   cfg.MQTT.TLSCert,
 		"mqtt_tls_key":    cfg.MQTT.TLSKey,
+		"mqtt_tls_ca":     cfg.MQTT.TLSCA,
 		"public_base_url": cfg.Platform.PublicBaseURL,
 	}
 
@@ -355,6 +370,9 @@ func writeConfigYAML(cfg config.Config) error {
 		data["mqtt_tls_cert"] = cfg.MQTT.TLSCert
 		data["mqtt_tls_key"] = cfg.MQTT.TLSKey
 	}
+	if cfg.MQTT.TLSCA != "" {
+		data["mqtt_tls_ca"] = cfg.MQTT.TLSCA
+	}
 
 	// Marshal to YAML
 	yamlData, err := marshalYAML(data)
@@ -367,6 +385,118 @@ func writeConfigYAML(cfg config.Config) error {
 		return fmt.Errorf("write config.yml: %w", err)
 	}
 	return nil
+}
+
+// MQTTTLSResult holds the paths of generated TLS certificates.
+type MQTTTLSResult struct {
+	CertPath string `json:"cert_path"`
+	KeyPath  string `json:"key_path"`
+	CAPath   string `json:"ca_path"`
+}
+
+// GenerateMQTTTLS generates a self-signed CA + server certificate for MQTT TLS.
+// host is used as the CN and SAN (DNS or IP). Files are written to dir.
+func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult, error) {
+	if host == "" {
+		host = "localhost"
+	}
+	if dir == "" {
+		dir = filepath.Join("data", "certs", "mqtt")
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("create cert dir: %w", err)
+	}
+
+	// ── CA ──────────────────────────────────────────────────────────
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("ca key: %w", err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Cogitor IoT CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("ca cert: %w", err)
+	}
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := writePEM(caPath, "CERTIFICATE", caDER); err != nil {
+		return nil, err
+	}
+
+	// ── Server certificate ──────────────────────────────────────────
+	srvKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("server key: %w", err)
+	}
+	srvTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: host},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	// SAN: add host as IP or DNS, plus localhost/127.0.0.1
+	if ip := net.ParseIP(host); ip != nil {
+		srvTmpl.IPAddresses = []net.IP{ip, net.IPv4(127, 0, 0, 1)}
+	} else {
+		srvTmpl.DNSNames = []string{host, "localhost"}
+		srvTmpl.IPAddresses = []net.IP{net.IPv4(127, 0, 0, 1)}
+	}
+	caCert, _ := x509.ParseCertificate(caDER)
+	srvDER, err := x509.CreateCertificate(rand.Reader, srvTmpl, caCert, &srvKey.PublicKey, caKey)
+	if err != nil {
+		return nil, fmt.Errorf("server cert: %w", err)
+	}
+
+	certPath := filepath.Join(dir, "cert.pem")
+	if err := writePEM(certPath, "CERTIFICATE", srvDER); err != nil {
+		return nil, err
+	}
+
+	keyPath := filepath.Join(dir, "key.pem")
+	if err := writeECKey(keyPath, srvKey); err != nil {
+		return nil, err
+	}
+
+	s.log.Info("mqtt tls certificates generated", "host", host, "dir", dir)
+
+	return &MQTTTLSResult{
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		CAPath:   caPath,
+	}, nil
+}
+
+// writePEM writes a DER-encoded certificate to a PEM file.
+func writePEM(path, typ string, der []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	defer f.Close()
+	return pem.Encode(f, &pem.Block{Type: typ, Bytes: der})
+}
+
+// writeECKey writes an ECDSA private key to a PEM file.
+func writeECKey(path string, key *ecdsa.PrivateKey) error {
+	b, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return fmt.Errorf("marshal key: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	defer f.Close()
+	return pem.Encode(f, &pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
 }
 
 // marshalYAML is a simple YAML marshaller for map[string]any.

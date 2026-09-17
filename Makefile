@@ -1,4 +1,4 @@
-.PHONY: web build build-linux run gen-mqtt-tls
+нв.PHONY: web build build-linux run gen-mqtt-tls deb
 
 web:
 	cd web && npm ci && npm run build
@@ -19,3 +19,7 @@ DIR ?= ./certs/mqtt
 CN ?= iot.local
 gen-mqtt-tls:
 	@bash scripts/gen-mqtt-tls.sh "$(DIR)" "$(CN)"
+
+# Build .deb package (run from WSL or Linux)
+deb:
+	@bash deb/build.sh

@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "purge" ]; then
+    # Remove systemd unit (already stopped by prerm)
+    rm -f /lib/systemd/system/iot-platform.service
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+    fi
+
+    # Remove user and group
+    if getent passwd iot-platform >/dev/null 2>&1; then
+        deluser --system iot-platform >/dev/null 2>&1 || true
+    fi
+    if getent group iot-platform >/dev/null 2>&1; then
+        delgroup --system iot-platform >/dev/null 2>&1 || true
+    fi
+
+    # Remove data and config directories
+    rm -rf /var/lib/iot-platform-go
+    rm -rf /etc/iot-platform-go
+fi

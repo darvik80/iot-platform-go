@@ -20,6 +20,7 @@ interface SetupState {
   jwt_secret: string;
   mqtt_tls_cert: string;
   mqtt_tls_key: string;
+  mqtt_tls_ca?: string;
   public_base_url: string;
   completed: boolean;
   error?: string;
@@ -45,6 +46,7 @@ export function SetupPage() {
   const [error, setError] = useState('');
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [generatingTLS, setGeneratingTLS] = useState(false);
 
   const fetchState = useCallback(async () => {
     try {
@@ -343,6 +345,7 @@ export function SetupPage() {
               submitStep(6, {
                 mqtt_tls_cert: fd.get('mqtt_tls_cert'),
                 mqtt_tls_key: fd.get('mqtt_tls_key'),
+                mqtt_tls_ca: fd.get('mqtt_tls_ca'),
               });
             }}
             saving={saving}
@@ -351,11 +354,47 @@ export function SetupPage() {
           >
             <div>
               <label className="form-label">TLS Certificate Path</label>
-              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="/etc/iot-platform/server.crt" />
+              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="data/certs/mqtt/cert.pem" />
             </div>
             <div>
               <label className="form-label">TLS Key Path</label>
-              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/etc/iot-platform/server.key" />
+              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="data/certs/mqtt/key.pem" />
+            </div>
+            <div>
+              <label className="form-label">CA Certificate Path</label>
+              <input name="mqtt_tls_ca" className="form-control mono" defaultValue={state.mqtt_tls_ca} placeholder="data/certs/mqtt/ca.pem" />
+              <div className="form-text">CA cert for mutual TLS (optional). Auto-filled when using Generate.</div>
+            </div>
+            <div className="d-flex gap-2 align-items-start">
+              <button
+                type="button"
+                className="btn btn-outline-primary text-nowrap"
+                disabled={generatingTLS}
+                onClick={async () => {
+                  setGeneratingTLS(true);
+                  setError('');
+                  try {
+                    const host = window.location.hostname || 'localhost';
+                    const res = await api<{ cert_path: string; key_path: string; ca_path: string }>('/setup/generate-tls', {
+                      method: 'POST',
+                      body: JSON.stringify({ host }),
+                    });
+                    const certInput = document.querySelector<HTMLInputElement>('[name=mqtt_tls_cert]');
+                    const keyInput = document.querySelector<HTMLInputElement>('[name=mqtt_tls_key]');
+                    const caInput = document.querySelector<HTMLInputElement>('[name=mqtt_tls_ca]');
+                    if (certInput) certInput.value = res.cert_path;
+                    if (keyInput) keyInput.value = res.key_path;
+                    if (caInput) caInput.value = res.ca_path;
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setGeneratingTLS(false);
+                  }
+                }}
+              >
+                {generatingTLS ? 'Generating…' : 'Generate self-signed'}
+              </button>
+              <span className="form-text mb-0">Generates a self-signed CA + server certificate (ECDSA P-256, 1 year validity).</span>
             </div>
             <div className="form-text">Leave empty to disable MQTT-over-TLS. Can be configured later via config.yml.</div>
           </StepForm>
@@ -391,7 +430,7 @@ export function SetupPage() {
                   <ReviewRow label="Account" value={`${state.account_name} [${state.account_slug}]`} />
                   <ReviewRow label="SMTP" value={state.smtp_host ? `${state.smtp_host}:${state.smtp_port}` : '(not configured)'} />
                   <ReviewRow label="JWT Secret" value={state.jwt_secret ? `${state.jwt_secret.slice(0, 8)}...` : '(not set)'} />
-                  <ReviewRow label="MQTT TLS" value={state.mqtt_tls_cert ? state.mqtt_tls_cert : '(disabled)'} />
+                  <ReviewRow label="MQTT TLS" value={state.mqtt_tls_cert ? `${state.mqtt_tls_cert}${state.mqtt_tls_ca ? ' + CA' : ''}` : '(disabled)'} />
                   <ReviewRow label="Public URL" value={state.public_base_url} />
                 </tbody>
               </table>

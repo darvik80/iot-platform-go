@@ -1,0 +1,14 @@
+Package: iot-platform-go
+Version: 0.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: systemd
+Maintainer: Cogitor IoT <admin@cogitor.local>
+Homepage: https://cogitor.dev
+Description: IoT Platform (Go)
+ Self-hosted IoT platform with MQTT broker, device management,
+ automation plugins, and web dashboard.
+ .
+ After installation the setup wizard is available at http://<host>:8080.
+ Ports: HTTP 8080, MQTT 1883, MQTT-WS 8083.

@@ -1,0 +1,27 @@
+#!/bin/sh
+set -e
+
+# Create dedicated system user/group (idempotent)
+if ! getent group iot-platform >/dev/null 2>&1; then
+    addgroup --system iot-platform
+fi
+
+if ! getent passwd iot-platform >/dev/null 2>&1; then
+    adduser --system \
+            --group \
+            --home /var/lib/iot-platform-go \
+            --no-create-home \
+            --shell /usr/sbin/nologin \
+            iot-platform
+fi
+
+# Ensure directories exist with correct ownership
+mkdir -p /var/lib/iot-platform-go/data
+mkdir -p /etc/iot-platform-go
+chown -R iot-platform:iot-platform /var/lib/iot-platform-go
+chown -R iot-platform:iot-platform /etc/iot-platform-go
+
+# On upgrade stop the old service before files are replaced
+if [ "$1" = "upgrade" ] && [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop iot-platform.service >/dev/null 2>&1 || true
+fi

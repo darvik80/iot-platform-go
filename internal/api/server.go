@@ -91,6 +91,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/state", setupHandler.GetState)
 			r.Post("/step", setupHandler.UpdateStep)
 			r.Post("/apply", setupHandler.Apply)
+			r.Post("/generate-tls", setupHandler.GenerateTLS)
 		})
 	}
 

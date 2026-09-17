@@ -61,3 +61,28 @@ func (h *SetupHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		"message":   "Setup completed successfully. Please restart the application.",
 	})
 }
+
+// GenerateTLSRequest is the request body for generating MQTT TLS certificates.
+type GenerateTLSRequest struct {
+	Host string `json:"host"`
+	Dir  string `json:"dir"`
+}
+
+// GenerateTLS generates self-signed MQTT TLS certificates.
+func (h *SetupHandler) GenerateTLS(w http.ResponseWriter, r *http.Request) {
+	var req GenerateTLSRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	result, err := h.Setup.GenerateMQTTTLS(req.Host, req.Dir)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":   true,
+		"cert_path": result.CertPath,
+		"key_path":  result.KeyPath,
+		"ca_path":   result.CAPath,
+	})
+}
