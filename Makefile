@@ -1,4 +1,4 @@
-нв.PHONY: web build build-linux run gen-mqtt-tls deb
+.PHONY: web build build-linux run gen-mqtt-tls deb
 
 web:
 	cd web && npm ci && npm run build

@@ -22,7 +22,9 @@ import (
 
 func main() {
 	// Load configuration from YAML only (no .env)
+	// Priority: ./config.yml > /etc/iot-platform/config.yml > /etc/iot-platform-go/config.yml (legacy)
 	config.LoadYAML("./config.yml")
+	config.LoadYAML("/etc/iot-platform/config.yml")
 	config.LoadYAML("/etc/iot-platform-go/config.yml")
 	cfg := config.Load()
 
@@ -123,6 +125,8 @@ func main() {
 
 		// Reload config (wizard wrote config.yml) — force override any existing env vars
 		config.LoadYAMLForce("./config.yml")
+		config.LoadYAMLForce("/etc/iot-platform/config.yml")
+		config.LoadYAMLForce("/etc/iot-platform-go/config.yml")
 		cfg = config.Load()
 		if cfg.HTTP.Addr == "" {
 			cfg.HTTP.Addr = ":8080"

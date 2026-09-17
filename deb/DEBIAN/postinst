@@ -32,10 +32,15 @@ cat <<EOF
   the initial configuration (database, admin account,
   SMTP, MQTT TLS, etc.).
 
+  Layout:
+    Config + certs : /etc/iot-platform
+    Database       : /var/lib/iot-platform
+    Logs           : /var/log/iot-platform/platform.log
+
   Service management:
     sudo systemctl status  iot-platform
     sudo systemctl restart iot-platform
-    sudo journalctl -u iot-platform -f
+    tail -f /var/log/iot-platform/platform.log
 
 ==========================================================
 EOF

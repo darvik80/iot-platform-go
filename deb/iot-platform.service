@@ -7,18 +7,18 @@ Wants=network-online.target
 Type=simple
 User=iot-platform
 Group=iot-platform
-WorkingDirectory=/var/lib/iot-platform-go
+WorkingDirectory=/var/lib/iot-platform
 ExecStart=/usr/bin/iot-platform
 Restart=on-failure
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=iot-platform
+# Logs → /var/log/iot-platform/platform.log (rotated via /etc/logrotate.d/iot-platform)
+StandardOutput=append:/var/log/iot-platform/platform.log
+StandardError=append:/var/log/iot-platform/platform.log
 
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/iot-platform-go /etc/iot-platform-go
+ReadWritePaths=/var/lib/iot-platform /etc/iot-platform /var/log/iot-platform
 ProtectHome=true
 PrivateTmp=true
 

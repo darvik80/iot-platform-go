@@ -27,33 +27,45 @@ echo "==> Building Linux binary"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform ./cmd/platform
 
 # ── Prepare staging area ─────────────────────────────────────────────
+# Layout:
+#   /usr/bin/iot-platform          — binary
+#   /etc/iot-platform              — config.yml (+ certs/ created by wizard)
+#   /etc/logrotate.d/iot-platform  — log rotation
+#   /var/lib/iot-platform/data     — database (state)
+#   /var/log/iot-platform          — platform.log
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
 PKG="${STAGE}/iot-platform-go"
 mkdir -p "${PKG}/DEBIAN"
 mkdir -p "${PKG}/usr/bin"
-mkdir -p "${PKG}/etc/iot-platform-go"
+mkdir -p "${PKG}/etc/iot-platform"
+mkdir -p "${PKG}/etc/logrotate.d"
 mkdir -p "${PKG}/lib/systemd/system"
-mkdir -p "${PKG}/var/lib/iot-platform-go/data"
+mkdir -p "${PKG}/var/lib/iot-platform/data"
+mkdir -p "${PKG}/var/log/iot-platform"
 
 # Binary
 install -m 0755 bin/platform "${PKG}/usr/bin/iot-platform"
 
 # Default config (empty → triggers setup wizard on first boot)
-cat > "${PKG}/etc/iot-platform-go/config.yml" <<'EOF'
+cat > "${PKG}/etc/iot-platform/config.yml" <<'EOF'
 # IoT Platform Go — configuration file
 # Leave empty to run the web setup wizard on first boot.
 # The wizard is available at http://<host>:8080 after the service starts.
 EOF
-chmod 0644 "${PKG}/etc/iot-platform-go/config.yml"
+chmod 0644 "${PKG}/etc/iot-platform/config.yml"
+
+# Log rotation
+install -m 0644 "${SCRIPT_DIR}/logrotate" "${PKG}/etc/logrotate.d/iot-platform"
 
 # Systemd unit
 install -m 0644 "${SCRIPT_DIR}/iot-platform.service" "${PKG}/lib/systemd/system/iot-platform.service"
 
-# Data directory ownership
-chmod 0755 "${PKG}/var/lib/iot-platform-go"
-chmod 0755 "${PKG}/var/lib/iot-platform-go/data"
+# Data and log directory ownership
+chmod 0755 "${PKG}/var/lib/iot-platform"
+chmod 0755 "${PKG}/var/lib/iot-platform/data"
+chmod 0755 "${PKG}/var/log/iot-platform"
 
 # ── DEBIAN control files ─────────────────────────────────────────────
 sed "s/^Version:.*/Version: ${VERSION}/" "${SCRIPT_DIR}/DEBIAN/control" \

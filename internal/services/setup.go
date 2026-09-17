@@ -350,6 +350,15 @@ func generateSecret() string {
 	return hex.EncodeToString(b)
 }
 
+// configYAMLPath returns where the wizard persists configuration.
+// Debian layout (/etc/iot-platform) wins when present, otherwise ./config.yml.
+func configYAMLPath() string {
+	if st, err := os.Stat("/etc/iot-platform"); err == nil && st.IsDir() {
+		return filepath.Join("/etc/iot-platform", "config.yml")
+	}
+	return "config.yml"
+}
+
 // writeConfigYAML writes the configuration to config.yml for persistence.
 func writeConfigYAML(cfg config.Config) error {
 	// Build a minimal config structure for YAML
@@ -381,7 +390,7 @@ func writeConfigYAML(cfg config.Config) error {
 	}
 
 	// Write to config.yml
-	if err := os.WriteFile("config.yml", yamlData, 0644); err != nil {
+	if err := os.WriteFile(configYAMLPath(), yamlData, 0644); err != nil {
 		return fmt.Errorf("write config.yml: %w", err)
 	}
 	return nil
@@ -401,7 +410,7 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 		host = "localhost"
 	}
 	if dir == "" {
-		dir = filepath.Join("data", "certs", "mqtt")
+		dir = defaultCertDir()
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create cert dir: %w", err)
@@ -473,6 +482,15 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 		KeyPath:  keyPath,
 		CAPath:   caPath,
 	}, nil
+}
+
+// defaultCertDir returns where generated MQTT TLS certs are stored.
+// Debian layout (/etc/iot-platform) wins when present, otherwise ./data/certs/mqtt.
+func defaultCertDir() string {
+	if st, err := os.Stat("/etc/iot-platform"); err == nil && st.IsDir() {
+		return filepath.Join("/etc/iot-platform", "certs", "mqtt")
+	}
+	return filepath.Join("data", "certs", "mqtt")
 }
 
 // writePEM writes a DER-encoded certificate to a PEM file.
