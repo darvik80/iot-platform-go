@@ -39,9 +39,9 @@ func TestFlattenServerSection(t *testing.T) {
 
 func TestLoadYAMLServerPublicBaseURL(t *testing.T) {
 	keys := []string{
-		"PUBLIC_BASE_URL", "SERVER_PUBLIC_BASE_URL",
+		"PUBLIC_BASE_URL", "SERVER_PUBLIC_BASE_URL", "PLATFORM_PUBLIC_BASE_URL",
 		"HTTP_ADDR", "SERVER_HTTP_ADDR",
-		"BROKER_HOST_PUBLIC", "MQTT_BROKER_HOST_PUBLIC", "MQTT_HOST_PUBLIC",
+		"BROKER_HOST_PUBLIC", "PLATFORM_BROKER_HOST_PUBLIC", "MQTT_BROKER_HOST_PUBLIC", "MQTT_HOST_PUBLIC",
 	}
 	saved := map[string]*string{}
 	for _, k := range keys {
@@ -82,7 +82,7 @@ mqtt:
 }
 
 func TestEnvPublicBaseURLWinsOverYAML(t *testing.T) {
-	keys := []string{"PUBLIC_BASE_URL", "SERVER_PUBLIC_BASE_URL"}
+	keys := []string{"PUBLIC_BASE_URL", "SERVER_PUBLIC_BASE_URL", "PLATFORM_PUBLIC_BASE_URL"}
 	saved := map[string]*string{}
 	for _, k := range keys {
 		if v, ok := os.LookupEnv(k); ok {
