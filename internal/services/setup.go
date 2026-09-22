@@ -22,6 +22,8 @@ import (
 	"cogitor-iot-platform/internal/config"
 	"cogitor-iot-platform/internal/db"
 	"cogitor-iot-platform/internal/models"
+
+	"go.yaml.in/yaml/v4"
 )
 
 // SetupState holds the wizard state during the 8-step setup process.
@@ -360,31 +362,68 @@ func configYAMLPath() string {
 }
 
 // writeConfigYAML writes the configuration to config.yml for persistence.
+// The YAML structure is nested to match config.yml.example so that LoadYAML
+// (which flattens nested keys to SCREAMING_SNAKE_CASE env vars) can read it back.
 func writeConfigYAML(cfg config.Config) error {
-	// Build a minimal config structure for YAML
-	data := map[string]any{
-		"database_driver": cfg.Database.Driver,
-		"database_dsn":    cfg.Database.DSN,
-		"jwt_secret":      cfg.Auth.JWTSecret,
-		"public_base_url": cfg.Platform.PublicBaseURL,
-	}
-	if cfg.Email.SMTPHost != "" {
-		data["smtp_host"] = cfg.Email.SMTPHost
-		data["smtp_port"] = cfg.Email.SMTPPort
-		data["smtp_user"] = cfg.Email.SMTPUser
-		data["smtp_pass"] = cfg.Email.SMTPPass
-		data["smtp_from"] = cfg.Email.SMTPFrom
-	}
-	if cfg.MQTT.TLSCert != "" {
-		data["mqtt_tls_cert"] = cfg.MQTT.TLSCert
-		data["mqtt_tls_key"] = cfg.MQTT.TLSKey
-	}
-	if cfg.MQTT.TLSCA != "" {
-		data["mqtt_tls_ca"] = cfg.MQTT.TLSCA
+	type yamlConfig struct {
+		Database struct {
+			Driver string `yaml:"driver"`
+			DSN    string `yaml:"dsn"`
+		} `yaml:"database"`
+		Auth struct {
+			JWTSecret string `yaml:"jwt_secret"`
+		} `yaml:"auth"`
+		Platform struct {
+			PublicBaseURL string `yaml:"public_base_url"`
+		} `yaml:"platform"`
+		Email *struct {
+			SMTPHost string `yaml:"smtp_host"`
+			SMTPPort int    `yaml:"smtp_port"`
+			SMTPUser string `yaml:"smtp_user"`
+			SMTPPass string `yaml:"smtp_pass"`
+			SMTPFrom string `yaml:"smtp_from"`
+		} `yaml:"email,omitempty"`
+		MQTT *struct {
+			TLSCert string `yaml:"tls_cert"`
+			TLSKey  string `yaml:"tls_key"`
+			TLSCA   string `yaml:"tls_ca,omitempty"`
+		} `yaml:"mqtt,omitempty"`
 	}
 
-	// Marshal to YAML
-	yamlData, err := marshalYAML(data)
+	var out yamlConfig
+	out.Database.Driver = cfg.Database.Driver
+	out.Database.DSN = cfg.Database.DSN
+	out.Auth.JWTSecret = cfg.Auth.JWTSecret
+	out.Platform.PublicBaseURL = cfg.Platform.PublicBaseURL
+
+	if cfg.Email.SMTPHost != "" {
+		out.Email = &struct {
+			SMTPHost string `yaml:"smtp_host"`
+			SMTPPort int    `yaml:"smtp_port"`
+			SMTPUser string `yaml:"smtp_user"`
+			SMTPPass string `yaml:"smtp_pass"`
+			SMTPFrom string `yaml:"smtp_from"`
+		}{
+			SMTPHost: cfg.Email.SMTPHost,
+			SMTPPort: cfg.Email.SMTPPort,
+			SMTPUser: cfg.Email.SMTPUser,
+			SMTPPass: cfg.Email.SMTPPass,
+			SMTPFrom: cfg.Email.SMTPFrom,
+		}
+	}
+	if cfg.MQTT.TLSCert != "" {
+		out.MQTT = &struct {
+			TLSCert string `yaml:"tls_cert"`
+			TLSKey  string `yaml:"tls_key"`
+			TLSCA   string `yaml:"tls_ca,omitempty"`
+		}{
+			TLSCert: cfg.MQTT.TLSCert,
+			TLSKey:  cfg.MQTT.TLSKey,
+			TLSCA:   cfg.MQTT.TLSCA,
+		}
+	}
+
+	yamlData, err := yaml.Marshal(&out)
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
@@ -517,21 +556,4 @@ func writeECKey(path string, key *ecdsa.PrivateKey) error {
 	}
 	defer f.Close()
 	return pem.Encode(f, &pem.Block{Type: "EC PRIVATE KEY", Bytes: b})
-}
-
-// marshalYAML is a simple YAML marshaller for map[string]any.
-// This is a simplified implementation; for production use, consider using a proper YAML library.
-func marshalYAML(data map[string]any) ([]byte, error) {
-	var result []byte
-	for key, value := range data {
-		switch v := value.(type) {
-		case string:
-			result = append(result, fmt.Sprintf("%s: %q\n", key, v)...)
-		case int:
-			result = append(result, fmt.Sprintf("%s: %d\n", key, v)...)
-		default:
-			result = append(result, fmt.Sprintf("%s: %v\n", key, v)...)
-		}
-	}
-	return result, nil
 }
