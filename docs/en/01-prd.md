@@ -188,7 +188,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | NF-07 | **Performance** | SQLite WAL mode for concurrent reads during ingest |
 | NF-08 | **Performance** | WebSocket fan-out for real-time dashboard updates (no polling) |
 | NF-09 | **Reliability** | MQTT session state; LWT for disconnect detection; pending OTA jobs delivered on reconnect |
-| NF-10 | **Configuration** | Priority cascade: OS env → `.env` → `./config.yml` → `/etc/iot-platform-go/config.yml` |
+| NF-10 | **Configuration** | Priority cascade: OS env → `./config.yml` → `/etc/iot-platform/config.yml` |
 | NF-11 | **Maintainability** | Database migrations in `internal/db/migrations/`; auto-applied at startup |
 | NF-12 | **Extensibility** | Plugin catalog with Go `init()` registration; form-driven UI generation |
 
@@ -318,7 +318,7 @@ graph TB
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
-| `SQLITE_PATH` | `./data/platform.db` | SQLite database file |
+| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth callbacks |
 | `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin credentials |
@@ -332,7 +332,7 @@ graph TB
 1. OS environment variables
 2. `.env` file
 3. `./config.yml`
-4. `/etc/iot-platform-go/config.yml`
+4. `/etc/iot-platform/config.yml`
 
 ---
 

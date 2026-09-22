@@ -19,7 +19,7 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata su-exec \
   && adduser -D -u 1000 platform \
   && mkdir -p /data && chown platform:platform /data \
-  && mkdir -p /etc/iot-platform-go
+  && mkdir -p /etc/iot-platform
 WORKDIR /
 COPY --from=build /out/platform /platform
 COPY docker-entrypoint.sh /docker-entrypoint.sh

@@ -117,7 +117,7 @@ graph LR
    - MQTT WS: **8083** → 8083
 4. Монтирование:
    - `/volume1/docker/iot-platform-go/data` → `/data` (SQLite + firmware)
-   - `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform-go` (read-only, конфиг)
+   - `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform` (read-only, конфиг)
 
 ### 3. Ручная пересборка
 
@@ -132,7 +132,7 @@ docker run -d \
   --restart unless-stopped \
   --name iot-platform-go \
   -v /volume1/docker/iot-platform-go/data:/data \
-  -v /volume1/docker/iot-platform-go/etc:/etc/iot-platform-go:ro \
+  -v /volume1/docker/iot-platform-go/etc:/etc/iot-platform:ro \
   localhost/iot-platform-go:latest
 ```
 

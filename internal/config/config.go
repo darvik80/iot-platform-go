@@ -121,7 +121,7 @@ func Load() Config {
 	// Database driver auto-detection with backward compatibility
 	driver := getenv("DATABASE_DRIVER", "", "DATABASE_DRIVER")
 	dsn := getenv("DATABASE_DSN", "", "DATABASE_DSN")
-	sqlitePath := getenv("SQLITE_PATH", "./data/platform.db", "DATABASE_SQLITE_PATH")
+	sqlitePath := getenv("SQLITE_PATH", "/etc/iot-platform/platform.db", "DATABASE_SQLITE_PATH")
 
 	// If no explicit driver, check for legacy SQLITE_PATH or default to sqlite
 	if driver == "" {

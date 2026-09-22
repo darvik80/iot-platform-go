@@ -43,5 +43,5 @@ jobs:
             --restart unless-stopped \
             --name $CONTAINER_NAME \
             -v /volume1/docker/$CONTAINER_NAME/data:/data \
-            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform-go \
+            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform \
               localhost/$CONTAINER_NAME:latest

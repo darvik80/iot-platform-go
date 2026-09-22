@@ -53,9 +53,9 @@ mqtt:
   addr: ":1883"
   ws_addr: ":8083"
   tls_addr: ":8883"
-  tls_cert: "/etc/iot-platform-go/certs/cert.pem"
-  tls_key: "/etc/iot-platform-go/certs/key.pem"
-  # tls_ca: "/etc/iot-platform-go/certs/ca.pem"   # uncomment for mutual TLS
+  tls_cert: "/etc/iot-platform/certs/mqtt/cert.pem"
+  tls_key: "/etc/iot-platform/certs/mqtt/key.pem"
+  # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"   # uncomment for mutual TLS
   broker_host_public: "192.168.1.22"
 ```
 
@@ -176,15 +176,15 @@ cp cert.pem key.pem deploy/certs/
 
 # Configure
 cat >> deploy/.env <<EOF
-MQTT_TLS_CERT=/etc/iot-platform-go/certs/cert.pem
-MQTT_TLS_KEY=/etc/iot-platform-go/certs/key.pem
+MQTT_TLS_CERT=/etc/iot-platform/certs/mqtt/cert.pem
+MQTT_TLS_KEY=/etc/iot-platform/certs/mqtt/key.pem
 EOF
 
 docker compose up -d --build
 ```
 
 The `deploy/docker-compose.yml` mounts `./certs` read-only into the container at
-`/etc/iot-platform-go/certs/`.
+`/etc/iot-platform/certs/mqtt/`.
 
 Don't forget to expose port 8883 if devices connect over TLS.
 

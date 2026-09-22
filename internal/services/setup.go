@@ -81,7 +81,7 @@ func NewSetupService(log *slog.Logger) *SetupService {
 		state: &SetupState{
 			CurrentStep:    1,
 			DatabaseDriver: "sqlite",
-			DatabaseDSN:    "./data/platform.db",
+			DatabaseDSN:    "/etc/iot-platform/platform.db",
 			AdminLogin:     "admin",
 			AdminEmail:     "admin@example.com",
 			AccountSlug:    "default",
@@ -485,12 +485,8 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 }
 
 // defaultCertDir returns where generated MQTT TLS certs are stored.
-// Debian layout (/etc/iot-platform) wins when present, otherwise ./data/certs/mqtt.
 func defaultCertDir() string {
-	if st, err := os.Stat("/etc/iot-platform"); err == nil && st.IsDir() {
-		return filepath.Join("/etc/iot-platform", "certs", "mqtt")
-	}
-	return filepath.Join("data", "certs", "mqtt")
+	return "/etc/iot-platform/certs/mqtt"
 }
 
 // writePEM writes a DER-encoded certificate to a PEM file.

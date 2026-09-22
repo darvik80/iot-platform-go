@@ -403,7 +403,7 @@ platform/v1/commands/{product_id}/{device_id}/ota
 
 ## Конфигурация
 
-Приоритет конфигурации (первый непустой выигрывает): **OS env → `.env` → `./config.yml` → `/etc/iot-platform-go/config.yml`**.
+Приоритет конфигурации (первый непустой выигрывает): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**.
 
 ### Основные переменные
 
@@ -412,7 +412,7 @@ platform/v1/commands/{product_id}/{device_id}/ota
 | `HTTP_ADDR` | `:8080` | Адрес HTTP |
 | `MQTT_ADDR` | `:1883` | MQTT TCP |
 | `MQTT_WS_ADDR` | `:8083` | MQTT over WebSocket. `off` для отключения |
-| `SQLITE_PATH` | `./data/platform.db` | Файл БД SQLite |
+| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | Файл БД SQLite |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL для OTA, email, OAuth. **Доступен с устройств** |
 | `TIMEZONE` | `UTC` | Часовая зона IANA для расписаний и тихих часов |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |

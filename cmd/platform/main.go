@@ -21,14 +21,93 @@ import (
 )
 
 func main() {
-	// Load configuration from YAML only (no .env)
-	// Priority: ./config.yml > /etc/iot-platform/config.yml > /etc/iot-platform-go/config.yml (legacy)
-	config.LoadYAML("./config.yml")
-	config.LoadYAML("/etc/iot-platform/config.yml")
-	config.LoadYAML("/etc/iot-platform-go/config.yml")
+	cfg, log := initConfig()
+
+	database, plat, setupService := initDatabase(cfg, log)
+	defer database.Close()
+
+	startPlatform(cfg, log, database, plat, setupService)
+}
+
+// initConfig loads YAML configs, builds Config and creates the logger.
+func initConfig() (config.Config, *slog.Logger) {
+	loadedLocal := config.LoadYAML("./config.yml")
+	loadedEtc := config.LoadYAML("/etc/iot-platform/config.yml")
 	cfg := config.Load()
 
-	// Use defaults if not configured
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
+	slog.SetDefault(log)
+
+	log.Info("config sources",
+		"./config.yml", loadedLocal,
+		"/etc/iot-platform/config.yml", loadedEtc,
+		"db_driver", cfg.Database.Driver,
+		"db_dsn", cfg.Database.DSN,
+		"http_addr", cfg.HTTP.Addr,
+		"mqtt_addr", cfg.MQTT.Addr,
+		"data_dir", cfg.DataDir,
+	)
+	if cfg.GoogleEnabled() {
+		log.Info("google oauth enabled", "redirect", cfg.GoogleCallbackURL())
+	} else {
+		log.Info("google oauth disabled — configure via setup wizard or config.yml")
+	}
+	return cfg, log
+}
+
+// initDatabase opens the database or runs the setup wizard if needed.
+// Returns the database, platform service, and optionally the setup service.
+func initDatabase(cfg config.Config, log *slog.Logger) (*db.DB, *services.Platform, *services.SetupService) {
+	if cfg.Database.Driver != "" && cfg.Database.DSN != "" {
+		database, err := db.Open(cfg.Database.Driver, cfg.Database.DSN)
+		if err != nil {
+			log.Error("database open failed", "driver", cfg.Database.Driver, "err", err)
+			os.Exit(1)
+		}
+
+		if dbIsEmpty(database) {
+			database.Close()
+			log.Info("empty database detected, enabling setup wizard")
+			return runSetupWizard(cfg, log)
+		}
+
+		plat := services.New(database, cfg, log)
+		if err := plat.EnsureAdmin(); err != nil {
+			log.Error("ensure admin failed", "err", err)
+			os.Exit(1)
+		}
+		return database, plat, nil
+	}
+
+	log.Info("no database configured, enabling setup wizard")
+	return runSetupWizard(cfg, log)
+}
+
+// dbIsEmpty returns true if the database has no users and no accounts.
+func dbIsEmpty(database *db.DB) bool {
+	var userCount, accountCount int
+	if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
+		userCount = 0
+	}
+	if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
+		accountCount = 0
+	}
+	return userCount == 0 && accountCount == 0
+}
+
+// runSetupWizard starts the setup-only HTTP server, waits for completion,
+// reloads config and opens the database configured by the wizard.
+func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Platform, *services.SetupService) {
+	setupService := services.NewSetupService(log)
+	srv, httpServer := startSetupHTTP(cfg, setupService, log)
+
+	waitForSetup(setupService)
+	_ = httpServer.Shutdown(context.Background())
+
+	// Reload config (wizard wrote config.yml) — force override any existing env vars
+	loadedLocal := config.LoadYAMLForce("./config.yml")
+	loadedEtc := config.LoadYAMLForce("/etc/iot-platform/config.yml")
+	cfg = config.Load()
 	if cfg.HTTP.Addr == "" {
 		cfg.HTTP.Addr = ":8080"
 	}
@@ -36,116 +115,58 @@ func main() {
 		cfg.MQTT.Addr = ":1883"
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
-	slog.SetDefault(log)
-	if cfg.GoogleEnabled() {
-		log.Info("google oauth enabled", "redirect", cfg.GoogleCallbackURL())
-	} else {
-		log.Info("google oauth disabled — configure via setup wizard or config.yml")
+	log.Info("config reloaded after setup",
+		"./config.yml", loadedLocal,
+		"/etc/iot-platform/config.yml", loadedEtc,
+		"db_driver", cfg.Database.Driver,
+		"db_dsn", cfg.Database.DSN,
+	)
+
+	database, err := db.Open(cfg.Database.Driver, cfg.Database.DSN)
+	if err != nil {
+		log.Error("database open failed after setup", "err", err)
+		os.Exit(1)
+	}
+	plat := services.New(database, cfg, log)
+	_ = srv // setup server already shut down
+	return database, plat, setupService
+}
+
+// startSetupHTTP creates and starts the setup-only HTTP server.
+func startSetupHTTP(cfg config.Config, setupService *services.SetupService, log *slog.Logger) (*api.Server, *http.Server) {
+	var spa fs.FS
+	if embedded, err := webui.FS(); err == nil {
+		spa = embedded
+	} else if disk := os.DirFS(filepath.Clean("web/dist")); fileExists("web/dist/index.html") {
+		spa = disk
 	}
 
-	// Check if we need to run setup wizard
-	// Setup is needed if database is not configured or the configured database is empty
-	var database *db.DB
-	var setupService *services.SetupService
-	var plat *services.Platform
-	needSetup := false
+	srv := &api.Server{Setup: setupService, SpaFS: spa}
+	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 
-	if cfg.Database.Driver != "" && cfg.Database.DSN != "" {
-		// Database is configured — try to open it
-		var err error
-		database, err = db.Open(cfg.Database.Driver, cfg.Database.DSN)
-		if err != nil {
-			log.Error("database open failed", "driver", cfg.Database.Driver, "err", err)
+	log.Info("setup wizard listening", "addr", cfg.HTTP.Addr)
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error("http server failed", "err", err)
 			os.Exit(1)
 		}
+	}()
+	return srv, httpServer
+}
 
-		// Check if database has data
-		var userCount, accountCount int
-		if err := database.QueryRow(`SELECT COUNT(1) FROM users`).Scan(&userCount); err != nil {
-			userCount = 0
+// waitForSetup polls the setup service until it reports completion.
+func waitForSetup(s *services.SetupService) {
+	for {
+		time.Sleep(1 * time.Second)
+		if s.GetState().Completed {
+			break
 		}
-		if err := database.QueryRow(`SELECT COUNT(1) FROM accounts`).Scan(&accountCount); err != nil {
-			accountCount = 0
-		}
-
-		if userCount == 0 && accountCount == 0 {
-			// Database is empty — need setup
-			log.Info("empty database detected, enabling setup wizard")
-			needSetup = true
-			// Close the empty database — wizard will open the configured one
-			database.Close()
-			database = nil
-		} else {
-			// Database has data — normal startup
-			plat = services.New(database, cfg, log)
-			if err := plat.EnsureAdmin(); err != nil {
-				log.Error("ensure admin failed", "err", err)
-				os.Exit(1)
-			}
-		}
-	} else {
-		// No database configured — need setup
-		log.Info("no database configured, enabling setup wizard")
-		needSetup = true
 	}
+}
 
-	if needSetup {
-		// Start HTTP server with setup wizard only
-		setupService = services.NewSetupService(log)
-
-		var spa fs.FS
-		if embedded, err := webui.FS(); err == nil {
-			spa = embedded
-		} else if disk := os.DirFS(filepath.Clean("web/dist")); fileExists("web/dist/index.html") {
-			spa = disk
-		}
-
-		srv := &api.Server{Setup: setupService, SpaFS: spa}
-		httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
-
-		log.Info("setup wizard listening", "addr", cfg.HTTP.Addr)
-		go func() {
-			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Error("http server failed", "err", err)
-				os.Exit(1)
-			}
-		}()
-
-		// Wait for setup to complete
-		for {
-			time.Sleep(1 * time.Second)
-			state := setupService.GetState()
-			if state.Completed {
-				break
-			}
-		}
-
-		_ = httpServer.Shutdown(context.Background())
-
-		// Reload config (wizard wrote config.yml) — force override any existing env vars
-		config.LoadYAMLForce("./config.yml")
-		config.LoadYAMLForce("/etc/iot-platform/config.yml")
-		config.LoadYAMLForce("/etc/iot-platform-go/config.yml")
-		cfg = config.Load()
-		if cfg.HTTP.Addr == "" {
-			cfg.HTTP.Addr = ":8080"
-		}
-		if cfg.MQTT.Addr == "" {
-			cfg.MQTT.Addr = ":1883"
-		}
-
-		// Open the database configured by the wizard
-		var err error
-		database, err = db.Open(cfg.Database.Driver, cfg.Database.DSN)
-		if err != nil {
-			log.Error("database open failed after setup", "err", err)
-			os.Exit(1)
-		}
-		plat = services.New(database, cfg, log)
-	}
-
-	defer database.Close()
+// startPlatform boots the MQTT broker, plugins, retention loop and HTTP server,
+// then blocks until a shutdown signal is received.
+func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *services.Platform, setupService *services.SetupService) {
 	_ = plat.ReloadDeviceMaps()
 
 	hub := ws.NewHub()
@@ -178,20 +199,31 @@ func main() {
 	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 
 	go func() {
-		log.Info("platform listening", "addr", cfg.HTTP.Addr, "mqtt", cfg.MQTT.Addr, "public", cfg.Platform.PublicBaseURL, "name", cfg.Platform.Name, "tz", cfg.TimezoneOrUTC(), "log", cfg.LogLevel)
+		log.Info("platform listening",
+			"addr", cfg.HTTP.Addr,
+			"mqtt", cfg.MQTT.Addr,
+			"public", cfg.Platform.PublicBaseURL,
+			"name", cfg.Platform.Name,
+			"tz", cfg.TimezoneOrUTC(),
+			"log", cfg.LogLevel,
+		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("http server failed", "err", err)
 			os.Exit(1)
 		}
 	}()
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-	cancel()
+	waitForShutdown()
 	shutdownCtx, c2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer c2()
 	_ = httpServer.Shutdown(shutdownCtx)
+}
+
+// waitForShutdown blocks until SIGINT or SIGTERM is received.
+func waitForShutdown() {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
 }
 
 func fileExists(path string) bool {

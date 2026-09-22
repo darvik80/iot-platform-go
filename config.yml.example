@@ -1,4 +1,4 @@
-# Priority: OS env > .env > ./config.yml > /etc/iot-platform-go/config.yml
+# Priority: OS env > ./config.yml > /etc/iot-platform/config.yml
 # Flatten: nested YAML keys are joined with "_" and uppercased to env var names.
 # Example: server.http_addr → SERVER_HTTP_ADDR, mqtt.addr → MQTT_ADDR
 # .env uses PUBLIC_BASE_URL / HTTP_ADDR (those win if set).
@@ -12,7 +12,7 @@ log_level: info                                       # env: LOG_LEVEL  —  deb
 
 database:
   driver: "sqlite"                                    # env: DATABASE_DRIVER  —  sqlite | postgres
-  dsn: "./data/platform.db"                           # env: DATABASE_DSN
+  dsn: "/etc/iot-platform/platform.db"                 # env: DATABASE_DSN
   # dsn: "postgres://user:pass@localhost:5432/iot_platform?sslmode=disable"
   max_open_conns: 8                                   # env: DATABASE_MAX_OPEN_CONNS
 
@@ -20,9 +20,9 @@ mqtt:
   addr: ":1883"                                       # env: MQTT_ADDR
   ws_addr: ":8083"                                    # env: MQTT_WS_ADDR  —  MQTT over WebSocket (off to disable)
   # tls_addr: ":8883"                                 # env: MQTT_TLS_ADDR  —  MQTT over TLS
-  # tls_cert: "/etc/iot-platform-go/certs/cert.pem"   # env: MQTT_TLS_CERT
-  # tls_key: "/etc/iot-platform-go/certs/key.pem"     # env: MQTT_TLS_KEY
-  # tls_ca: "/etc/iot-platform-go/certs/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
+  # tls_cert: "/etc/iot-platform/certs/mqtt/cert.pem"   # env: MQTT_TLS_CERT
+  # tls_key: "/etc/iot-platform/certs/mqtt/key.pem"     # env: MQTT_TLS_KEY
+  # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
 
 auth:
   jwt_secret: "dev-jwt-secret-change-me"              # env: AUTH_JWT_SECRET (or JWT_SECRET)

@@ -10,24 +10,26 @@ import (
 
 // LoadYAML reads a YAML config file and sets values as env vars (does not override existing).
 // Nested keys are joined with "_", e.g. mqtt.addr → MQTT_ADDR, server.public_base_url → SERVER_PUBLIC_BASE_URL.
-func LoadYAML(path string) {
-	loadYAML(path, false)
+// Returns true if the file was found and parsed successfully.
+func LoadYAML(path string) bool {
+	return loadYAML(path, false)
 }
 
 // LoadYAMLForce reads a YAML config file and sets values as env vars, overriding existing values.
 // This is used after setup wizard to ensure the new config is applied.
-func LoadYAMLForce(path string) {
-	loadYAML(path, true)
+// Returns true if the file was found and parsed successfully.
+func LoadYAMLForce(path string) bool {
+	return loadYAML(path, true)
 }
 
-func loadYAML(path string, force bool) {
+func loadYAML(path string, force bool) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return false
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return
+		return false
 	}
 	flat := make(map[string]string)
 	flatten("", raw, flat)
@@ -38,6 +40,7 @@ func loadYAML(path string, force bool) {
 			_ = os.Setenv(k, v)
 		}
 	}
+	return true
 }
 
 // flatten recursively walks nested maps and produces SCREAMING_SNAKE_CASE keys.
