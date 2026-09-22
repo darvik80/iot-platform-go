@@ -81,7 +81,7 @@ func NewSetupService(log *slog.Logger) *SetupService {
 		state: &SetupState{
 			CurrentStep:    1,
 			DatabaseDriver: "sqlite",
-			DatabaseDSN:    "/etc/iot-platform/platform.db",
+			DatabaseDSN:    "/var/lib/iot-platform/platform.db",
 			AdminLogin:     "admin",
 			AdminEmail:     "admin@example.com",
 			AccountSlug:    "default",
@@ -389,8 +389,14 @@ func writeConfigYAML(cfg config.Config) error {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
 
-	// Write to config.yml
-	if err := os.WriteFile(configYAMLPath(), yamlData, 0644); err != nil {
+	// Write to config.yml — ensure parent directory exists
+	path := configYAMLPath()
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("create config dir %s: %w", dir, err)
+		}
+	}
+	if err := os.WriteFile(path, yamlData, 0644); err != nil {
 		return fmt.Errorf("write config.yml: %w", err)
 	}
 	return nil

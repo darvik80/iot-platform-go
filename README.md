@@ -483,7 +483,7 @@ Configuration priority (first non-empty wins): **OS env → `./config.yml` → `
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
 | `MQTT_WS_ADDR` | `:8083` | MQTT over WebSocket (`ws://host:port/`, subprotocol `mqtt`). `off` to disable |
-| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | SQLite database file |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth. **Must be device-reachable** |
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |

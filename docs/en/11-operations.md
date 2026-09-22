@@ -18,7 +18,7 @@ Full examples: `config.yml.example`, `.env.example`.
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address (dashboard + API) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP listener |
-| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | SQLite database file |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL (OTA, email, OAuth) |
 | `JWT_SECRET` | dev default | JWT signing key — **change in production** |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin |
@@ -32,7 +32,7 @@ Full examples: `config.yml.example`, `.env.example`.
 
 ```bash
 # Terminal 1 — platform (API + MQTT)
-export SQLITE_PATH=/etc/iot-platform/platform.db
+export SQLITE_PATH=/var/lib/iot-platform/platform.db
 go run ./cmd/platform
 
 # Terminal 2 (optional) — Node-RED
@@ -52,7 +52,7 @@ If ESP32 gets `transport_read(): EOF` / `mqtt_message_receive() returned -2` —
 
 SQLite with WAL mode (concurrent reads during ingest).
 
-- Path: `SQLITE_PATH` (default `/etc/iot-platform/platform.db`)
+- Path: `SQLITE_PATH` (default `/var/lib/iot-platform/platform.db`)
 - Hourly cleanup of telemetry, events, and logs older than `TELEMETRY_RETENTION_DAYS`
 - Migrations in `internal/db/migrations/` — auto-applied at startup
 

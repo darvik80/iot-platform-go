@@ -18,7 +18,7 @@ YAML-ключи: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. Пе
 |-----------|-------------|-----------|
 | `HTTP_ADDR` | `:8080` | HTTP-адрес (дашборд + API) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
-| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | Файл базы данных SQLite |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Файл базы данных SQLite |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL (OTA, email, OAuth) |
 | `JWT_SECRET` | dev-значение | Ключ подписи JWT — **сменить в production** |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Начальный администратор |
@@ -32,7 +32,7 @@ YAML-ключи: `server.public_base_url`, `server.http_addr`, `mqtt.addr`. Пе
 
 ```bash
 # Терминал 1 — платформа (API + MQTT)
-export SQLITE_PATH=/etc/iot-platform/platform.db
+export SQLITE_PATH=/var/lib/iot-platform/platform.db
 go run ./cmd/platform
 
 # Терминал 2 (опционально) — Node-RED
@@ -52,7 +52,7 @@ cd deploy && docker compose up -d nodered
 
 SQLite с режимом WAL (параллельное чтение при записи).
 
-- Путь: `SQLITE_PATH` (по умолчанию `/etc/iot-platform/platform.db`)
+- Путь: `SQLITE_PATH` (по умолчанию `/var/lib/iot-platform/platform.db`)
 - Ежечасная очистка телеметрии, событий и логов старше `TELEMETRY_RETENTION_DAYS`
 - Миграции в `internal/db/migrations/` — автоприменение при старте
 

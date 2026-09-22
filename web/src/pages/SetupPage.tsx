@@ -203,7 +203,7 @@ export function SetupPage() {
                 name="database_dsn"
                 className="form-control mono"
                 defaultValue={state.database_dsn}
-                placeholder="/etc/iot-platform/platform.db or postgres://..."
+                placeholder="/var/lib/iot-platform/platform.db or postgres://..."
               />
               <div className="form-text">
                 SQLite: file path. PostgreSQL: <code className="code">postgres://user:pass@host:5432/dbname?sslmode=disable</code>

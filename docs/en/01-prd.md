@@ -318,7 +318,7 @@ graph TB
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
-| `SQLITE_PATH` | `/etc/iot-platform/platform.db` | SQLite database file |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | SQLite database file |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth callbacks |
 | `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin credentials |
