@@ -27,7 +27,10 @@ echo "==> Building Linux binary"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform ./cmd/platform
 
 # ── Prepare staging area ─────────────────────────────────────────────
-# Layout: /opt/iot-platform/{bin,etc,lib,certs}
+# Layout:
+#   /opt/iot-platform/{bin,etc,lib,certs} — application
+#   /var/log/iot-platform                 — logs
+#   /etc/logrotate.d/iot-platform         — log rotation
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -37,6 +40,8 @@ mkdir -p "${PKG}/opt/iot-platform/bin"
 mkdir -p "${PKG}/opt/iot-platform/etc"
 mkdir -p "${PKG}/opt/iot-platform/lib"
 mkdir -p "${PKG}/opt/iot-platform/certs"
+mkdir -p "${PKG}/var/log/iot-platform"
+mkdir -p "${PKG}/etc/logrotate.d"
 mkdir -p "${PKG}/lib/systemd/system"
 
 # Binary
@@ -50,6 +55,9 @@ cat > "${PKG}/opt/iot-platform/etc/config.yml" <<'EOF'
 EOF
 chmod 0644 "${PKG}/opt/iot-platform/etc/config.yml"
 
+# Log rotation
+install -m 0644 "${SCRIPT_DIR}/logrotate" "${PKG}/etc/logrotate.d/iot-platform"
+
 # Systemd unit
 install -m 0644 "${SCRIPT_DIR}/iot-platform.service" "${PKG}/lib/systemd/system/iot-platform.service"
 
@@ -58,6 +66,7 @@ chmod 0755 "${PKG}/opt/iot-platform"
 chmod 0755 "${PKG}/opt/iot-platform/etc"
 chmod 0755 "${PKG}/opt/iot-platform/lib"
 chmod 0755 "${PKG}/opt/iot-platform/certs"
+chmod 0755 "${PKG}/var/log/iot-platform"
 
 # ── DEBIAN control files ─────────────────────────────────────────────
 sed "s/^Version:.*/Version: ${VERSION}/" "${SCRIPT_DIR}/DEBIAN/control" \

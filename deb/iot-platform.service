@@ -12,14 +12,15 @@ EnvironmentFile=/opt/iot-platform/etc/.env
 ExecStart=/opt/iot-platform/bin/platform
 Restart=on-failure
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
+# Logs → /var/log/iot-platform/platform.log (rotated via /etc/logrotate.d/iot-platform)
+StandardOutput=append:/var/log/iot-platform/platform.log
+StandardError=append:/var/log/iot-platform/platform.log
 SyslogIdentifier=iot-platform
 
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /opt/iot-platform/certs
+ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /opt/iot-platform/certs /var/log/iot-platform
 ProtectHome=true
 PrivateTmp=true
 

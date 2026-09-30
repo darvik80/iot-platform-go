@@ -5,7 +5,7 @@ name: Deploy VDS
 
 on:
   push:
-    branches: ["vds"]
+    branches: ["master"]
   workflow_dispatch:
 
 env:

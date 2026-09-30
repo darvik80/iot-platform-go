@@ -204,7 +204,7 @@ export function SetupPage() {
                 name="database_dsn"
                 className="form-control mono"
                 defaultValue={state.database_dsn}
-                placeholder="/var/lib/iot-platform/platform.db or postgres://..."
+                placeholder="/opt/iot-platform/lib/platform.db or postgres://..."
               />
               <div className="form-text">
                 SQLite: file path. PostgreSQL: <code className="code">postgres://user:pass@host:5432/dbname?sslmode=disable</code>
@@ -360,15 +360,15 @@ export function SetupPage() {
           >
             <div>
               <label className="form-label">TLS Certificate Path</label>
-              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="/etc/iot-platform/certs/mqtt/cert.pem" />
+              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="/opt/iot-platform/certs/mqtt/cert.pem" />
             </div>
             <div>
               <label className="form-label">TLS Key Path</label>
-              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/etc/iot-platform/certs/mqtt/key.pem" />
+              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/opt/iot-platform/certs/mqtt/key.pem" />
             </div>
             <div>
               <label className="form-label">CA Certificate Path</label>
-              <input name="mqtt_tls_ca" className="form-control mono" defaultValue={state.mqtt_tls_ca} placeholder="/etc/iot-platform/certs/mqtt/ca.pem" />
+              <input name="mqtt_tls_ca" className="form-control mono" defaultValue={state.mqtt_tls_ca} placeholder="/opt/iot-platform/certs/mqtt/ca.pem" />
               <div className="form-text">CA cert for mutual TLS (optional). Auto-filled when using Generate.</div>
             </div>
             <div className="d-flex gap-2 align-items-start">

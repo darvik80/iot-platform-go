@@ -17,12 +17,12 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 
 # --- ensure directories ---
-# bin/ - binary
-# etc/ - config files (.env, config.yml)
-# lib/ - data (SQLite DB)
-# certs/ - TLS certificates
+# /opt/iot-platform/{bin,etc,lib,certs} — application
+# /var/log/iot-platform                 — logs
 sudo mkdir -p "$DEPLOY_ROOT"/{bin,etc,lib,certs}
+sudo mkdir -p /var/log/iot-platform
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$DEPLOY_ROOT"
+sudo chown -R "$SERVICE_USER:$SERVICE_USER" /var/log/iot-platform
 
 # --- install systemd unit (idempotent) ---
 if [ ! -f "$UNIT" ] || ! cmp -s /tmp/iot-platform.service "$UNIT"; then

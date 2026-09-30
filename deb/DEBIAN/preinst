@@ -15,11 +15,15 @@ if ! getent passwd iot-platform >/dev/null 2>&1; then
             iot-platform
 fi
 
-# Directory layout: /opt/iot-platform/{bin,etc,lib,certs}
+# Directory layout:
+#   /opt/iot-platform/{bin,etc,lib,certs} — application
+#   /var/log/iot-platform                 — logs
 mkdir -p /opt/iot-platform/etc
 mkdir -p /opt/iot-platform/lib
 mkdir -p /opt/iot-platform/certs
+mkdir -p /var/log/iot-platform
 chown -R iot-platform:iot-platform /opt/iot-platform
+chown -R iot-platform:iot-platform /var/log/iot-platform
 
 # On upgrade stop the old service before files are replaced
 if [ "$1" = "upgrade" ] && [ -d /run/systemd/system ]; then

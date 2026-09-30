@@ -4,6 +4,7 @@ set -e
 if [ "$1" = "purge" ]; then
     # Remove systemd unit (already stopped by prerm)
     rm -f /lib/systemd/system/iot-platform.service
+    rm -f /etc/logrotate.d/iot-platform
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload
     fi
@@ -18,4 +19,5 @@ if [ "$1" = "purge" ]; then
 
     # Remove all data
     rm -rf /opt/iot-platform
+    rm -rf /var/log/iot-platform
 fi

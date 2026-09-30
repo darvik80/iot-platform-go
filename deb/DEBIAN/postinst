@@ -5,6 +5,7 @@ set -e
 # preinst creates dirs + chowns, but dpkg extract overwrites with root:root
 # (--root-owner-group). Re-chown here so the service user can write.
 chown -R iot-platform:iot-platform /opt/iot-platform
+chown -R iot-platform:iot-platform /var/log/iot-platform
 
 # Reload systemd units
 if [ -d /run/systemd/system ]; then
@@ -37,16 +38,14 @@ cat <<EOF
   the initial configuration (database, admin account,
   SMTP, MQTT TLS, etc.).
 
-  Layout: /opt/iot-platform/
-    bin/     — binary
-    etc/     — config.yml, .env, certs/
-    lib/     — database (SQLite)
-    certs/   — TLS certificates
+  Layout:
+    Application : /opt/iot-platform/{bin,etc,lib,certs}
+    Logs        : /var/log/iot-platform/platform.log
 
   Service management:
     sudo systemctl status  iot-platform
     sudo systemctl restart iot-platform
-    sudo journalctl -u iot-platform -f
+    tail -f /var/log/iot-platform/platform.log
 
 ==========================================================
 EOF
