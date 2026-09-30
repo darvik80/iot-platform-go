@@ -47,8 +47,13 @@ jobs:
         run: |
           test -n "$SSH_KEY" || { echo "missing secret IOT_DEPLOY_SSH_KEY"; exit 1; }
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          # Write key preserving newlines (handles both multi-line and \n-encoded secrets)
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          # Debug: show key format (not content)
+          echo "Key lines: $(wc -l < ~/.ssh/id_ed25519)"
+          echo "Key starts: $(head -1 ~/.ssh/id_ed25519)"
+          ssh-keygen -lf ~/.ssh/id_ed25519 || { echo "ERROR: invalid key format"; exit 1; }
           ssh-keyscan -H "${{ secrets.IOT_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Upload binary, install service, restart
