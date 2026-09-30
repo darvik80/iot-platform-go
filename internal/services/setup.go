@@ -86,7 +86,7 @@ func NewSetupService(log *slog.Logger) *SetupService {
 		state: &SetupState{
 			CurrentStep:      1,
 			DatabaseDriver:   "sqlite",
-			DatabaseDSN:      "/var/lib/iot-platform/platform.db",
+			DatabaseDSN:      "/opt/iot-platform/lib/platform.db",
 			AdminLogin:       "admin",
 			AdminEmail:       "admin@example.com",
 			AccountSlug:      "default",
@@ -453,15 +453,12 @@ func EnsureJWTSecret(database *db.DB, cfg *config.Config) (string, error) {
 	return "generated", nil
 }
 
-// configYAMLPaths returns candidate paths for writing config.yml,
-// preferred first. Debian layout (/etc/iot-platform) wins when present
-// and writable, otherwise ./config.yml.
+// configYAMLPaths returns candidate paths for writing config.yml.
+// /opt/iot-platform/etc is the standard location, ./config.yml as fallback.
 func configYAMLPaths() []string {
-	const etcPath = "/etc/iot-platform/config.yml"
-	if st, err := os.Stat("/etc/iot-platform"); err == nil && st.IsDir() {
-		// Check that the directory is actually writable
-		if err := syscallAccessW("/etc/iot-platform"); err == nil {
-			return []string{etcPath, "config.yml"}
+	if st, err := os.Stat("/opt/iot-platform/etc"); err == nil && st.IsDir() {
+		if err := syscallAccessW("/opt/iot-platform/etc"); err == nil {
+			return []string{"/opt/iot-platform/etc/config.yml", "config.yml"}
 		}
 	}
 	return []string{"config.yml"}
@@ -672,18 +669,18 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 
 // defaultCertDir returns where generated MQTT TLS certs are stored.
 func defaultCertDir() string {
-	return "/etc/iot-platform/certs/mqtt"
+	return "/opt/iot-platform/certs/mqtt"
 }
 
 // validateCertDir only allows the default cert dir or a relative path inside
 // the working directory; the endpoint is unauthenticated.
 func validateCertDir(dir string) error {
 	clean := filepath.Clean(dir)
-	if clean == filepath.Clean(defaultCertDir()) {
+	if clean == filepath.Clean("/opt/iot-platform/certs/mqtt") {
 		return nil
 	}
 	if filepath.IsAbs(clean) || strings.HasPrefix(filepath.ToSlash(clean), "/") || !filepath.IsLocal(clean) {
-		return fmt.Errorf("cert dir must be %s or a relative path without '..'", defaultCertDir())
+		return fmt.Errorf("cert dir must be /opt/iot-platform/certs/mqtt or a relative path without '..'")
 	}
 	return nil
 }

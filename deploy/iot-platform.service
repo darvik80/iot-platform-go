@@ -7,8 +7,9 @@ Wants=network-online.target
 Type=simple
 User=iot-platform
 Group=iot-platform
-EnvironmentFile=/etc/iot-platform/.env
-ExecStart=/usr/local/bin/iot-platform
+WorkingDirectory=/opt/iot-platform
+EnvironmentFile=/opt/iot-platform/etc/.env
+ExecStart=/opt/iot-platform/bin/platform
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -18,7 +19,7 @@ SyslogIdentifier=iot-platform
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/iot-platform /var/log/iot-platform
+ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /opt/iot-platform/certs
 ProtectHome=true
 PrivateTmp=true
 

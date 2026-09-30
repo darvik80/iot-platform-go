@@ -9,22 +9,17 @@ fi
 if ! getent passwd iot-platform >/dev/null 2>&1; then
     adduser --system \
             --group \
-            --home /var/lib/iot-platform \
+            --home /opt/iot-platform \
             --no-create-home \
             --shell /usr/sbin/nologin \
             iot-platform
 fi
 
-# Directory layout:
-#   /etc/iot-platform       — config.yml + certs/
-#   /var/lib/iot-platform   — database + firmware (state)
-#   /var/log/iot-platform   — platform.log
-mkdir -p /etc/iot-platform
-mkdir -p /var/lib/iot-platform/data
-mkdir -p /var/log/iot-platform
-chown -R iot-platform:iot-platform /var/lib/iot-platform
-chown -R iot-platform:iot-platform /etc/iot-platform
-chown -R iot-platform:iot-platform /var/log/iot-platform
+# Directory layout: /opt/iot-platform/{bin,etc,lib,certs}
+mkdir -p /opt/iot-platform/etc
+mkdir -p /opt/iot-platform/lib
+mkdir -p /opt/iot-platform/certs
+chown -R iot-platform:iot-platform /opt/iot-platform
 
 # On upgrade stop the old service before files are replaced
 if [ "$1" = "upgrade" ] && [ -d /run/systemd/system ]; then

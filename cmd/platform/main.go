@@ -33,7 +33,7 @@ func main() {
 // initConfig loads YAML configs, builds Config and creates the logger.
 func initConfig() (config.Config, *slog.Logger) {
 	loadedLocal := config.LoadYAML("./config.yml")
-	loadedEtc := config.LoadYAML("/etc/iot-platform/config.yml")
+	loadedOpt := config.LoadYAML("/opt/iot-platform/etc/config.yml")
 	cfg := config.Load()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
@@ -41,7 +41,7 @@ func initConfig() (config.Config, *slog.Logger) {
 
 	log.Info("config sources",
 		"./config.yml", loadedLocal,
-		"/etc/iot-platform/config.yml", loadedEtc,
+		"/opt/iot-platform/etc/config.yml", loadedOpt,
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 		"http_addr", cfg.HTTP.Addr,
@@ -108,7 +108,7 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 
 	// Reload config (wizard wrote config.yml) — force override any existing env vars
 	loadedLocal := config.LoadYAMLForce("./config.yml")
-	loadedEtc := config.LoadYAMLForce("/etc/iot-platform/config.yml")
+	loadedOpt := config.LoadYAMLForce("/opt/iot-platform/etc/config.yml")
 	cfg = config.Load()
 	if cfg.HTTP.Addr == "" {
 		cfg.HTTP.Addr = ":8080"
@@ -119,7 +119,7 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 
 	log.Info("config reloaded after setup",
 		"./config.yml", loadedLocal,
-		"/etc/iot-platform/config.yml", loadedEtc,
+		"/opt/iot-platform/etc/config.yml", loadedOpt,
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 	)
