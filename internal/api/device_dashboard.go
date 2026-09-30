@@ -93,8 +93,8 @@ type panelResult struct {
 }
 
 type telemetryPoint struct {
-	Key    string      `json:"key"`
-	Points [][]any     `json:"points"` // [[ts, value], ...]
+	Key    string  `json:"key"`
+	Points [][]any `json:"points"` // [[ts, value], ...]
 }
 
 func (s *Server) telemetryChartData(devicePK int64, keys []string, from, to int64) any {
@@ -154,11 +154,11 @@ func (s *Server) telemetryGaugeData(devicePK int64, keys []string, from, to int6
 		return map[string]any{"error": err.Error()}
 	}
 	type acc struct {
-		sum   float64
-		count int
-		min   float64
-		max   float64
-		last  float64
+		sum    float64
+		count  int
+		min    float64
+		max    float64
+		last   float64
 		lastTS int64
 	}
 	grouped := map[string]*acc{}

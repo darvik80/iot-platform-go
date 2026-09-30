@@ -1,0 +1,17 @@
+# Force LF line endings for shell scripts and makefiles
+*.sh text eol=lf
+*.bash text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+*.service text eol=lf
+
+# Force LF for all text files
+* text eol=lf
+
+# Binary files
+*.bin binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.exe binary

@@ -32,14 +32,14 @@ func init() {
 // PanelConfig describes one dashboard panel. The API reads these from the
 // binding settings and uses them to query the database.
 type PanelConfig struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`
-	Title  string `json:"title"`
-	Keys   []string `json:"keys,omitempty"`   // telemetry_chart
-	Key    string   `json:"key,omitempty"`    // telemetry_gauge
-	Window string   `json:"window,omitempty"` // 1h, 6h, 24h, 7d
-	Limit  int      `json:"limit,omitempty"`  // rpc_table
-	Severity string `json:"severity,omitempty"` // events_count
+	ID       string   `json:"id"`
+	Type     string   `json:"type"`
+	Title    string   `json:"title"`
+	Keys     []string `json:"keys,omitempty"`     // telemetry_chart
+	Key      string   `json:"key,omitempty"`      // telemetry_gauge
+	Window   string   `json:"window,omitempty"`   // 1h, 6h, 24h, 7d
+	Limit    int      `json:"limit,omitempty"`    // rpc_table
+	Severity string   `json:"severity,omitempty"` // events_count
 }
 
 type dashboardConfig struct {

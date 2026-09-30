@@ -15,7 +15,7 @@ type Account struct {
 type AccountMembership struct {
 	UserID    int64  `json:"user_id"`
 	AccountID int64  `json:"account_id"`
-	Role      Role   `json:"role"` // admin | operator | viewer
+	Role      Role   `json:"role"`   // admin | operator | viewer
 	Status    string `json:"status"` // active | invited | suspended
 	JoinedAt  int64  `json:"joined_at"`
 	InvitedBy *int64 `json:"invited_by,omitempty"`
@@ -56,7 +56,7 @@ type AccountInvitation struct {
 	Email          string `json:"email"`
 	Role           Role   `json:"role"`
 	TokenHash      string `json:"-"`
-	Status         string `json:"status"` // pending | accepted | revoked | expired
+	Status         string `json:"status"`          // pending | accepted | revoked | expired
 	DeliveryMethod string `json:"delivery_method"` // email | link
 	InvitedBy      int64  `json:"invited_by"`
 	ExpiresAt      int64  `json:"expires_at"`
