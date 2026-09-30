@@ -4,7 +4,7 @@ Per-device automations that live **in the platform process**. Not to be confused
 
 A plugin is **one device + one catalog type**. It receives device events (status, telemetry, ticks), calls RPC back, and has a UI panel on the device page.
 
-Built-in plugins: `led-garland` (WS2812 strips) and `schedule` (RPC by clock time). Adding your own — one Go file + `init()`.
+Built-in plugins: `led-garland` (WS2812 strips), `schedule` (RPC by clock time), `prometheus-exporter` (Prometheus metrics endpoint) and `metrics-dashboard` (Metrics+ panels on the device page). Adding your own — one Go file + `init()`.
 
 Related: [External Plugins](08-external-plugins.md), [Automation](06-automation.md), [Product Schema](09-product-schema.md).
 
@@ -46,8 +46,9 @@ flowchart TB
 
 | Piece | Where | Role |
 |-------|--------|------|
-| **Catalog** | `internal/plugins` `Register()` in `init()` | Builtin types (`led-garland`, `schedule`, …). `GET /plugins`. |
-| **Binding** | SQLite `device_plugin_bindings` | `UNIQUE(device_pk, plugin_id)`. Same catalog plugin on many devices = independent instances/configs. One device cannot bind the same `plugin_id` twice. |
+| **Catalog** | `internal/plugins` `Register()` in `init()` | Builtin types (`led-garland`, `schedule`, `prometheus-exporter`, `metrics-dashboard`). `GET /plugins`. |
+| **Policy** | `/plugins/policies` (admin) | Per-account enable/disable (and settings) of each catalog plugin. |
+| **Binding** | DB table `device_plugin_bindings` (SQLite or PostgreSQL) | `UNIQUE(device_pk, plugin_id)`. Same catalog plugin on many devices = independent instances/configs. One device cannot bind the same `plugin_id` twice. |
 | **Hub** | `services.PluginHub` | One runner per enabled binding. Started from `main` via `StartPlugins`. |
 | **Instance** | `plugins.Instance` | `ApplyConfig` → `OnEvent` → `IntervalMS` / `Auto`. |
 | **Runtime** | hub → `Platform.InvokeRPC` | Fire-and-forget RPC (no JWT). Same downlink as the dashboard console. |
@@ -103,8 +104,12 @@ Plugins must not: open MQTT, use device tokens, replace Node-RED for multi-devic
 |----|------|
 | `led-garland` | WS2812-style strips via firmware `set_led`, optional quiet hours / night-light window |
 | `schedule` | Fire device RPC at local clock times (reboot at 04:00, lights off at 23:00, …) |
+| `prometheus-exporter` | Serves platform metrics (devices, telemetry, RPC) in Prometheus text format on its own HTTP port — see [Prometheus exporter](#prometheus-exporter) |
+| `metrics-dashboard` | Passive: holds the panel layout for the device **Metrics+** tab — see [Metrics dashboard](#metrics-dashboard) |
 
-Binding is stored in SQLite (`device_plugin_bindings`). A ticker runs while the device is **online** and the plugin needs frames (`mode: auto`, animated effect, quiet/active windows, or `schedule`). Offline pauses it. Static colors (`off` / `white` / …) do not tick unless a time window is enabled.
+Each catalog plugin can be enabled or disabled per account by an admin: `GET /plugins/policies` lists the catalog with the effective policy (default: enabled), `PATCH /plugins/policies/{pluginId}` with `{ "enabled"?: bool, "settings"?: {} }` changes it and rebuilds the account's runners on the fly.
+
+Binding is stored in the platform database (SQLite or PostgreSQL, table `device_plugin_bindings`). A ticker runs while the device is **online** and the plugin needs frames (`mode: auto`, animated effect, quiet/active windows, or `schedule`). Offline pauses it. Static colors (`off` / `white` / …) do not tick unless a time window is enabled.
 
 Platform **`TIMEZONE`** (IANA, e.g. `Asia/Bangkok`) is the default for all time windows. Set it in `config.yml` / `.env`. A binding may override with `config.tz`. Empty `tz` → platform zone. Unknown zone → save is rejected.
 
@@ -170,6 +175,50 @@ Jobs run once per matching minute while the device is online (10s poll). `days` 
 }
 ```
 
+## Prometheus exporter
+
+`prometheus-exporter` starts a separate HTTP server that exposes in-process platform metrics (device online gauges, telemetry samples, RPC calls, rules bus publishes) in Prometheus text format. It sends no RPC and does not tick.
+
+Default config:
+
+```json
+{
+  "port": 9100,
+  "bind": "0.0.0.0",
+  "path": "/metrics",
+  "bearer_token": "",
+  "update_interval_ms": 5000
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `port` | Listen port (invalid → `9100`) |
+| `bind` | Listen address (empty → `0.0.0.0`) |
+| `path` | Metrics path (empty → `/metrics`) |
+| `bearer_token` | If set, requests must send `Authorization: Bearer <token>`, otherwise `401` |
+| `update_interval_ms` | Accepted but currently unused (there is no periodic refresh loop) |
+
+The HTTP server is started on the `apply` event (binding save / bind / **Apply now**; the bound device must be online). In v1.0.x the hub never stops it: disabling or removing the binding leaves the listener running, and a changed `port` / `bind` / `path` does not replace a server that already holds the port — restart the platform to apply such changes. Metrics come from a platform-wide store (`cogitor_device_online`, `cogitor_devices_total`, `cogitor_device_telemetry_samples_total`, `cogitor_device_rpc_calls_total`, `cogitor_event_bus_published_total`, `cogitor_mqtt_clients`, `cogitor_external_plugin_online`, `cogitor_device_ota_jobs_total`), not only from the bound device.
+
+## Metrics dashboard
+
+`metrics-dashboard` is passive: it runs no automation, sends no RPC and starts no server. Its config is the panel list that `GET /devices/{id}/dashboard` reads to build the **Metrics+** tab; without a binding the default panels are used.
+
+Default config:
+
+```json
+{
+  "panels": [
+    { "id": "p1", "type": "telemetry_chart", "title": "WiFi RSSI", "keys": ["wifi_rssi"], "window": "1h" },
+    { "id": "p2", "type": "telemetry_gauge", "title": "Free Heap", "key": "free_heap", "window": "1h" },
+    { "id": "p3", "type": "online_timeline", "title": "Online Timeline", "window": "24h" }
+  ]
+}
+```
+
+Panel fields: `id`, `type`, `title`, `keys` (`telemetry_chart`), `key` (`telemetry_gauge`), `window` (`30m`, `1h`, `24h`, `7d`, …; default `1h`), `limit` (`rpc_table`, default 20), `severity` (`events_count`). Panel types: `telemetry_chart`, `telemetry_gauge`, `rpc_table`, `online_timeline`, `events_count`.
+
 ## API
 
 | Method | Path |
@@ -180,6 +229,8 @@ Jobs run once per matching minute while the device is online (10s poll). `days` 
 | PUT | `/devices/{id}/plugins/{bindingId}` | `{ "enabled"?: bool, "config"?: {} }` |
 | DELETE | `/devices/{id}/plugins/{bindingId}` |
 | POST | `/devices/{id}/plugins/{bindingId}/apply` | one frame now (device must be online) |
+| GET | `/plugins/policies` | catalog + per-account policy (admin) |
+| PATCH | `/plugins/policies/{pluginId}` | `{ "enabled"?: bool, "settings"?: {} }` (admin) |
 
 UI: device page → **Plugins**. The form is **`Descriptor.Form`** from the plugin (GET `/plugins` → `form`). Save / Apply / Remove stay in the shell. No `form` → JSON textarea.
 
@@ -303,6 +354,6 @@ Prefer pure helpers (like `LEDFrame`) without MQTT. Binding CRUD: `internal/serv
 
 ## External Plugins
 
-External plugins run as **separate processes** (any language) and communicate with the platform via four transport modes (Webhook, Polling, MQTT, gRPC). They get the same per-device events as in-process plugins but without recompiling the Go binary.
+External plugins run as **separate processes** (any language). The only implemented transport is **MQTT**: the plugin connects to the embedded broker with its `extplg_{account_slug}_{plugin_id}` credentials, subscribes to its account's rules bus events and publishes commands. Webhook, polling and gRPC transports are planned, not implemented. External plugins do not use device bindings and do not receive `tick` / `apply` events.
 
-See [08-external-plugins.md](08-external-plugins.md) for the full specification and [examples/plugins/](../../examples/plugins/) for code examples in Python, Go, Java, C++, and gRPC.
+See [08-external-plugins.md](08-external-plugins.md) for the specification (implemented vs planned) and [examples/plugins/](../../examples/plugins/) for MQTT examples in Python, Go, Java and C++.

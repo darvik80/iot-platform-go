@@ -13,8 +13,8 @@ import (
 
 func (b *Broker) handle(topic string, payload []byte, userID string) {
 	recv := db.NowMS()
-	if strings.Contains(topic, "/"+protocol.SegCommands+"/") {
-		b.handleCommand(topic, payload)
+	if strings.HasPrefix(userID, "extplg_") {
+		b.handleCommand(topic, payload, userID)
 		return
 	}
 	dev, capOp, err := b.resolve(topic, userID)
@@ -79,9 +79,14 @@ func (b *Broker) resolve(topic, userID string) (*models.Device, string, error) {
 	if len(parts) >= 6 && strings.HasPrefix(topic, protocol.PrefixFull) && parts[4] == protocol.DirUp {
 		productID, deviceID := parts[2], parts[3]
 		capOp := strings.Join(parts[5:], "/")
-		d, err := b.plat.GetDeviceByIdentity(productID, deviceID)
-		if err != nil {
-			return nil, "", err
+		// Identity comes from the authenticated session, not from the topic:
+		// product/device ids are only unique within an account.
+		d := b.plat.ResolveByClientID(userID)
+		if d == nil && userID != "" && !strings.HasPrefix(userID, "extplg_") {
+			d = b.plat.ResolveByToken(userID)
+		}
+		if d == nil || d.ProductID != productID || d.DeviceID != deviceID {
+			return nil, "", fmt.Errorf("topic does not belong to session %q", userID)
 		}
 		if !d.Enabled {
 			return nil, "", fmt.Errorf("disabled")
@@ -116,27 +121,29 @@ func (b *Broker) resolve(topic, userID string) (*models.Device, string, error) {
 	return nil, "", fmt.Errorf("unknown topic shape")
 }
 
-func (b *Broker) handleCommand(topic string, payload []byte) {
-	parts := strings.Split(topic, "/")
-	idx := -1
-	for i, p := range parts {
-		if p == protocol.SegCommands {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 || len(parts) < idx+3 {
+// handleCommand executes {prefix}/commands/{accountSlug}/{productID}/{deviceID}/{kind}
+// published by an external plugin; the device must belong to the plugin's account.
+func (b *Broker) handleCommand(topic string, payload []byte, user string) {
+	slug := extPluginSlug(user)
+	root := protocol.RulesCommandsRootForAccount(strings.TrimRight(b.cfg.Rules.Prefix, "/"), slug)
+	rest, ok := strings.CutPrefix(topic, root)
+	if slug == "" || !ok {
+		b.note("warn", "command", "", user, "", topic, "not under "+root, len(payload))
 		return
 	}
-	productID := parts[idx+1]
-	deviceID := parts[idx+2]
-	kind := strings.Join(parts[idx+3:], "/")
-	d, err := b.plat.GetDeviceByIdentity(productID, deviceID)
+	parts := strings.Split(rest, "/")
+	if len(parts) < 3 {
+		b.note("warn", "command", "", user, "", topic, "want {product}/{device}/{kind}", len(payload))
+		return
+	}
+	productID, deviceID := parts[0], parts[1]
+	kind := strings.Join(parts[2:], "/")
+	d, err := b.plat.GetDeviceByAccountIdentity(slug, productID, deviceID)
 	if err != nil {
-		b.note("warn", "command", "", "", "", topic, "unknown device "+productID+"."+deviceID, len(payload))
+		b.note("warn", "command", "", user, "", topic, "unknown device "+slug+"/"+productID+"."+deviceID, len(payload))
 		return
 	}
-	b.note("info", "command", "", "", "", topic, kind, len(payload))
+	b.note("info", "command", "", user, "", topic, kind, len(payload))
 	switch kind {
 	case protocol.CmdRPC:
 		var req services.RPCRequest

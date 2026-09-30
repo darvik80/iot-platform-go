@@ -1,13 +1,33 @@
 # Внешние плагины
 
+> **Статус реализации (v1.0.x)**
+>
+> **Реализовано:** **только MQTT-транспорт** (шина правил). Админ регистрирует плагин
+> (`POST /api/v1/plugins/external` или Settings → External Plugins) и получает MQTT-креды
+> (`mqtt_user` = `extplg_{account_slug}_{plugin_id}`, одноразовый `mqtt_pass`; API-токена нет).
+> Плагин подписывается на `{rules_bus}/events/{account_slug}/#` и публикует в
+> `{rules_bus}/commands/…`. Также реализованы: список / удаление / `regenerate-mqtt` и
+> статус `online` / `offline` по состоянию MQTT-соединения.
+>
+> **Запланировано, не реализовано:** транспорты webhook, polling и gRPC; heartbeat; JSON-RPC
+> endpoint `/api/plugins/external/rpc`; уведомления `plugin.*` и методы `platform.*`;
+> поле регистрации `endpoint`; API-токены плагинов (хеширование, rate limit); колонки БД
+> `endpoint` / `auth_token_hash` / `mode` / `last_heartbeat_at`; привязка внешних плагинов
+> к устройствам и доставка им `tick` / `apply`. Разделы с их описанием сохранены как roadmap
+> и помечены **(запланировано)**.
+>
+> Команды публикуются в `{rules_bus}/commands/{account_slug}/{product_id}/{device_id}/…` со slug
+> собственного аккаунта плагина; устройство ищется внутри этого аккаунта. См. [06-automation.md → Мультиаккаунтные топики](06-automation.md#мультиаккаунтные-топики).
+
 ## 1. Обзор
 
 Внешние плагины расширяют логику IoT Platform **без перекомпиляции Go-бинарника**.
 Работают как отдельные процессы (любой язык), общаются с платформой через
-**HTTP** (webhook/polling), **MQTT** (подписка на шину правил) или **gRPC**.
+**MQTT** (подписка на шину правил). Транспорты **HTTP** (webhook/polling) и **gRPC** запланированы.
 
-Контракт внешнего плагина зеркалит внутренний `plugins.Instance` —
-поведение идентично, меняется только транспорт.
+Запланированный полный контракт зеркалит внутренний `plugins.Instance`; с доступным сейчас
+MQTT-транспортом плагин видит события шины правил своего аккаунта и отправляет команды,
+но binding-ов, `tick`, `apply` и доставки конфига нет.
 
 **Когда использовать внешние плагины:**
 - Логика, которая должна работать независимо от процесса платформы
@@ -20,12 +40,14 @@
 - Минимальная задержка (в процессе, без сетевого хопа)
 - См. [07-internal-plugins.md](07-internal-plugins.md)
 
-| Транспорт | Направление | Когда использовать |
-|-----------|-------------|--------------------|
-| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP |
-| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом |
-| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED |
-| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация |
+| Транспорт | Направление | Когда использовать | Статус |
+|-----------|-------------|--------------------|--------|
+| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP | запланировано |
+| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом | запланировано |
+| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED | **реализовано** |
+| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация | запланировано |
+
+Запланированное соответствие (сейчас существует только строка регистрации):
 
 | Внутренний (in-process)               | Внешний (out-of-process)                    |
 |---------------------------------------|---------------------------------------------|
@@ -37,7 +59,9 @@
 
 ---
 
-## 2. Архитектура
+## 2. Архитектура (запланировано)
+
+> Диаграммы этого раздела показывают запланированную схему webhook/polling/heartbeat. В v1.0.x путь один: устройство → ingest → MQTT-топик шины правил `{rules_bus}/events/{account_slug}/…` → MQTT-подписка плагина; плагин → `{rules_bus}/commands/…` → брокер → downlink устройству.
 
 > **Diagram**: [External Plugin Architecture](14-diagrams.md#external-plugin-architecture)
 
@@ -101,7 +125,7 @@ graph TB
     style Receivers fill:#1a1a2e,stroke:#0f3460,color:#eee
 ```
 
-### Поток событий
+### Поток событий (запланировано)
 
 > **Diagram**: [External Plugin Event Flow](14-diagrams.md#external-plugin-event-flow)
 
@@ -119,7 +143,7 @@ sequenceDiagram
     P->>D: MQTT downlink (RPC команда)
 ```
 
-### Поток тиков
+### Поток тиков (запланировано)
 
 Плагины с `auto: true` и `interval_ms > 0` получают периодические `tick`
 события — точно так же, как внутренние. Платформа владеет таймером,
@@ -176,7 +200,7 @@ type Event struct {
 | `EventEvent`       | `event`        | Устройство опубликовало пользовательское событие |
 | `EventRPCResult`   | `rpc/result`   | Ответ на ранее отправленный RPC               |
 
-Внешний плагин получает **те же** типы событий по проводу.
+Запланированные транспорты webhook/polling/gRPC будут доставлять **те же** типы событий по проводу. MQTT-плагины (v1.0.x) вместо этого получают виды событий шины правил: `status`, `telemetry`, `event`, `attributes/reported`, `attributes/desired`, `rpc/result`, `ota`, `log` — без `tick` и `apply`.
 
 ---
 
@@ -186,7 +210,8 @@ type Event struct {
 
 Админ создаёт плагин через дашборд (**Settings → External Plugins**) или
 через API. Платформа сохраняет дескриптор в таблицу `external_plugins`
-и возвращает креды (API-токен + MQTT).
+в **активном аккаунте** админа (из JWT) и возвращает MQTT-креды.
+API-токен не выдаётся.
 
 ```
 POST /api/v1/plugins/external
@@ -197,7 +222,6 @@ Authorization: Bearer <admin JWT>
   "id":           "temp-alert",
   "name":         "Temperature Alert",
   "description":  "Send RPC when temperature exceeds threshold",
-  "endpoint":     "http://192.168.1.50:8080/rpc",
   "auto":         true,
   "interval_ms":  5000,
   "default_config": {
@@ -214,15 +238,14 @@ Authorization: Bearer <admin JWT>
 }
 ```
 
-Ответ:
+Ответ (`201 Created`):
 
 ```json
 {
   "ok": true,
   "id": "temp-alert",
-  "token": "ext_plg_abc123…",
-  "mqtt_user": "extplg_temp-alert",
-  "mqtt_pass": "одноразовый-пароль…",
+  "mqtt_user": "extplg_acme_temp-alert",
+  "mqtt_pass": "ext_plg_3f9c…",
   "mqtt_host": "192.168.1.22",
   "mqtt_port": 1883,
   "mqtt_ws": "ws://192.168.1.22:8083/",
@@ -230,7 +253,15 @@ Authorization: Bearer <admin JWT>
 }
 ```
 
-**Сохраните все креды сразу** — `token`, `mqtt_pass` показываются только один раз.
+Поля ответа: `ok`, `id`, `mqtt_user` (`extplg_{account_slug}_{plugin_id}`), `mqtt_pass`,
+`mqtt_port`, `mqtt_host` (`BROKER_HOST_PUBLIC`), `mqtt_ws`, `rules_bus` (префикс шины правил).
+
+**Сохраните `mqtt_pass` сразу** — он показывается только один раз (хранится только SHA-256 хеш).
+Новый пароль выдаёт `POST /api/v1/plugins/external/{id}/regenerate-mqtt`
+(ответ: `ok`, `id`, `mqtt_user`, `mqtt_pass`).
+
+`id` — первичный ключ таблицы и уникален среди всех аккаунтов: повторная регистрация
+существующего `id` перезаписывает плагин и выдаёт новый пароль.
 
 Поля (запрос):
 
@@ -238,22 +269,24 @@ Authorization: Bearer <admin JWT>
 |------------------|------------|-------|--------------------------------------------|
 | `id`             | string     | да    | Уникальный идентификатор плагина (slug)    |
 | `name`           | string     | да    | Человекочитаемое имя                       |
-| `description`    | string     | да    | Отображается в каталоге UI                 |
-| `endpoint`       | string     | нет*  | URL для webhook (обязателен если не используется polling) |
-| `auto`           | bool       | нет   | Подписаться на тик-цикл (по умолчанию `false`) |
-| `interval_ms`    | int        | нет   | Интервал тика в мс (мин 80, по умолчанию 0)|
-| `default_config` | object     | нет   | Конфиг по умолчанию (JSON)                 |
-| `effects`        | string[]   | нет   | Каталог эффектов (для LED-подобных плагинов)|
-| `form`           | FormField[]| нет   | Схема формы конфига для UI                 |
+| `description`    | string     | нет   | Отображается в UI                          |
+| `auto`           | bool       | нет   | Сохраняется; доставка тиков запланирована (по умолчанию `false`) |
+| `interval_ms`    | int        | нет   | Сохраняется; доставка тиков запланирована (по умолчанию 0) |
+| `default_config` | object     | нет   | Сохраняемый конфиг по умолчанию (JSON)     |
+| `effects`        | string[]   | нет   | Сохраняемый каталог эффектов (для LED-подобных плагинов) |
+| `form`           | FormField[]| нет   | Сохраняемая схема формы конфига для UI     |
+
+`account_id` / `account_slug` в теле игнорируются — они берутся из JWT.
+Поле `endpoint` (URL webhook / адрес gRPC) **запланировано** и сейчас игнорируется.
 
 Схема `form` идентична внутреннему типу `FormField`
 (см. `internal/plugins/form.go`).
 
 ### 4.2 Подключение и доступность
 
-Платформа поддерживает **четыре транспорта** доставки событий плагинам:
+Спроектированы четыре транспорта; в v1.0.x **реализован только режим 3 (MQTT)**.
 
-#### Режим 1: Webhook (HTTP push)
+#### Режим 1: Webhook (HTTP push) (запланировано)
 
 Плагин указывает `endpoint` (начинается с `http://` или `https://`) при регистрации.
 Платформа POST-ит JSON-RPC уведомления на этот URL.
@@ -267,7 +300,7 @@ Authorization: Bearer <admin JWT>
 - Плагин за NAT/файрволом — платформа не достучится
 - Динамический IP/порт — нужно перерегистрироваться
 
-#### Режим 2: Polling (HTTP pull)
+#### Режим 2: Polling (HTTP pull) (запланировано)
 
 Плагин не указывает `endpoint`. Вместо этого он периодически вызывает
 `platform.poll_events` чтобы получить накопленные события.
@@ -282,47 +315,56 @@ Authorization: Bearer <admin JWT>
 ```
 Хост:     mqtt_host (из ответа регистрации)
 Порт:     mqtt_port (по умолчанию 1883) или mqtt_ws (WebSocket)
-Имя:      mqtt_user (формат: extplg_{plugin_id})
-Пароль:   mqtt_pass (одноразовый, показан только при регистрации)
+Имя:      mqtt_user (формат: extplg_{account_slug}_{plugin_id})
+Пароль:   mqtt_pass (одноразовый, показан только при регистрации / regenerate-mqtt)
 ```
 
 **ACL (что плагин может через MQTT):**
 
 | Действие | Паттерн топика | Описание |
 |----------|---------------|----------|
-| Подписка (чтение) | `{rules_bus}/events/#` | Все события устройств: телеметрия, статус, события, логи, OTA, атрибуты |
-| Публикация (запись) | `{rules_bus}/commands/{product}/{device}/{cap}` | Отправка RPC, установка атрибутов, запуск OTA |
+| Подписка (чтение) | `{rules_bus}/events/{account_slug}/#` (или уже) | События своего аккаунта: телеметрия, статус, события, логи, OTA, атрибуты, rpc/result |
+| Публикация (запись) | `{rules_bus}/commands/{account_slug}/{product}/{device}/{cap}` | Отправка RPC, установка desired-атрибутов, запуск OTA на устройствах своего аккаунта |
+
+`{rules_bus}/events/#`, `#` и `+` запрещены, как и поддеревья событий и команд других аккаунтов.
+Slug аккаунта — часть `mqtt_user` между `extplg_` и следующим `_`.
 
 **Структура топиков событий** (подписка):
 ```
-platform/v1/events/{product_id}/{device_id}/telemetry
-platform/v1/events/{product_id}/{device_id}/status
-platform/v1/events/{product_id}/{device_id}/event
-platform/v1/events/{product_id}/{device_id}/log
-platform/v1/events/{product_id}/{device_id}/ota
-platform/v1/events/{product_id}/{device_id}/attributes/reported
-platform/v1/events/{product_id}/{device_id}/attributes/desired
-platform/v1/events/{product_id}/{device_id}/rpc/result
+platform/v1/events/{account_slug}/{product_id}/{device_id}/telemetry
+platform/v1/events/{account_slug}/{product_id}/{device_id}/status
+platform/v1/events/{account_slug}/{product_id}/{device_id}/event
+platform/v1/events/{account_slug}/{product_id}/{device_id}/log
+platform/v1/events/{account_slug}/{product_id}/{device_id}/ota
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/events/{account_slug}/{product_id}/{device_id}/rpc/result
 ```
 
 **Структура топиков команд** (публикация):
 ```
-platform/v1/commands/{product_id}/{device_id}/rpc
-platform/v1/commands/{product_id}/{device_id}/attributes/desired
-platform/v1/commands/{product_id}/{device_id}/ota
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/rpc
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 ```
 
-**Пример: подписка на все события (Python):**
+Slug должен совпадать с аккаунтом плагина (чужие ACL отклоняет), а `{product_id}/{device_id}`
+ищется внутри этого аккаунта. Старая форма без slug больше не принимается.
+
+**Пример: подписка на все события аккаунта (Python):**
 ```python
 import paho.mqtt.client as mqtt
+
+MQTT_USER = "extplg_acme_temp-alert"
+ACCOUNT_SLUG = MQTT_USER.removeprefix("extplg_").split("_", 1)[0]  # "acme"
 
 def on_message(client, userdata, msg):
     print(f"[{msg.topic}] {msg.payload.decode()}")
 
 client = mqtt.Client()
-client.username_pw_set("extplg_temp-alert", "одноразовый-пароль")
+client.username_pw_set(MQTT_USER, "одноразовый-пароль")
 client.connect("192.168.1.22", 1883)
-client.subscribe("platform/v1/events/#")
+client.subscribe(f"platform/v1/events/{ACCOUNT_SLUG}/#")
 client.on_message = on_message
 client.loop_forever()
 ```
@@ -331,7 +373,7 @@ client.loop_forever()
 ```python
 import json
 client.publish(
-    "platform/v1/commands/esp32-cam/cam-001/rpc",
+    f"platform/v1/commands/{ACCOUNT_SLUG}/esp32-cam/cam-001/rpc",
     json.dumps({"method": "reboot", "params": {"delayMs": 1000}})
 )
 ```
@@ -339,21 +381,21 @@ client.publish(
 **Преимущества MQTT-режима:**
 - Не нужен HTTP endpoint или polling — просто подписка
 - Работает за NAT (исходящее MQTT-соединение)
-- Видит **все** события устройств, не только привязанные
-- Может отправлять команды любому устройству (через топики commands)
-- Heartbeat не нужен (состояние MQTT-соединения = живость плагина)
+- Видит все события устройств **своего аккаунта**, не только привязанные
+- Может отправлять команды устройствам своего аккаунта через топики commands
+- Heartbeat не нужен: MQTT connect / disconnect выставляет статус плагина `online` / `offline`
 
 **Ограничения MQTT-режима:**
 - Нет фильтрации по binding-ам (получает все события)
 - Нет тик-событий (используйте внутренний таймер)
 - Нет уведомлений `plugin.apply_config` / `plugin.detach`
 
-#### Режим 4: gRPC
+#### Режим 4: gRPC (запланировано)
 
 Плагин указывает `endpoint` **без** префикса `http://` (напр. `localhost:50051`).
-Платформа подключается как gRPC клиент. См. [Раздел 5](#5-grpc-транспорт-продвинутый).
+Платформа подключается как gRPC клиент. См. [Раздел 5](#5-grpc-транспорт-продвинутый-запланировано).
 
-#### Детали Polling
+#### Детали Polling (запланировано)
 
 ```json
 {
@@ -397,7 +439,7 @@ client.publish(
 }
 ```
 
-#### Heartbeat (проверка живости)
+#### Heartbeat (проверка живости) (запланировано)
 
 Плагин периодически стучится в платформу чтобы сообщить что он жив.
 Это работает в обоих режимах (webhook и polling).
@@ -456,16 +498,18 @@ sequenceDiagram
 
 #### Сравнение режимов
 
+Реализована только колонка MQTT; остальные описывают запланированные режимы.
+
 | Характеристика       | Webhook (push)        | Polling (pull)         | MQTT (подписка)        | gRPC            |
 |----------------------|-----------------------|------------------------|------------------------|------------------|
 | Задержка доставки    | Мгновенно             | Зависит от интервала   | Мгновенно              | Мгновенно        |
 | Плагин за NAT        | Нет (нужен public IP) | Да                     | Да (исходящее MQTT)    | Нет (нужен IP)   |
-| Видит все события    | Только свои binding   | Только свои binding    | Да (все устройства)    | Только свои binding |
+| Видит все события    | Только свои binding   | Только свои binding    | Да (все устройства своего аккаунта) | Только свои binding |
 | Может отправлять команды | Через invoke_rpc  | Через invoke_rpc       | Через commands топики  | Через invoke_rpc |
 | Сложность реализации | Средняя (HTTP server) | Выше (poll + ack)      | Ниже (MQTT клиент)     | Высокая (protobuf) |
 | Рекомендация         | LAN, cloud            | NAT, firewall          | Node-RED стиль, мониторинг | Высокая нагрузка |
 
-### 4.3 Уведомления Platform → Plugin (только webhook режим)
+### 4.3 Уведомления Platform → Plugin (только webhook режим) (запланировано)
 
 Платформа отправляет **JSON-RPC 2.0 уведомления** (без поля `id`, без ожидания
 ответа) на `{endpoint}`. Плагин должен ответить HTTP `200 OK` в течение
@@ -523,7 +567,11 @@ sequenceDiagram
 }
 ```
 
-### 4.4 Вызовы Plugin → Platform (частично реализовано)
+### 4.4 Вызовы Plugin → Platform (запланировано)
+
+В v1.0.x нет ни JSON-RPC endpoint, ни токена плагина. Сейчас плагин отправляет команды
+через MQTT (`{rules_bus}/commands/…`, см. режим 3) или через REST
+`POST /api/v1/devices/{id}/rpc` с Bearer-токеном пользователя.
 
 Плагин вызывает платформу по `PLATFORM_URL` (env var или из ответа регистрации).
 Все вызовы — стандартный JSON-RPC 2.0 с `id`, ожидают ответ.
@@ -531,7 +579,7 @@ sequenceDiagram
 Авторизация: заголовок `Authorization: Bearer <plugin_token>`. Токен выдаётся
 при регистрации, ограничен только плагинными операциями.
 
-#### 4.4.1 `platform.invoke_rpc`
+#### 4.4.1 `platform.invoke_rpc` (запланировано)
 
 Отправить RPC-команду устройству, привязанному к этому плагину.
 
@@ -608,7 +656,7 @@ sequenceDiagram
 
 ---
 
-## 5. gRPC транспорт (продвинутый)
+## 5. gRPC транспорт (продвинутый) (запланировано)
 
 Для плагинов с требованиями к низкой задержке или высокой пропускной способности:
 
@@ -681,7 +729,7 @@ message GetDeviceResponse {
 
 ## 6. Безопасность
 
-### HTTP API
+### HTTP API (запланировано)
 
 - Токен плагина выдаётся при регистрации, хранится хешированным в БД.
 - Токен ограничен: можно вызывать только `platform.invoke_rpc`,
@@ -691,17 +739,22 @@ message GetDeviceResponse {
 - HTTPS рекомендуется для production; HTTP разрешён для локальной разработки.
 - Rate limit: 100 вызовов/сек на один токен плагина.
 
+Ничего из перечисленного в v1.0.x нет: токен плагина не выдаётся, HTTP API плагинов и rate limit отсутствуют.
+
 ### MQTT ACL
 
-Внешние плагины подключаются к MQTT с username `extplg_{plugin_id}`. Брокер
-автоматически применяет ACL:
+Внешние плагины подключаются к MQTT с username `extplg_{account_slug}_{plugin_id}` и паролем
+(хранится только SHA-256 хеш пароля). Брокер применяет ACL:
 
 | Действие | Разрешено | Запрещено |
 |----------|-----------|-----------|
-| Подписка | `{prefix}/events/#` — все события | Топики устройств, `$SYS`, другие плагины |
-| Публикация | `{prefix}/commands/{product}/{device}/{cap}` | Топики устройств, `$SYS`, `events/` |
+| Подписка | `{prefix}/events/{account_slug}/…` — события своего аккаунта | `{prefix}/events/#`, `#`, `+`, события других аккаунтов, топики устройств (`iot/v1/…`, `v1/…`), `$…` |
+| Публикация | `{prefix}/commands/{account_slug}/…` | Команды других аккаунтов, команды без slug, топики устройств, `{prefix}/events/…`, `$…` |
 
-MQTT-креды генерируются **один раз** при регистрации. Для сброса пароля:
+Плагины **не могут** выдавать себя за устройства, читать события других аккаунтов или командовать
+чужими устройствами: целевое устройство ищется внутри аккаунта плагина.
+
+MQTT-пароль показывается **один раз** при регистрации. Для сброса пароля:
 ```
 POST /api/v1/plugins/external/{id}/regenerate-mqtt
 Authorization: Bearer <admin JWT>
@@ -709,9 +762,14 @@ Authorization: Bearer <admin JWT>
 
 ---
 
-## 7. Пример реализации — Python плагин «Temperature Alert» (пример в коде)
+## 7. Пример реализации — Python плагин «Temperature Alert» (пример в коде) (запланировано)
 
-Полный рабочий внешний плагин на Python (~80 строк).
+> Этот пример рассчитан на запланированный транспорт webhook + JSON-RPC (`endpoint`, `plugin.*`,
+> `platform.*`, `/api/plugins/external/rpc`, `/api/plugins/external/register`, токен плагина)
+> и **не работает с v1.0.x**. Рабочие MQTT-примеры — в
+> [examples/plugins/](../../examples/plugins/).
+
+Полный внешний плагин на Python (~80 строк) для запланированного webhook-транспорта.
 Получает события телеметрии, отправляет RPC при превышении порога температуры.
 
 ```python
@@ -931,7 +989,7 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=LISTEN_PORT)
 ```
 
-### End-to-end поток
+### End-to-end поток (запланировано)
 
 > **Diagram**: [External Plugin End-to-End Flow](14-diagrams.md#external-plugin-end-to-end-flow)
 
@@ -943,7 +1001,7 @@ sequenceDiagram
     participant D as Устройство
 
     Note over U: Админ создаёт плагин в UI / API
-    U->>P: POST /api/v1/plugins/external → токен + MQTT креды
+    U->>P: POST /api/v1/plugins/external → MQTT креды (токен плагина запланирован)
     U-->>Pl: передаёт креды плагину
     U->>P: Привязать плагин к устройству
     P->>Pl: plugin.apply_config {threshold_c: 30}
@@ -956,35 +1014,46 @@ sequenceDiagram
 
 ---
 
-## 8. Схема базы данных (новая таблица)
+## 8. Схема базы данных
+
+Фактическая таблица (`internal/db/migrations/001_init.sql`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS external_plugins (
     id                TEXT PRIMARY KEY,
+    account_id        INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     name              TEXT NOT NULL,
     description       TEXT NOT NULL DEFAULT '',
-    endpoint          TEXT NOT NULL DEFAULT '',  -- пусто если polling режим
-    auth_token_hash   TEXT NOT NULL,
+    mqtt_user         TEXT NOT NULL DEFAULT '',   -- extplg_{account_slug}_{plugin_id}
+    mqtt_pass_hash    TEXT NOT NULL DEFAULT '',   -- SHA-256 от mqtt_pass
     auto              INTEGER NOT NULL DEFAULT 0,
     interval_ms       INTEGER NOT NULL DEFAULT 0,
     default_config    TEXT NOT NULL DEFAULT '{}',
     effects           TEXT NOT NULL DEFAULT '[]',
     form              TEXT NOT NULL DEFAULT '[]',
-    mode              TEXT NOT NULL DEFAULT 'webhook',  -- webhook | polling
     status            TEXT NOT NULL DEFAULT 'unknown',  -- online | offline | unknown
-    last_heartbeat_at INTEGER,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_external_plugins_account ON external_plugins(account_id);
 ```
 
-Существующая таблица `device_plugin_bindings` используется без изменений —
-внешние плагины применяют тот же механизм binding, `PluginHub` просто
-доставляет события по HTTP вместо in-process вызова `OnEvent`.
+Запланированные транспорты добавят колонки `endpoint`, `auth_token_hash`, `mode` (webhook | polling)
+и `last_heartbeat_at`; сейчас их нет.
+
+В v1.0.x внешние плагины **не** привязываются к устройствам: `device_plugin_bindings` используется
+только встроенными плагинами. Доставка событий привязанным внешним плагинам через `PluginHub` запланирована.
 
 ---
 
 ## 9. Жизненный цикл
+
+Реализовано (MQTT): админ регистрирует плагин → статус `unknown` → плагин подключается к брокеру
+с `mqtt_user` / `mqtt_pass` → статус `online` → плагин отключается → статус `offline`.
+**Regenerate MQTT** заменяет пароль; **Delete** удаляет плагин вместе с кредами.
+
+Диаграмма ниже показывает запланированный полный жизненный цикл (heartbeat, binding-и, уведомления `plugin.*`) **(запланировано)**.
 
 > **Diagram**: [External Plugin Lifecycle](14-diagrams.md#external-plugin-lifecycle)
 
@@ -997,8 +1066,8 @@ sequenceDiagram
 
     Note over U: Админ создаёт плагин в UI
     U->>P: POST /api/v1/plugins/external
-    P-->>U: {ok: true, token: "...", mqtt_user: "...", ...}
-    U-->>Pl: передаёт токен и MQTT-креды плагину
+    P-->>U: {ok: true, mqtt_user: "...", mqtt_pass: "...", ...}
+    U-->>Pl: передаёт MQTT-креды плагину
 
     loop каждые 30 сек
         Pl->>P: platform.heartbeat
@@ -1041,13 +1110,16 @@ sequenceDiagram
 
 ## 10. Чек-лист требований
 
-- [x] Плагин можно написать на любом языке (HTTP + JSON универсальны)
-- [x] Взаимодействие через JSON-RPC 2.0 (gRPC опционально)
-- [x] Плагин получает события устройства/платформы (status, telemetry, event, tick, rpc/result)
-- [x] Плагин может вызывать RPC на привязанном устройстве (`platform.invoke_rpc`)
-- [ ] Плагин может устанавливать атрибуты устройства (`platform.set_attributes`) — **не реализовано**
-- [x] Чистый и документированный интерфейс с примерами
-- [x] Поведение идентично внутренним плагинам — та же модель событий, тот же жизненный цикл
+- [x] Плагин можно написать на любом языке (MQTT + JSON)
+- [x] Регистрация, удаление, перевыпуск MQTT-пароля (`/api/v1/plugins/external`)
+- [x] Плагин получает события шины правил своего аккаунта по MQTT (status, telemetry, event, attributes, rpc/result, ota, log)
+- [x] Плагин может отправлять RPC / desired-атрибуты / OTA через `{rules_bus}/commands/{account_slug}/…` (только свой аккаунт)
+- [ ] Взаимодействие через JSON-RPC 2.0 (`/api/plugins/external/rpc`) — **запланировано**
+- [ ] Транспорты webhook / polling / gRPC, heartbeat — **запланировано**
+- [ ] Плагин может вызывать RPC на привязанном устройстве (`platform.invoke_rpc`) — **запланировано** (`InvokeRPCForPlugin` есть в коде, но не подключён ни к одному endpoint)
+- [ ] Плагин может устанавливать атрибуты устройства (`platform.set_attributes`) — **запланировано**
+- [ ] События `tick` / `apply` и binding-и устройств для внешних плагинов — **запланировано**
+- [ ] Поведение идентично внутренним плагинам — та же модель событий, тот же жизненный цикл — **запланировано**
 
 ---
 
@@ -1071,4 +1143,4 @@ sequenceDiagram
 | [07-internal-plugins.md](07-internal-plugins.md) | Встроенные плагины устройства |
 | [06-automation.md](06-automation.md) | Node-RED и шина правил |
 | [04-mqtt.md](04-mqtt.md) | MQTT-протокол и топики |
-| [examples/plugins/](../../examples/plugins/) | Примеры кода (Python, Go, Java, C++, gRPC) |
+| [examples/plugins/](../../examples/plugins/) | MQTT-примеры кода (Python, Go, Java, C++) |

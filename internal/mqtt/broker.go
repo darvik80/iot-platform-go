@@ -227,6 +227,83 @@ func (b *Broker) Publish(topic string, qos byte, retained bool, payload []byte) 
 	return nil
 }
 
+// PublishToUser delivers a publish only to sessions authenticated as username
+// that hold a matching subscription. Used for short-style downlinks, whose
+// topics (v1/me/...) are identical for every device.
+func (b *Broker) PublishToUser(username, topic string, qos byte, payload []byte) error {
+	if b.server == nil {
+		return fmt.Errorf("mqtt broker not started")
+	}
+	delivered := 0
+	for _, cl := range b.server.Clients.GetAll() {
+		if cl.Net.Inline || string(cl.Properties.Username) != username {
+			continue
+		}
+		subQos, ok := matchingSubscription(cl, topic)
+		if !ok {
+			continue
+		}
+		out := packets.Packet{
+			FixedHeader: packets.FixedHeader{Type: packets.Publish, Qos: min(qos, subQos)},
+			TopicName:   topic,
+			Payload:     append([]byte(nil), payload...),
+			Created:     time.Now().Unix(),
+		}
+		if out.FixedHeader.Qos > 0 {
+			id, err := cl.NextPacketID()
+			if err != nil {
+				continue
+			}
+			out.PacketID = uint16(id)
+			cl.State.Inflight.Set(out)
+		}
+		if cl.Closed() {
+			continue // queued in inflight for a persistent session
+		}
+		if err := cl.WritePacket(out); err != nil {
+			b.note("warn", "publish", cl.ID, username, cl.Net.Remote, topic, err.Error(), len(payload))
+			continue
+		}
+		delivered++
+	}
+	b.note("info", "publish", "inline", username, "", topic, fmt.Sprintf("direct to %d session(s)", delivered), len(payload))
+	return nil
+}
+
+func matchingSubscription(cl *mochi.Client, topic string) (byte, bool) {
+	best, found := byte(0), false
+	for _, sub := range cl.State.Subscriptions.GetAll() {
+		if filterMatches(sub.Filter, topic) {
+			if !found || sub.Qos > best {
+				best = sub.Qos
+			}
+			found = true
+		}
+	}
+	return best, found
+}
+
+// filterMatches implements MQTT topic filter matching (+ and #).
+func filterMatches(filter, topic string) bool {
+	if strings.HasPrefix(topic, "$") && (strings.HasPrefix(filter, "+") || strings.HasPrefix(filter, "#")) {
+		return false
+	}
+	fp := strings.Split(filter, "/")
+	tp := strings.Split(topic, "/")
+	for i, f := range fp {
+		if f == "#" {
+			return true
+		}
+		if i >= len(tp) {
+			return false
+		}
+		if f != "+" && f != tp[i] {
+			return false
+		}
+	}
+	return len(fp) == len(tp)
+}
+
 // DropUsername disconnects every session authenticated as username
 // (token rotate / disable / delete).
 func (b *Broker) DropUsername(username string) {

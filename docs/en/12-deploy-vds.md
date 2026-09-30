@@ -23,7 +23,10 @@ Internet
                                             │
                                       SQLite WAL
                                       /opt/iot-platform-go/data/
+                                      (or PostgreSQL via DATABASE_DSN)
 ```
+
+Two installation options are described below: a manual layout under `/opt/iot-platform-go` (used by the `deploy-vds.yml` CI workflow) and the [Debian package](#debian-package) (`make deb`) with its own layout.
 
 ---
 
@@ -90,6 +93,8 @@ sudo systemctl enable iot-platform
 
 ### 3. Environment variables
 
+The binary itself does not read `.env`; here the file is loaded by systemd via `EnvironmentFile=` in the unit above. Values set here are OS env and therefore override any `config.yml`.
+
 ```bash
 sudo tee /opt/iot-platform-go/etc/.env << 'EOF'
 # --- Required ---
@@ -97,12 +102,9 @@ PUBLIC_BASE_URL=https://iot.cogitor.dev
 JWT_SECRET=<generate-random-64-chars>
 BROKER_HOST_PUBLIC=iot.cogitor.dev
 
-# --- Admin ---
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=<strong-password>
-
-# --- Database ---
-SQLITE_PATH=/opt/iot-platform-go/data/platform.db
+# --- Database (SQLite default; or DATABASE_DRIVER=postgres + postgres:// DSN) ---
+DATABASE_DRIVER=sqlite
+DATABASE_DSN=/opt/iot-platform-go/data/platform.db
 
 # --- Network ---
 HTTP_ADDR=:8080
@@ -117,6 +119,15 @@ EOF
 sudo chown iot:iot /opt/iot-platform-go/etc/.env
 sudo chmod 600 /opt/iot-platform-go/etc/.env
 ```
+
+### 4. First start — setup wizard
+
+There is no admin in env (`ADMIN_*` variables are ignored). On the first start the database is empty, so the platform serves the **setup wizard** on `:8080` (`/setup`, API `/api/v1/setup/*`) instead of the dashboard. It creates the admin user and the default account — see [Operations → setup wizard](11-operations.md#first-start-setup-wizard).
+
+- The setup endpoints are unauthenticated — open the wizard **before** enabling the public nginx site, e.g. via `ssh -L 8080:127.0.0.1:8080 user@HOST` and `http://localhost:8080/setup`.
+- In step 1 set the DSN to the same value as `DATABASE_DSN` in `.env` (`/opt/iot-platform-go/data/platform.db`); the wizard's default `/var/lib/iot-platform/platform.db` is not writable under this unit's `ProtectSystem=strict`.
+- With this unit only `/opt/iot-platform-go/data` is writable, so the wizard cannot persist `config.yml` (a `failed to write config.yml` warning is expected); the values in `.env` remain the source of truth.
+- Restart the service after the wizard completes so the setup routes are unmounted.
 
 ---
 
@@ -181,6 +192,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 80 | TCP | HTTP → redirect to HTTPS |
 | 443 | TCP | HTTPS (dashboard + API + WSS) |
 | 1883 | TCP | MQTT TCP (for devices) |
+| 8883 | TCP | MQTT over TLS (only if `MQTT_TLS_CERT` / `MQTT_TLS_KEY` are configured) |
 
 ---
 
@@ -190,11 +202,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 Workflow **`.gitea/workflows/deploy-vds.yml`** — push to `vds` branch or manual trigger:
 
-1. Builds web UI (`npm ci && npm run build`)
-2. Builds Go binary (`CGO_ENABLED=0 GOOS=linux`)
-3. `scp` binary + systemd unit to server
-4. `systemctl restart iot-platform`
+1. Builds web UI (`npm ci && npm run build`, Node 22)
+2. Builds Go binary (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`)
+3. `scp` binary + `deploy/iot-platform.service` to server, runs `deploy/remote-deploy.sh`
+4. Installs the unit if changed, `systemctl restart iot-platform`
 5. Health check: `curl http://127.0.0.1:8080/healthz`
+
+> **Known issue**: `deploy-vds.yml` (and `build-deb.yml`) pin `go-version: "1.25.x"`, while `go.mod` requires `go 1.26.0` and the `Dockerfile` uses `golang:1.26-bookworm`. Bump the workflows to `1.26.x` (or rely on Go toolchain auto-download) if the build fails on the Go version check.
 
 **Gitea secrets:**
 
@@ -235,8 +249,11 @@ sudo journalctl -u iot-platform -f
 curl -fsS https://iot.cogitor.dev/healthz   # liveness
 curl -fsS https://iot.cogitor.dev/readyz    # readiness (MQTT + DB)
 
-# MQTT
-mosquitto_sub -h iot.cogitor.dev -t '#' -u 'product.device' -P '<token>' -v
+# MQTT — subscribe with device credentials to the device's own downlink topics
+# (wildcard '#' is rejected by the broker ACL)
+mosquitto_sub -h iot.cogitor.dev -u 'product.device' -P '<token>' -v -t 'v1/me/r/req'
+# publish a test telemetry message
+mosquitto_pub -h iot.cogitor.dev -u 'product.device' -P '<token>' -t 'v1/t' -m '{"temp":21.5}'
 ```
 
 ---
@@ -248,7 +265,29 @@ On push to `vds` — CI automatically:
 2. Uploads to server
 3. Restarts service (~2 seconds downtime)
 
-SQLite database and data in `/opt/iot-platform-go/data/` — not affected during updates.
+SQLite database and data in `/opt/iot-platform-go/data/` — not affected during updates. With PostgreSQL the data lives in the database server; back it up with `pg_dump` (see [Operations → Database](11-operations.md#database)).
+
+---
+
+## Debian package
+
+Alternative to the manual layout above: build a `.deb` with `make deb` (runs `deb/build.sh`, needs Linux or WSL with `dpkg-deb`, Node and Go). The CI workflow `.gitea/workflows/build-deb.yml` builds the same package on push to `master` / `v*` tags and attaches it to a Gitea Release on tags.
+
+```bash
+make deb                                   # → dist/iot-platform_<version>_amd64.deb (version from version.txt)
+sudo dpkg -i dist/iot-platform_<version>_amd64.deb
+```
+
+| Item | Location |
+|------|----------|
+| Binary | `/usr/bin/iot-platform` |
+| System user / group | `iot-platform` (created by `preinst`, home `/var/lib/iot-platform`, no login shell) |
+| Config | `/etc/iot-platform/config.yml` (shipped empty; written by the setup wizard), certs in `/etc/iot-platform/certs/` |
+| Data | `/var/lib/iot-platform` (working directory; default SQLite file `/var/lib/iot-platform/platform.db`) |
+| Logs | `/var/log/iot-platform/platform.log` (rotated by `/etc/logrotate.d/iot-platform`) |
+| systemd unit | `/lib/systemd/system/iot-platform.service` (source: `deb/iot-platform.service`) |
+
+The unit runs as `iot-platform`, has `ProtectSystem=strict` with `ReadWritePaths=/var/lib/iot-platform /etc/iot-platform /var/log/iot-platform`, and no `EnvironmentFile`. `postinst` enables and (re)starts the service and prints the wizard URL `http://<host>:8080`. Because `/etc/iot-platform` is writable, the wizard persists its result to `/etc/iot-platform/config.yml`. The same setup-wizard security caveats apply — finish it before exposing port 8080.
 
 ---
 
@@ -259,6 +298,7 @@ SQLite database and data in `/opt/iot-platform-go/data/` — not affected during
 | Dashboard / API | `https://iot.cogitor.dev` |
 | WebSocket | `wss://iot.cogitor.dev/api/v1/ws` |
 | MQTT TCP | `iot.cogitor.dev:1883` |
+| MQTT TLS (optional) | `mqtts://iot.cogitor.dev:8883` |
 | MQTT WebSocket | `wss://iot.cogitor.dev/mqtt` |
 | Healthcheck | `https://iot.cogitor.dev/healthz` |
 

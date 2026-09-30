@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -42,7 +43,7 @@ func initConfig() (config.Config, *slog.Logger) {
 		"./config.yml", loadedLocal,
 		"/etc/iot-platform/config.yml", loadedEtc,
 		"db_driver", cfg.Database.Driver,
-		"db_dsn", cfg.Database.DSN,
+		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 		"http_addr", cfg.HTTP.Addr,
 		"mqtt_addr", cfg.MQTT.Addr,
 		"data_dir", cfg.DataDir,
@@ -71,6 +72,7 @@ func initDatabase(cfg config.Config, log *slog.Logger) (*db.DB, *services.Platfo
 			return runSetupWizard(cfg, log)
 		}
 
+		ensureJWTSecret(database, &cfg, log)
 		plat := services.New(database, cfg, log)
 		if err := plat.EnsureAdmin(); err != nil {
 			log.Error("ensure admin failed", "err", err)
@@ -119,7 +121,7 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 		"./config.yml", loadedLocal,
 		"/etc/iot-platform/config.yml", loadedEtc,
 		"db_driver", cfg.Database.Driver,
-		"db_dsn", cfg.Database.DSN,
+		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 	)
 
 	database, err := db.Open(cfg.Database.Driver, cfg.Database.DSN)
@@ -127,9 +129,25 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 		log.Error("database open failed after setup", "err", err)
 		os.Exit(1)
 	}
+	ensureJWTSecret(database, &cfg, log)
 	plat := services.New(database, cfg, log)
 	_ = srv // setup server already shut down
 	return database, plat, setupService
+}
+
+// ensureJWTSecret refuses to sign tokens with the publicly known dev secret.
+func ensureJWTSecret(database *db.DB, cfg *config.Config, log *slog.Logger) {
+	src, err := services.EnsureJWTSecret(database, cfg)
+	if err != nil {
+		log.Error("jwt secret unavailable", "err", err)
+		os.Exit(1)
+	}
+	switch src {
+	case "settings":
+		log.Warn("JWT_SECRET not configured — using the secret stored by the setup wizard in the database")
+	case "generated":
+		log.Warn("JWT_SECRET not configured — generated a random secret and stored it in the database; set JWT_SECRET to manage it explicitly")
+	}
 }
 
 // startSetupHTTP creates and starts the setup-only HTTP server.
@@ -158,7 +176,7 @@ func startSetupHTTP(cfg config.Config, setupService *services.SetupService, log 
 func waitForSetup(s *services.SetupService) {
 	for {
 		time.Sleep(1 * time.Second)
-		if s.GetState().Completed {
+		if s.Completed() {
 			break
 		}
 	}
@@ -195,6 +213,9 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		log.Info("serving dashboard from web/dist")
 	}
 
+	if u, err := url.Parse(cfg.Platform.PublicBaseURL); err == nil && u.Host != "" {
+		hub.AllowedHosts = append(hub.AllowedHosts, u.Host)
+	}
 	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService}
 	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 

@@ -14,8 +14,7 @@ type SetupHandler struct {
 
 // GetState returns the current setup state.
 func (h *SetupHandler) GetState(w http.ResponseWriter, r *http.Request) {
-	state := h.Setup.GetState()
-	writeJSON(w, http.StatusOK, state)
+	writeJSON(w, http.StatusOK, h.Setup.View())
 }
 
 // UpdateStepRequest is the request body for updating a setup step.
@@ -44,7 +43,7 @@ func (h *SetupHandler) UpdateStep(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":      true,
-		"current_step": h.Setup.GetState().CurrentStep,
+		"current_step": h.Setup.View().CurrentStep,
 	})
 }
 
@@ -75,7 +74,7 @@ func (h *SetupHandler) GenerateTLS(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Setup.GenerateMQTTTLS(req.Host, req.Dir)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 

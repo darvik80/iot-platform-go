@@ -24,6 +24,15 @@ import (
 
 var loginRe = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`)
 
+func validEmail(s string) bool {
+	if len(s) < 5 || len(s) > 254 || strings.ContainsAny(s, " \t\r\n<>\"") {
+		return false
+	}
+	local, domain, ok := strings.Cut(s, "@")
+	return ok && local != "" && strings.Contains(domain, ".") && !strings.Contains(domain, "@") &&
+		!strings.HasPrefix(domain, ".") && !strings.HasSuffix(domain, ".")
+}
+
 func (p *Platform) Mailer() *mail.Sender {
 	return &mail.Sender{Cfg: p.Cfg, Log: p.Log}
 }
@@ -48,7 +57,49 @@ func (p *Platform) EnsureAdmin() error {
 		p.Cfg.Admin.Login, p.Cfg.Admin.Email)
 	_, _ = p.DB.Exec(`UPDATE users SET email_verified=1 WHERE email=?`, p.Cfg.Admin.Email)
 
+	if p.PlatformAdminID() == 0 {
+		var id int64
+		if err := p.DB.QueryRow(`SELECT id FROM users WHERE role=? ORDER BY id LIMIT 1`, models.RoleAdmin).Scan(&id); err == nil {
+			_, _ = p.DB.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+				PlatformAdminSettingKey, strconv.FormatInt(id, 10))
+			p.Log.Info("platform admin assigned", "user_id", id)
+		}
+	}
 	return nil
+}
+
+// PlatformAdminSettingKey stores the id of the user allowed to manage all users.
+// users.role is not used for this: self-registered users get REGISTER_DEFAULT_ROLE.
+const PlatformAdminSettingKey = "platform_admin_user_id"
+
+func (p *Platform) PlatformAdminID() int64 {
+	var v string
+	if err := p.DB.QueryRow(`SELECT value FROM settings WHERE key=?`, PlatformAdminSettingKey).Scan(&v); err != nil {
+		return 0
+	}
+	id, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	return id
+}
+
+func (p *Platform) IsPlatformAdmin(userID int64) bool {
+	id := p.PlatformAdminID()
+	return id != 0 && id == userID
+}
+
+// CanAccountAdminManageUser reports whether an admin of accountID may edit the
+// user's profile: the user must belong only to that account and not be the platform admin.
+func (p *Platform) CanAccountAdminManageUser(accountID, userID int64) bool {
+	if accountID == 0 || userID == 0 || p.IsPlatformAdmin(userID) {
+		return false
+	}
+	var inAccount, elsewhere int
+	if err := p.DB.QueryRow(`SELECT
+			COALESCE(SUM(CASE WHEN account_id=? THEN 1 ELSE 0 END),0),
+			COALESCE(SUM(CASE WHEN account_id<>? THEN 1 ELSE 0 END),0)
+		FROM account_memberships WHERE user_id=?`, accountID, accountID, userID).Scan(&inAccount, &elsewhere); err != nil {
+		return false
+	}
+	return inAccount > 0 && elsewhere == 0
 }
 
 type RegisterInput struct {
@@ -69,7 +120,7 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	if !loginRe.MatchString(in.Login) {
 		return nil, errors.New("invalid login: 3-32 chars, start with letter, [a-zA-Z0-9._-]")
 	}
-	if !strings.Contains(in.Email, "@") || len(in.Email) < 5 {
+	if !validEmail(in.Email) {
 		return nil, errors.New("invalid email")
 	}
 	if len(in.Password) < 8 {
@@ -86,6 +137,26 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	verified := 0
 	if !p.Cfg.Register.RequireVerify {
 		verified = 1
+	}
+
+	// Resolve the slug before opening the transaction: SQLite runs with a
+	// single pooled connection, so p.DB queries inside the tx would deadlock.
+	var slug string
+	if in.AccountSlug != "" {
+		slug = normalizeSlug(in.AccountSlug)
+		if slug == "" {
+			return nil, errors.New("invalid account slug: only lowercase letters, digits, and hyphens allowed")
+		}
+		if len(slug) > 63 {
+			slug = slug[:63]
+		}
+		var count int
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM accounts WHERE slug=?`, slug).Scan(&count)
+		if count > 0 {
+			return nil, errors.New("account slug already taken")
+		}
+	} else {
+		slug = p.generateAccountSlug(in.Login)
 	}
 
 	tx, err := p.DB.Begin()
@@ -106,27 +177,7 @@ func (p *Platform) Register(in RegisterInput) (*models.User, error) {
 	}
 	userID, _ := res.LastInsertId()
 
-	// 2. Determine account slug
-	var slug string
-	if in.AccountSlug != "" {
-		slug = normalizeSlug(in.AccountSlug)
-		if slug == "" {
-			return nil, errors.New("invalid account slug: only lowercase letters, digits, and hyphens allowed")
-		}
-		if len(slug) > 63 {
-			slug = slug[:63]
-		}
-		// Check uniqueness
-		var count int
-		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM accounts WHERE slug=?`, slug).Scan(&count)
-		if count > 0 {
-			return nil, errors.New("account slug already taken")
-		}
-	} else {
-		slug = p.generateAccountSlug(in.Login)
-	}
-
-	// 3. Create personal account
+	// 2. Create personal account
 	accRes, err := tx.Exec(`INSERT INTO accounts(slug, name, settings_json, status, created_at, updated_at)
 		VALUES(?,?,?,'active',?,?)`,
 		slug, in.DisplayName, "{}", now, now)
@@ -401,12 +452,23 @@ func (p *Platform) UpdateUser(id int64, in UpdateUserInput) (*models.User, error
 	if in.DisplayName != "" {
 		u.DisplayName = in.DisplayName
 	}
-	if in.Email != "" {
-		u.Email = in.Email
+	if email := strings.ToLower(strings.TrimSpace(in.Email)); email != "" && email != u.Email {
+		if !validEmail(email) {
+			return nil, errors.New("invalid email")
+		}
+		var taken int
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE lower(email)=? AND id<>?`, email, id).Scan(&taken)
+		if taken > 0 {
+			return nil, errors.New("email already in use")
+		}
+		u.Email = email
 	}
 	// Hash new password if provided
 	newHash := ""
 	if in.Password != "" {
+		if len(in.Password) < 8 {
+			return nil, errors.New("password must be at least 8 characters")
+		}
 		hash, err := auth.HashPassword(in.Password)
 		if err != nil {
 			return nil, errors.New("failed to hash password")

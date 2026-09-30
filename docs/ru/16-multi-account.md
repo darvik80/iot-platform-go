@@ -9,6 +9,18 @@
 | **Область** | добавление multi-tenant изоляции, IAM-ролей, monitoring-плагинов и управления внутренними плагинами в текущий single-tenant дистрибутив |
 | **Каноническая версия** | этот документ ведётся на русском; английский ([en/16-multi-account.md](../en/16-multi-account.md)) будет переписан с нуля после стабилизации v1 |
 
+> **Статус реализации (сверено с кодом 30.09.2026).** Это спецификация; код в нескольких местах от неё отличается:
+> - **Маршруты плоские**, привязаны к активному аккаунту из JWT: `/members`, `/invitations`, `/plugins/policies`, `/audit-log`, `/me/accounts`, `POST /auth/switch-account` — а не `/accounts/{id}/...`. CRUD аккаунтов (`/accounts`), `POST /auth/refresh` и заголовка `X-Account-Id` нет.
+> - Колонки `users.is_platform_admin` нет. Админ платформы — пользователь, чей id записан в `settings.platform_admin_user_id` (админ из мастера; на старых БД — первый пользователь с `users.role=admin`). Только он может смотреть и удалять всех пользователей (`GET/DELETE /users`); админ аккаунта может `PATCH /users/{id}` только для пользователей, состоящих исключительно в его аккаунте.
+> - Переменных `INVITE_TTL_HOURS` (TTL захардкожен — 72 ч), `WIZARD_AUTO_DISABLE`, `WIZARD_WRITE_ENV`, `PROMETHEUS_EXPORTER_DEFAULT_PORT`, `DB_STATEMENT_TIMEOUT_MS` нет; `DB_MAX_OPEN_CONNS` / `DATABASE_MAX_OPEN_CONNS` читается, но не применяется.
+> - **Мастер настройки**: API `/api/v1/setup/*`, UI `/setup`; состояние хранится **на сервере в памяти** (не в `localStorage`); запускается, когда в БД нет ни пользователей, ни аккаунтов; результат пишется в таблицу `settings` и в `config.yml`. Маршруты мастера смонтированы только пока он работает; после завершения `GET /api/v1/setup/state` отвечает `{"completed":true}`, остальных `/setup`-маршрутов нет. API состояния никогда не отдаёт секреты (только флаги `*_set` и DSN со скрытым паролем).
+> - Real-time канал — **WebSocket** `/api/v1/ws`, не SSE; каждое соединение получает события только своего активного аккаунта (общие события брокера — админу платформы).
+> - **MCP** ограничен активным аккаунтом токена (параметра `account_id` нет — для смены области переключите аккаунт).
+> - И события, и команды rules bus содержат slug (`platform/v1/{events|commands}/{account_slug}/...`); ACL отклоняет чужие поддеревья, а команды ищут устройство внутри аккаунта плагина.
+> - `REGISTER_DEFAULT_ROLE` (в коде по умолчанию `admin`) пишется в `users.role` при каждой регистрации, но прав на уровне платформы не даёт; в личном аккаунте пользователя membership всегда `admin`.
+>
+> Текущее поведение: [02-api](02-api.md), [11-operations](11-operations.md).
+
 Этот документ определяет следующий крупный релиз платформы: **multi-account tenancy** с ролевым доступом, новый формат системных MQTT-топиков и встроенный мониторинг (Prometheus). Релиз additive — пересоздание БД и конфигурации при переходе допустимо (миграционных утилит не предусматривается).
 
 Связанные доки: [01-prd](01-prd.md), [02-api](02-api.md), [03-auth](03-auth.md), [04-mqtt](04-mqtt.md), [07-internal-plugins](07-internal-plugins.md), [08-external-plugins](08-external-plugins.md), [11-operations](11-operations.md).
@@ -85,7 +97,7 @@
 | Цель | Метрика | Целевое значение |
 |------|---------|------------------|
 | Изоляция аккаунтов | `404` при попытке доступа к чужому `device_id` | 100% отрицаний на integration-тестах ACL |
-| Скорость приглашения | `POST /accounts/{id}/invitations` → письмо | < 200 мс до возврата токена |
+| Скорость приглашения | `POST /invitations` → письмо | < 200 мс до возврата токена |
 | Принятие приглашения | Время от `POST /invitations/{token}/accept` до `JWT с активным аккаунтом` | < 1 с |
 | Переключение аккаунта | `POST /auth/switch-account` → новый JWT | < 100 мс (без обращения к БД при закэшированном membership) |
 | Изоляция топиков | Кросс-аккаунтный `acl_deny` | 100% отрицаний при `subscribe platform/v1/events/other_account/#` |
@@ -266,7 +278,7 @@ graph TB
 4. **Publish telemetry** → `Ingest` → `StoreTelemetry` (account_id из device) → `publishRules(account.slug, product, device, kind)` → MQTT `platform/v1/events/{account_slug}/{product}/{device}/{kind}`. Топик содержит `account_slug` — внешний плагин другого аккаунта через ACL не подпишется.
 5. **RPC-вызов на устройство**: платформа генерирует UUID для `request_id`, сохраняет `{request_id → HTTP-канал}` в памяти (с таймаутом), публикует команду в MQTT с `id = request_id` (стандарт JSON-RPC). Устройство копирует `id` из запроса в ответ. Платформа сопоставляет ответ с ожидающим запросом по `request_id` и отправляет HTTP-ответ клиенту. Подробнее: [04-mqtt.md → RPC](04-mqtt.md#rpc), [17-ha-architecture.md → §3.2](17-ha-architecture.md#32-маршрутизация-команд-и-корреляция-ответов).
 6. **External plugin (polling)**: `POST /api/plugins/external/rpc` с токеном `extplg_acme_telegram-bot` → `ValidateToken` → `plugin.account_id = 1` → `platform.invoke_rpc` → middleware `RequireAccount(account_id=1)` → handler проверяет `device.account_id == 1` → 200. Cross-account → 403.
-7. **SSE**: `GET /api/v1/events/stream?token=...` с активным аккаунтом 7 → Hub подписывает SSE-соединение на фильтр `account_id=7` → события других аккаунтов не приходят. Браузер нативно переподключается через `Last-Event-ID`; HTTP-based, без sticky sessions.
+7. **WebSocket**: `GET /api/v1/ws?token=...` с активным аккаунтом 7 → Hub должен фильтровать соединение по `account_id=7`, чтобы события других аккаунтов не приходили. *(Реализация: WebSocket, не SSE; фильтр по аккаунту пока не реализован — хаб рассылает всем клиентам.)*
 8. **Prometheus scrape**: внешний Prometheus с job `{account: "acme", scrape_url: "http://platform:9100/metrics"}` — на аккаунт свой порт (`prometheus-exporter` стартует инстанс на binding-defined port, все метрики с лейблом `account="acme"`).
 
 ### 7.3 Поток приглашений
@@ -287,13 +299,13 @@ sequenceDiagram
     Note over A: Активный аккаунт = acme
     
     alt Способ 1: Invite via email
-        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "email"}
+        A->>P: POST /api/v1/invitations {email, role, delivery_method: "email"}
         P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
         P-->>A: {token: "raw-once", link: "/invite/{token}"}
         P->>M: отправить email со ссылкой
         M-->>R: письмо доставлено
     else Способ 2: Create shareable link
-        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "link"}
+        A->>P: POST /api/v1/invitations {email, role, delivery_method: "link"}
         P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
         P-->>A: {link: "/invite/{token}"} (письмо НЕ отправляется)
         A->>A: копирует ссылку, расшаривает через мессенджер
@@ -324,7 +336,7 @@ sequenceDiagram
     end
 
     Note over P: Resend / Revoke (только для способов 1 и 2)
-    A->>P: POST /accounts/{id}/invitations/{id}/resend
+    A->>P: POST /invitations/{id}/resend
     P->>DB: UPDATE old.status='revoked', INSERT new
     P->>M: отправить новое письмо (только если delivery_method="email")
 ```
@@ -341,9 +353,9 @@ sequenceDiagram
     Note over Adm: Активный аккаунт = acme
     Adm->>P: POST /api/v1/plugins/external {id: "telegram-bot"}
     P->>P: mqtt_user = "extplg_acme_telegram-bot"
-    P->>P: mqtt_pass = random, token = random
+    P->>P: mqtt_pass = random (shown once)
     P->>P: хешируем, сохраняем в external_plugins (account_id=acme)
-    P-->>Adm: {token, mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
+    P-->>Adm: {mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
     Adm->>Pl: передаёт креды
 
     Pl->>Br: CONNECT mqtt_user=extplg_acme_telegram-bot, mqtt_pass=...
@@ -397,7 +409,7 @@ sequenceDiagram
     participant DB as SQLite
 
     Note over Adm: Settings → Integrations → prometheus-exporter enabled
-    Adm->>H: PATCH /accounts/{id}/plugins/policies/prometheus-exporter {enabled:true}
+    Adm->>H: PATCH /plugins/policies/prometheus-exporter {enabled:true}
     H->>DB: UPSERT account_plugin_policies
     H->>H: пересборка runners аккаунта
 
@@ -589,15 +601,15 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | | `DELETE /accounts/{id}/members/{userId}` | новый |
 | Invitations | `GET /invitations/{token}` (публичный) | новый |
 | | `POST /invitations/{token}/accept` | новый |
-| | `GET /accounts/{id}/invitations` | новый |
-| | `POST /accounts/{id}/invitations` `{email, role}` | новый |
-| | `POST /accounts/{id}/invitations/{id}/resend` | новый |
-| | `DELETE /accounts/{id}/invitations/{id}` | новый |
-| Plugin policies | `GET /accounts/{id}/plugins/policies` | новый |
-| | `PATCH /accounts/{id}/plugins/policies/{pluginId}` `{enabled?, settings?}` | новый |
+| | `GET /invitations` | новый |
+| | `POST /invitations` `{email, role}` | новый |
+| | `POST /invitations/{id}/resend` | новый |
+| | `DELETE /invitations/{id}` | новый |
+| Plugin policies | `GET /plugins/policies` | новый |
+| | `PATCH /plugins/policies/{pluginId}` `{enabled?, settings?}` | новый |
 | Existing | `GET/POST/PUT/DELETE /products`, `/devices`, … — все требуют `X-Account-Id` (или берут из JWT active) и проверяют account-scope; `?account_id=` query поддерживается для platform-admin | все брейкинг |
 | MCP | Каждый list/get-тул получает параметр `account_id` (optional, default — active) | minor |
-| SSE (real-time) | `GET /api/v1/events/stream?token=...&account_id=<active>` — `text/event-stream`, фильтр по аккаунту, HTTP-based, auto-reconnect через `Last-Event-ID` | расширение |
+| WebSocket (real-time) | `GET /api/v1/ws?token=...` — WebSocket (не SSE); фильтр по аккаунту запланирован, не реализован | расширение |
 
 Полный перечень эндпоинтов и формат запросов/ответов — в [02-api.md](02-api.md) (дополнение).
 
@@ -610,7 +622,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Переменная | По умолчанию | Назначение |
 |-----------|-------------|------------|
 | `DATABASE_DRIVER` | авто (см. F-1301) | `sqlite` или `postgres` |
-| `DATABASE_DSN` | `data/platform.db` | DSN: путь к файлу (sqlite) или URL (postgres) |
+| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | DSN: путь к файлу (sqlite) или URL (postgres) |
 | `BOOTSTRAP_ACCOUNT_SLUG` | `default` | Slug аккаунта, который создаётся визардом (F-1404) или bootstrap-логикой (F-102) |
 | `BOOTSTRAP_ACCOUNT_NAME` | `Default` | Display name |
 | `INVITE_TTL_HOURS` | `72` | TTL приглашения |
@@ -618,7 +630,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | `PROMETHEUS_EXPORTER_DEFAULT_PORT` | `9100` | Default port для плагина |
 | `WIZARD_WRITE_ENV` | `false` | Если `true` — Apply пишет конфиг ещё и в `.env` (F-1413) |
 | `DB_STATEMENT_TIMEOUT_MS` | `30000` | Postgres `statement_timeout` (sqlite игнорирует) |
-| `DB_MAX_OPEN_CONNS` | `8` | Для postgres — connection pool; для sqlite — игнорируется (всегда 1 writer) |
+| `DB_MAX_OPEN_CONNS` | `8` | Для postgres — connection pool; для sqlite — игнорируется (всегда 1 writer). *Пока не применяется: пул захардкожен (postgres 8 открытых / 2 простаивающих, sqlite 1)* |
 
 ### Удалённые / устаревшие
 
@@ -671,7 +683,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Кейс | Поведение |
 |------|-----------|
 | API-token (per-account) использован в другом аккаунте | `403 token_account_mismatch` |
-| SSE-клиент: пользователь подключился, активный аккаунт сменили (новый login) | старая SSE-сессия остаётся со старым фильтром до дисконнекта; новая — с новым. Браузер переоткроет SSE с новым токеном автоматически |
+| WebSocket-клиент: пользователь подключился, активный аккаунт сменили (новый login) | старая WebSocket-сессия остаётся со старым фильтром до дисконнекта; новая — с новым. Дашборд переоткроет WebSocket с новым токеном *(реализация: WebSocket, не SSE; фильтр по аккаунту пока не реализован)* |
 | Audit log переполнение | retention 90 дней для audit_log per-account, отдельно от telemetry retention |
 | Invitation token утерян | resend; старый revoke |
 | Invitation token истёк | UI/email помечает `expired`; нельзя accept |
@@ -691,10 +703,10 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 
 | Кейс | Поведение |
 |------|-----------|
-| `accounts.count > 0`, юзер открывает `/setup` | `404 setup_disabled` (маршрут выключен) |
-| Wizard открыт в двух вкладках одновременно | Каждая вкладка имеет свой `localStorage`; если Apply в одной прошёл — вторая получит 404 на следующем шаге. UI рисует «Setup already completed, please log in» |
+| `accounts.count > 0`, юзер открывает `/setup` | `404 setup_disabled` (маршрут выключен). *Реализация: при обычном старте `/api/v1/setup/*` просто не монтируется; после завершения мастера маршруты остаются до перезапуска, а `step`/`apply` возвращают `setup already completed`* |
+| Wizard открыт в двух вкладках одновременно | Каждая вкладка имеет свой `localStorage`; если Apply в одной прошёл — вторая получит 404 на следующем шаге. UI рисует «Setup already completed, please log in». *Реализация: состояние общее, на сервере в памяти, поэтому обе вкладки видят одно и то же* |
 | Postgres DSN ввели неверно (host не резолвится) | Кнопка «Test connection» показывает ошибку; следующий шаг disabled. После таймаута 30s — UI показывает «Connection timed out» |
-| `JWT_SECRET` в env не задан, визард только что дошёл до Step 5, юзер закрыл вкладку | При следующем заходе `/setup` — визард начинает с Step 1, секрет не сохраняется (state в localStorage) |
+| `JWT_SECRET` в env не задан, визард только что дошёл до Step 5, юзер закрыл вкладку | При следующем заходе `/setup` — визард начинает с Step 1, секрет не сохраняется (state в localStorage). *Реализация: состояние в памяти сервера — при повторном открытии вкладки продолжается то же состояние до перезапуска процесса* |
 | Admin в визарде выбрал slug `default`, но `BOOTSTRAP_ACCOUNT_SLUG=acme` в env | Env-приоритет: визард покажет warning «env has different value, please update .env or accept default» |
 | Email в Step 2 уже занят в `users` | `409 user_exists`; UI предлагает «Use existing account» (если логин совпадает) или «Use different email» |
 | Apply упал на Step 8 (например, миграция БД упала на constraint) | `setup_state.error=true`, лог в audit. Следующий Apply начинает сначала (idempotency через transaction: смотрим на partial state, откатываем) |
@@ -722,7 +734,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 - SAML / OIDC SSO per account
 - Account transfer (merge / split)
 - Cross-account dashboards
-- WebSocket multi-account subscription (один SSE-стрим получает события нескольких аккаунтов) — на v1 SSE стримит события только активного аккаунта; multi-account SSE (один стрим на все memberships) — не в скоупе
+- WebSocket multi-account subscription (один WebSocket-стрим получает события нескольких аккаунтов) — на v1 стрим должен нести события только активного аккаунта; один стрим на все memberships — не в скоупе
 
 ---
 
@@ -739,7 +751,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 
 ### 13.2 Приглашения
 
-- [ ] `POST /accounts/{id}/invitations` создаёт запись и шлёт письмо с ссылкой `{PUBLIC_BASE_URL}/invite/{token}`
+- [ ] `POST /invitations` создаёт запись и шлёт письмо с ссылкой `{PUBLIC_BASE_URL}/invite/{token}`
 - [ ] Ссылка в UI предзаполняет email при регистрации (`/auth/register?invite=...`)
 - [ ] После `accept` пользователь сразу видит аккаунт в switcher
 - [ ] Resend revoke'ит старый токен и шлёт новый
@@ -761,7 +773,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 ### 13.4 Внутренние плагины / policy
 
 - [ ] По умолчанию `account_plugin_policies` пуст, все каталожные плагины работают
-- [ ] `PATCH /accounts/{id}/plugins/policies/led-garland {enabled:false}` останавливает runner'ы; в `GET /devices/{id}/plugins` плагин показывается как `disabled`; события `tick` к нему не приходят
+- [ ] `PATCH /plugins/policies/led-garland {enabled:false}` останавливает runner'ы; в `GET /devices/{id}/plugins` плагин показывается как `disabled`; события `tick` к нему не приходят
 - [ ] `PATCH ... {enabled:true}` перезапускает раннер на ближайшем online-устройстве
 - [ ] `metrics-dashboard` отображает виртуальный таб «Metrics+» на странице устройства с дефолтным шаблоном
 

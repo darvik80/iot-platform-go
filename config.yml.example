@@ -1,7 +1,9 @@
 # Priority: OS env > ./config.yml > /etc/iot-platform/config.yml
 # Flatten: nested YAML keys are joined with "_" and uppercased to env var names.
 # Example: server.http_addr → SERVER_HTTP_ADDR, mqtt.addr → MQTT_ADDR
-# .env uses PUBLIC_BASE_URL / HTTP_ADDR (those win if set).
+# A key only works if its flattened name is one the code reads (see the "env:" hints).
+# Env vars (PUBLIC_BASE_URL, HTTP_ADDR, …) win if set. The binary does not read .env files.
+# On a fresh install the setup wizard writes this file (/etc/iot-platform/config.yml if writable, else ./config.yml).
 
 server:
   http_addr: ":8080"                                  # env: SERVER_HTTP_ADDR (or HTTP_ADDR)
@@ -14,7 +16,7 @@ database:
   driver: "sqlite"                                    # env: DATABASE_DRIVER  —  sqlite | postgres
   dsn: "/var/lib/iot-platform/platform.db"                 # env: DATABASE_DSN
   # dsn: "postgres://user:pass@localhost:5432/iot_platform?sslmode=disable"
-  max_open_conns: 8                                   # env: DATABASE_MAX_OPEN_CONNS
+  max_open_conns: 8                                   # env: DATABASE_MAX_OPEN_CONNS  —  parsed but currently NOT applied (sqlite 1, postgres 8 hardcoded)
 
 mqtt:
   addr: ":1883"                                       # env: MQTT_ADDR
@@ -25,13 +27,15 @@ mqtt:
   # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
 
 auth:
-  jwt_secret: "dev-jwt-secret-change-me"              # env: AUTH_JWT_SECRET (or JWT_SECRET)
+  jwt_secret: "dev-jwt-secret-change-me"              # env: AUTH_JWT_SECRET (or JWT_SECRET)  —  change in production (wizard generates one)
+  require_email_verify: true                          # env: AUTH_REQUIRE_EMAIL_VERIFY (or REQUIRE_EMAIL_VERIFY)  —  code default: false
+  # NOTE: register.require_email_verify would flatten to REGISTER_REQUIRE_EMAIL_VERIFY, which the code does not read.
 
 register:
   enabled: true                                       # env: REGISTER_ENABLED (or AUTH_REGISTER_ENABLED)
-  default_role: viewer                                # env: REGISTER_DEFAULT_ROLE  —  admin | operator | viewer
-  require_email_verify: true                          # env: REQUIRE_EMAIL_VERIFY (or AUTH_REQUIRE_EMAIL_VERIFY)
+  default_role: viewer                                # env: REGISTER_DEFAULT_ROLE  —  admin | operator | viewer; code default: admin
 
+# admin.* does NOT create an admin user — the setup wizard does (values are ignored for bootstrap).
 admin:
   login: admin                                        # env: ADMIN_LOGIN
   email: admin@cogitor.local                          # env: ADMIN_EMAIL
@@ -57,15 +61,16 @@ rules:
   bus_enabled: true                                   # env: RULES_BUS_ENABLED
   bus_prefix: "platform/v1"                           # env: RULES_BUS_PREFIX
 
-ota_dir: "./data/firmware"                            # env: OTA_DIR
+ota_dir: "./data/firmware"                            # env: OTA_DIR  —  default: {DATA_DIR}/firmware
 
 platform:
   public_base_url: "http://192.168.1.22:8080"         # env: PLATFORM_PUBLIC_BASE_URL (device-reachable URL)
   broker_host_public: "192.168.1.22"                  # env: PLATFORM_BROKER_HOST_PUBLIC
   telemetry_retention_days: 30                        # env: PLATFORM_TELEMETRY_RETENTION_DAYS
   rpc_default_timeout_ms: 30000                       # env: PLATFORM_RPC_DEFAULT_TIMEOUT_MS
-  lab_allow_unknown_devices: false                    # env: PLATFORM_LAB_ALLOW_UNKNOWN_DEVICES
+  lab_allow_unknown_devices: false                    # env: PLATFORM_LAB_ALLOW_UNKNOWN_DEVICES  —  currently has no effect
 
+# bootstrap.* does NOT create an account — the setup wizard does (account slug/name are entered there).
 bootstrap:
   account_slug: "default"                             # env: BOOTSTRAP_ACCOUNT_SLUG
   account_name: "Default"                             # env: BOOTSTRAP_ACCOUNT_NAME

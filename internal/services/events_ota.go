@@ -74,7 +74,7 @@ func (p *Platform) RecordEvent(d *models.Device, eventID, typ, severity, code, m
 	}
 	id, _ := res.LastInsertId()
 	ev := models.Event{ID: id, DevicePK: d.ID, ProductID: d.ProductID, DeviceID: d.DeviceID, EventID: eventID, Type: typ, Severity: severity, Code: code, Message: message, DataJSON: dataJSON, TS: ts, IngestedAt: now}
-	p.emit("event", ev)
+	p.emit(d.AccountID, "event", ev)
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusEvent, map[string]any{
 		"ts": ts, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"type": typ, "severity": severity, "code": code, "message": message, "data": data,
@@ -164,7 +164,7 @@ func (p *Platform) StoreLogs(d *models.Device, payload []byte) error {
 		}
 		_, _ = p.DB.Exec(`INSERT INTO device_logs(device_pk, account_id, level, module, code, message, context_json, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?,?)`,
 			d.ID, d.AccountID, it.Level, it.Module, it.Code, it.Message, ctx, it.TS, now)
-		p.emit("log", map[string]any{"device_id": d.ID, "level": it.Level, "module": it.Module, "message": it.Message, "ts": it.TS})
+		p.emit(d.AccountID, "log", map[string]any{"device_id": d.ID, "level": it.Level, "module": it.Module, "message": it.Message, "ts": it.TS})
 		p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusLog, map[string]any{
 			"ts": it.TS, "product_id": d.ProductID, "device_id": d.DeviceID,
 			"level": it.Level, "module": it.Module, "code": it.Code, "message": it.Message, "context": it.Context,
@@ -278,7 +278,7 @@ func (p *Platform) HandleOTAProgress(d *models.Device, payload []byte) error {
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE ota_jobs SET status=?, step=?, description=?, updated_at=? WHERE device_pk=? AND status IN ('pending','running')`,
 		status, prog.Step, prog.Desc, now, d.ID)
-	p.emit("ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "description": prog.Desc, "status": status})
+	p.emit(d.AccountID, "ota.progress", map[string]any{"device_id": d.ID, "step": prog.Step, "description": prog.Desc, "status": status})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusOTA, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "step": prog.Step, "description": prog.Desc, "status": status,
 	})
@@ -355,8 +355,8 @@ func (p *Platform) removeHostedFile(token string) {
 	_ = os.Remove(filepath.Join(p.Cfg.FirmwareDir(), token+".bin"))
 }
 
-func (p *Platform) RegisterFirmware(in FirmwareInput) (*models.OTAFirmware, error) {
-	pr, err := p.GetProductBySlug(in.ProductID)
+func (p *Platform) RegisterFirmware(accountID int64, in FirmwareInput) (*models.OTAFirmware, error) {
+	pr, err := p.GetProductBySlugInAccount(accountID, in.ProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -402,8 +402,8 @@ func (p *Platform) RegisterFirmware(in FirmwareInput) (*models.OTAFirmware, erro
 	return fw, nil
 }
 
-func (p *Platform) StoreFirmwareFile(in FirmwareInput, r io.Reader) (*models.OTAFirmware, error) {
-	pr, err := p.GetProductBySlug(in.ProductID)
+func (p *Platform) StoreFirmwareFile(accountID int64, in FirmwareInput, r io.Reader) (*models.OTAFirmware, error) {
+	pr, err := p.GetProductBySlugInAccount(accountID, in.ProductID)
 	if err != nil {
 		return nil, err
 	}
@@ -585,6 +585,13 @@ func (p *Platform) firmwareByID(id int64) (*models.OTAFirmware, error) {
 	return &fw, nil
 }
 
+// FirmwareInAccount reports whether the firmware belongs to a product of accountID.
+func (p *Platform) FirmwareInAccount(accountID, id int64) bool {
+	var acc int64
+	err := p.DB.QueryRow(`SELECT COALESCE(pr.account_id,0) FROM ota_firmwares f JOIN products pr ON pr.id=f.product_pk WHERE f.id=?`, id).Scan(&acc)
+	return err == nil && acc == accountID
+}
+
 func (p *Platform) DeleteFirmware(id int64) error {
 	fw, err := p.firmwareByID(id)
 	if err != nil {
@@ -723,11 +730,19 @@ func (p *Platform) NotifyFirmware(firmwareID, devicePK int64, force bool) (*mode
 		}
 		targets = append(targets, *d)
 	} else {
-		list, err := p.ListDevices(0, fw.ProductID, "", "")
+		pr, err := p.GetProduct(fw.ProductPK)
 		if err != nil {
 			return nil, err
 		}
-		targets = list
+		list, err := p.ListDevices(pr.AccountID, fw.ProductID, "", "")
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range list {
+			if d.ProductPK == fw.ProductPK {
+				targets = append(targets, d)
+			}
+		}
 	}
 	for _, d := range targets {
 		if !d.Enabled {
@@ -759,7 +774,7 @@ func (p *Platform) PushOTA(d *models.Device, fw *models.OTAFirmware, force bool)
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, protocol.CapOTA, protocol.OpUpdate), 1, false, b)
+	return p.publishDown(d, protocol.CapOTA, protocol.OpUpdate, b)
 }
 
 func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
@@ -774,7 +789,7 @@ func (p *Platform) CancelOTA(d *models.Device, module, reason string) error {
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, protocol.CapOTA, protocol.OpCancel), 1, false, b)
+	return p.publishDown(d, protocol.CapOTA, protocol.OpCancel, b)
 }
 
 func (p *Platform) ListOTAJobs(accountID int64, devicePK int64) ([]models.OTAJob, error) {

@@ -57,7 +57,7 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 	}
 	MetricTelemetrySample(d.AccountSlug, d.ProductID, d.DeviceID)
 	p.TouchSeen(d)
-	p.emit("telemetry", map[string]any{"device_id": d.ID, "product_id": d.ProductID, "device": d.DeviceID, "keys": keys, "ts": now})
+	p.emit(d.AccountID, "telemetry", map[string]any{"device_id": d.ID, "product_id": d.ProductID, "device": d.DeviceID, "keys": keys, "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusTelemetry, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "keys": keys,
 	})
@@ -262,7 +262,7 @@ func (p *Platform) MergeReported(d *models.Device, attrs map[string]any) error {
 		return err
 	}
 	p.TouchSeen(d)
-	p.emit("attributes.reported", map[string]any{"device_id": d.ID, "attrs": attrs})
+	p.emit(d.AccountID, "attributes.reported", map[string]any{"device_id": d.ID, "attrs": attrs})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusAttributesReported, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
@@ -291,10 +291,9 @@ func (p *Platform) SetDesired(d *models.Device, attrs map[string]any, publish bo
 	}
 	if publish && p.Pub != nil {
 		b, _ := json.Marshal(attrs)
-		topic := p.DownTopic(d, protocol.CapAttributes, protocol.OpUpdate)
-		_ = p.Pub.Publish(topic, 1, false, b)
+		_ = p.publishDown(d, protocol.CapAttributes, protocol.OpUpdate, b)
 	}
-	p.emit("attributes.desired", map[string]any{"device_id": d.ID, "attrs": attrs})
+	p.emit(d.AccountID, "attributes.desired", map[string]any{"device_id": d.ID, "attrs": attrs})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusAttributesDesired, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "attrs": attrs,
 	})
@@ -325,7 +324,7 @@ func (p *Platform) ReplyAttributeRequest(d *models.Device, payload []byte) error
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, protocol.CapAttributes, protocol.OpResponse), 1, false, b)
+	return p.publishDown(d, protocol.CapAttributes, protocol.OpResponse, b)
 }
 
 func filterKeys(src map[string]any, keys []string) map[string]any {
@@ -373,7 +372,7 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 	if p.Pub == nil {
 		return nil, errors.New("mqtt not connected")
 	}
-	if err := p.Pub.Publish(p.DownTopic(d, protocol.CapRPC, protocol.OpRequest), 1, false, b); err != nil {
+	if err := p.publishDown(d, protocol.CapRPC, protocol.OpRequest, b); err != nil {
 		return nil, err
 	}
 	key := fmt.Sprintf("%d:%d", d.ID, rid)
@@ -445,7 +444,7 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 		default:
 		}
 	}
-	p.emit("rpc.completed", call)
+	p.emit(d.AccountID, "rpc.completed", call)
 	MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, call.Method, status)
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID,
@@ -518,7 +517,7 @@ func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, protocol.CapRPC, protocol.OpResponse), 1, false, b)
+	return p.publishDown(d, protocol.CapRPC, protocol.OpResponse, b)
 }
 
 func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) error {
@@ -540,5 +539,5 @@ func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) erro
 	if p.Pub == nil {
 		return errors.New("mqtt not connected")
 	}
-	return p.Pub.Publish(p.DownTopic(d, protocol.CapNTP, protocol.OpResponse), 1, false, b)
+	return p.publishDown(d, protocol.CapNTP, protocol.OpResponse, b)
 }

@@ -13,7 +13,7 @@
 | Password | access token (генерируется в дашборде) |
 | Client ID | произвольный, платформа определяет устройство по username |
 
-После CONNECT платформа определяет устройство по username и проверяет токен (SHA-256 хранится в SQLite). ACL ограничен топиками этого устройства.
+После CONNECT платформа определяет устройство по username и проверяет токен (SHA-256 хранится в базе данных). ACL: в полном формате устройство может публиковать только в свои `iot/v1/{product_id}/{device_id}/up/…` и подписываться только на свои `…/down/…`; короткие топики (`v1/…`) разрешены и привязываются к устройству по username сессии.
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### Полный формат
 
-Топик явно содержит product_id и device_id. Используется, когда один клиент (например, Node-RED или шлюз) работает с разными устройствами.
+Топик явно содержит product_id и device_id. Устройство может использовать только топики со своими product_id / device_id. Node-RED и другие внешние клиенты не используют топики устройств — они работают через шину правил (см. ниже).
 
 ```
 iot/v1/{product_id}/{device_id}/{up|down}/{capability}/{operation}
@@ -36,36 +36,36 @@ iot/v1/{product_id}/{device_id}/{up|down}/{capability}/{operation}
 Топик не содержит идентификатор устройства — платформа определяет его по username из MQTT-сессии. Удобно для прошивки: не нужно знать свои product_id/device_id в каждом топике.
 
 ```
-v1/{mnemonic}
+v1/me/{mnemonic}
 ```
 
-Пример: `v1/t` — телеметрия от текущего устройства.
+Пример: `v1/me/t` — телеметрия от текущего устройства.
 
-Алиас `v1/me/{mnemonic}` эквивалентен `v1/{mnemonic}`.
+`v1/me/{mnemonic}` — каноническая форма. Для uplink платформа также принимает `v1/{mnemonic}` без `me`; downlink всегда отправляется в `v1/me/…`, поэтому устройство должно подписываться на топики `v1/me/…`.
 
 ### Список топиков
 
 | Полный топик | Короткий | Направление | Назначение |
 |---|---|---|---|
-| `…/up/status` | `v1/s` | ↑ устройство | Статус (только LWT) |
-| `…/up/telemetry/data` | `v1/t` | ↑ устройство | Телеметрия |
-| `…/up/events/post` | `v1/e` | ↑ устройство | События |
-| `…/up/attributes/report` | `v1/a` | ↑ устройство | Атрибуты (отчёт) |
-| `…/up/attributes/request` | `v1/a/req` | ↑ устройство | Запрос атрибутов |
-| `…/down/attributes/response` | `v1/a/res` | ↓ платформа | Ответ на запрос атрибутов |
-| `…/down/attributes/update` | `v1/a/upd` | ↓ платформа | Обновление desired-атрибутов |
-| `…/down/rpc/request` | `v1/r/req` | ↓ платформа | RPC-вызов на устройство |
-| `…/up/rpc/response` | `v1/r/res` | ↑ устройство | Результат RPC |
-| `…/up/rpc/request` | `v1/r/creq` | ↑ устройство | RPC-вызов от устройства |
-| `…/down/rpc/response` | `v1/r/cres` | ↓ платформа | Ответ на RPC от устройства |
-| `…/up/ntp/request` | `v1/n/req` | ↑ устройство | Запрос времени (NTP) |
-| `…/down/ntp/response` | `v1/n/res` | ↓ платформа | Ответ времени |
-| `…/up/ota/version` | `v1/o/ver` | ↑ устройство | Текущая версия прошивки |
-| `…/up/ota/query` | `v1/o/q` | ↑ устройство | Запрос обновления |
-| `…/down/ota/update` | `v1/o/upd` | ↓ платформа | Команда обновления |
-| `…/down/ota/cancel` | `v1/o/can` | ↓ платформа | Отмена обновления |
-| `…/up/ota/progress` | `v1/o/p` | ↑ устройство | Прогресс обновления |
-| `…/up/logs/report` | `v1/l` | ↑ устройство | Логи устройства |
+| `…/up/status` | `v1/me/s` | ↑ устройство | Статус (только LWT) |
+| `…/up/telemetry/data` | `v1/me/t` | ↑ устройство | Телеметрия |
+| `…/up/events/post` | `v1/me/e` | ↑ устройство | События |
+| `…/up/attributes/report` | `v1/me/a` | ↑ устройство | Атрибуты (отчёт) |
+| `…/up/attributes/request` | `v1/me/a/req` | ↑ устройство | Запрос атрибутов |
+| `…/down/attributes/response` | `v1/me/a/res` | ↓ платформа | Ответ на запрос атрибутов |
+| `…/down/attributes/update` | `v1/me/a/upd` | ↓ платформа | Обновление desired-атрибутов |
+| `…/down/rpc/request` | `v1/me/r/req` | ↓ платформа | RPC-вызов на устройство |
+| `…/up/rpc/response` | `v1/me/r/res` | ↑ устройство | Результат RPC |
+| `…/up/rpc/request` | `v1/me/r/creq` | ↑ устройство | RPC-вызов от устройства |
+| `…/down/rpc/response` | `v1/me/r/cres` | ↓ платформа | Ответ на RPC от устройства |
+| `…/up/ntp/request` | `v1/me/n/req` | ↑ устройство | Запрос времени (NTP) |
+| `…/down/ntp/response` | `v1/me/n/res` | ↓ платформа | Ответ времени |
+| `…/up/ota/version` | `v1/me/o/ver` | ↑ устройство | Текущая версия прошивки |
+| `…/up/ota/query` | `v1/me/o/q` | ↑ устройство | Запрос обновления |
+| `…/down/ota/update` | `v1/me/o/upd` | ↓ платформа | Команда обновления |
+| `…/down/ota/cancel` | `v1/me/o/can` | ↓ платформа | Отмена обновления |
+| `…/up/ota/progress` | `v1/me/o/p` | ↑ устройство | Прогресс обновления |
+| `…/up/logs/report` | `v1/me/l` | ↑ устройство | Логи устройства |
 
 Полный топик: `iot/v1/{product_id}/{device_id}/{up|down}/…`. В колонке «Полный топик» показано окончание после `up/` или `down/`.
 
@@ -75,7 +75,7 @@ v1/{mnemonic}
 
 ### Телеметрия
 
-Публикация на `v1/t` (или `iot/v1/{p}/{d}/up/telemetry/data`):
+Публикация на `v1/me/t` (или `iot/v1/{p}/{d}/up/telemetry/data`):
 
 ```json
 {"temperature": 23.5, "humidity": 60}
@@ -105,7 +105,7 @@ v1/{mnemonic}
 
 ### Статус (LWT)
 
-При CONNECT устройство публикует на `v1/s` retained-сообщение:
+При CONNECT устройство публикует на `v1/me/s` retained-сообщение:
 
 ```json
 {"online": true}
@@ -115,9 +115,9 @@ v1/{mnemonic}
 
 ### Атрибуты
 
-- **Отчёт** (`v1/a`): устройство сообщает текущие атрибуты — `{"firmware": "1.2.3", "model": "A"}`
-- **Запрос** (`v1/a/req`): устройство запрашивает desired-атрибуты у платформы
-- **Обновление** (`v1/a/upd`, downlink): платформа отправляет желаемые атрибуты
+- **Отчёт** (`v1/me/a`): устройство сообщает текущие атрибуты — `{"firmware": "1.2.3", "model": "A"}`
+- **Запрос** (`v1/me/a/req`): устройство запрашивает desired-атрибуты у платформы
+- **Обновление** (`v1/me/a/upd`, downlink): платформа отправляет желаемые атрибуты
 
 **Отчёт атрибутов** — плоский JSON-объект, каждый ключ merges в таблицу reported-атрибутов:
 ```json
@@ -129,7 +129,7 @@ v1/{mnemonic}
 ```json
 {"id": 1, "reported": ["*"], "desired": ["*"]}
 ```
-`id` — идентификатор для корреляции ответа. `reported` / `desired` — массивы имён ключей; `["*"]` означает «все ключи». Платформа отвечает на `v1/a/res`:
+`id` — идентификатор для корреляции ответа. `reported` / `desired` — массивы имён ключей; `["*"]` означает «все ключи». Платформа отвечает на `v1/me/a/res`:
 ```json
 {"id": 1, "reported": {"firmwareVersion": "1.2.3"}, "desired": {"interval": 30}}
 ```
@@ -138,31 +138,31 @@ v1/{mnemonic}
 
 Платформа вызывает метод на устройстве:
 
-**Downlink** (`v1/r/req`):
+**Downlink** (`v1/me/r/req`):
 ```json
-{"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "method": "reboot", "params": {"delay": 5}}
+{"id": 1, "method": "reboot", "params": {"delay": 5}}
 ```
 
-**Ответ устройства** (`v1/r/res`):
+**Ответ устройства** (`v1/me/r/res`):
 ```json
-{"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "code": 0, "data": {}}
+{"id": 1, "code": 0, "data": {}}
 ```
 
-`code: 0` — успех. Поле `id` (UUID) связывает запрос и ответ — это `request_id`. Устройство копирует `id` из запроса в ответ (стандартное поведение JSON-RPC).
+`code: 0` — успех. Поле `id` (последовательное целое число) связывает запрос и ответ — это `request_id`. Устройство копирует `id` из запроса в ответ (стандартное поведение JSON-RPC).
 
 **Механизм корреляции:**
-- Платформа генерирует UUID для `request_id` перед отправкой команды
+- Платформа выдаёт следующий по порядку целочисленный `request_id` перед отправкой команды
 - `request_id` помещается в поле `id` полезной нагрузки MQTT-сообщения
 - Устройство обрабатывает команду и публикует ответ с тем же `id`
 - Платформа сопоставляет ответ с ожидающим запросом по `request_id`
 
-Устройство тоже может вызвать RPC на платформу через `v1/r/creq` (ответ придёт на `v1/r/cres`).
+Устройство тоже может вызвать RPC на платформу через `v1/me/r/creq` (ответ придёт на `v1/me/r/cres`).
 
-**RPC-вызов от устройства** (`v1/r/creq`):
+**RPC-вызов от устройства** (`v1/me/r/creq`):
 ```json
 {"id": 1, "method": "issueUploadUrl", "params": {}}
 ```
-Платформа отвечает на `v1/r/cres`:
+Платформа отвечает на `v1/me/r/cres`:
 ```json
 {"id": 1, "code": 0, "message": "ok", "data": {"url": "https://…/upload/{product}/{device}", "expires_in": 3600}}
 ```
@@ -171,25 +171,25 @@ v1/{mnemonic}
 
 ### OTA (обновление прошивки)
 
-1. Устройство публикует версию: `v1/o/ver` → `{"version": "1.2.3", "module": "main"}`
-2. Или запрашивает обновление: `v1/o/q` → `{"version": "1.2.3", "module": "main"}`
-3. Платформа отвечает командой: `v1/o/upd` → `{"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288, "sha256": "…", "signMethod": "sha256", "sign": "…", "force": false}`
-4. Устройство загружает прошивку и публикует прогресс: `v1/o/p` → `{"step": 45, "module": "main", "desc": "downloading"}`
-5. Отмена: `v1/o/can`
+1. Устройство публикует версию: `v1/me/o/ver` → `{"version": "1.2.3", "module": "main"}`
+2. Или запрашивает обновление: `v1/me/o/q` → `{"version": "1.2.3", "module": "main"}`
+3. Платформа отвечает командой: `v1/me/o/upd` → `{"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288, "sha256": "…", "signMethod": "sha256", "sign": "…", "force": false}`
+4. Устройство загружает прошивку и публикует прогресс: `v1/me/o/p` → `{"step": 45, "module": "main", "desc": "downloading"}`
+5. Отмена: `v1/me/o/can`
 
-**Версия прошивки** (`v1/o/ver`):
+**Версия прошивки** (`v1/me/o/ver`):
 ```json
 {"version": "1.2.3", "module": "main"}
 ```
 `module` — опционален, по умолчанию `main`. Платформа обновляет `fw_version` устройства и проверяет авто-OTA.
 
-**Запрос обновления** (`v1/o/q`):
+**Запрос обновления** (`v1/me/o/q`):
 ```json
 {"version": "1.2.3", "module": "main"}
 ```
 Платформа ищет последнюю прошивку для этого product/module; если версия отличается от текущей — запускает OTA-задачу.
 
-**Прогресс** (`v1/o/p`):
+**Прогресс** (`v1/me/o/p`):
 ```json
 {"step": 45, "module": "main", "desc": "downloading"}
 ```
@@ -201,7 +201,7 @@ v1/{mnemonic}
 
 ### События и логи
 
-**Событие** (`v1/e`) — дискретный инцидент:
+**Событие** (`v1/me/e`) — дискретный инцидент:
 ```json
 {
   "id": "evt-001",
@@ -223,7 +223,7 @@ v1/{mnemonic}
 | `message` | нет | Текстовое описание |
 | `data` | нет | Произвольный объект с дополнительными данными |
 
-**Логи** (`v1/l`) — одно сообщение или массив:
+**Логи** (`v1/me/l`) — одно сообщение или массив:
 ```json
 [
   {"ts": 1710000000000, "level": "INFO", "module": "wifi", "message": "Connected to AP"},
@@ -241,14 +241,14 @@ v1/{mnemonic}
 
 ### NTP
 
-Устройство запрашивает время: `v1/n/req` → платформа отвечает `v1/n/res` с текущим timestamp.
+Устройство запрашивает время: `v1/me/n/req` → платформа отвечает `v1/me/n/res` с текущим timestamp.
 
 **Запрос от устройства:**
 ```json
 {"id": 1, "deviceSendTime": 1710000000000}
 ```
 
-**Ответ платформы** (`v1/n/res`):
+**Ответ платформы** (`v1/me/n/res`):
 ```json
 {"id": 1, "deviceSendTime": 1710000000000, "serverRecvTime": 1710000000012, "serverSendTime": 1710000000015}
 ```
@@ -258,7 +258,7 @@ v1/{mnemonic}
 
 ## Команды от внешних клиентов (Node-RED, плагины)
 
-Внешние клиенты публикуют в топик `platform/v1/commands/{product_id}/{device_id}/{kind}`:
+Внешние клиенты публикуют в топик `platform/v1/commands/{account_slug}/{product_id}/{device_id}/{kind}`:
 
 | Kind | Назначение |
 |------|------------|
@@ -266,13 +266,13 @@ v1/{mnemonic}
 | `attributes/desired` | Установить desired-атрибуты |
 | `ota` | Запустить OTA-обновление |
 
-Подписка на события: `platform/v1/events/#`
+События публикуются в `platform/v1/events/{account_slug}/{product_id}/{device_id}/{kind}`. Подписывайтесь в пределах своего аккаунта: `platform/v1/events/{account_slug}/#` (`platform/v1/events/#` запрещён ACL).
 
 ---
 
 ## Авторизация устройств
 
-1. Дашборд создаёт устройство → генерирует access token → SHA-256 сохраняется в SQLite
+1. Дашборд создаёт устройство → генерирует access token → SHA-256 сохраняется в базе данных
 2. MQTT CONNECT: `username={product}.{device}`, `password=token`
 3. Ротация токена → новый хеш в базе; активная сессия отключается
 4. Отключение / удаление устройства → сессия отключена, переподключение невозможно
@@ -281,10 +281,10 @@ v1/{mnemonic}
 
 Страница **MQTT** в дашборде (`GET /api/v1/mqtt`): активные сессии (client id, username, IP, подписки) и лента событий (авторизация, connect/disconnect, ACL deny, ingest, publish).
 
-Логи в stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest`, `command`, downlink `publish`. Docker: `docker compose logs -f platform`.
+Логи в stdout (`slog`, `LOG_LEVEL`, по умолчанию Info): `connect`, `disconnect`, `auth_fail`, `acl_deny`, `subscribe`, `ingest`, `command`, downlink `publish`. Docker: `docker logs -f <platform-container>`.
 
 WebSocket-событие `mqtt` транслируется при connect / disconnect / auth_fail / subscribe / ACL deny / kick.
 
 ## Внешние клиенты (Node-RED, плагины)
 
-Внешние клиенты работают через шину правил — топики `platform/v1/events/#` и `platform/v1/commands/#`. Настройка описана в [06-automation.md](06-automation.md).
+Внешние клиенты работают через шину правил — топики `platform/v1/events/{account_slug}/…` и `platform/v1/commands/{account_slug}/…`. Настройка описана в [06-automation.md](06-automation.md).

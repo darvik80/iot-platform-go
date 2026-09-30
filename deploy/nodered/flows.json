@@ -11,7 +11,7 @@
     "type": "mqtt in",
     "z": "cogitor-tab",
     "name": "status events",
-    "topic": "platform/v1/events/+/+/status",
+    "topic": "platform/v1/events/__ACCOUNT_SLUG__/+/+/status",
     "qos": "0",
     "datatype": "json",
     "broker": "03d757098240948d",

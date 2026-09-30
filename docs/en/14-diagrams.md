@@ -21,34 +21,36 @@ graph TB
 
     subgraph Platform["Cogitor IoT Platform (single Go binary)"]
         subgraph Transport["MQTT Transport"]
-            Broker["MQTT Broker<br/>(mochi-mqtt, embedded)"]
+            Broker["MQTT Broker<br/>(mochi-mqtt, embedded)<br/>TCP :1883 · WS :8083 · TLS :8883"]
+            ACL["Auth hook + ACL<br/>(product.device / extplg_account_id)"]
         end
 
         subgraph Core["Core Processing"]
-            ACL["Device ACL<br/>(product.device identity)"]
-            Ingest["Telemetry Ingest"]
-            PluginHub["Plugin Hub<br/>(in-process)"]
-            OTA["OTA Manager<br/>(Auto-OTA)"]
+            Ingest["Ingest<br/>(telemetry, status, events, logs)"]
+            PluginHub["Plugin Hub<br/>(in-process, per-account policies)"]
+            OTA["OTA Manager<br/>(Auto-OTA, jobs)"]
+            Rules["Rules Bus<br/>(events / commands)"]
         end
 
         subgraph Services["Services & Storage"]
-            Rules["Rules Bus<br/>publisher"]
-            WS["WebSocket Hub<br/>(real-time)"]
-            DB["SQLite<br/>(WAL mode)"]
-            API["REST API<br/>(chi router)"]
-            Auth["JWT / OAuth<br/>Auth"]
-            MCP["MCP Endpoint<br/>/mcp"]
+            API["REST API /api/v1<br/>(chi router)"]
+            Auth["Auth & tenancy<br/>(JWT, OAuth, accounts)"]
+            WS["WebSocket Hub<br/>(/api/v1/ws)"]
+            MCP["MCP Endpoint<br/>(/mcp)"]
+            Setup["Setup Wizard<br/>(/api/v1/setup, first start)"]
+            DB["Database<br/>(SQLite WAL / PostgreSQL)"]
         end
     end
 
     subgraph External["External Clients"]
         UI["React Dashboard<br/>(embedded SPA)"]
-        NR["Node-RED<br/>(optional, automation)"]
         LLM["LLM / AI Client<br/>(Cursor, Claude)"]
+        NR["Node-RED / External Plugins<br/>(MQTT, extplg_ creds)"]
+        Prom["Prometheus<br/>(scrapes :9100)"]
     end
 
     %% Device → Transport
-    ESP1 & ESP2 & ESP3 -->|"MQTT TCP :1883<br/>MQTT WS :8083"| Broker
+    ESP1 & ESP2 & ESP3 -->|"MQTT TCP / WS / TLS"| Broker
 
     %% Transport → Core
     Broker --> ACL
@@ -57,26 +59,28 @@ graph TB
     %% Core internal
     Ingest --> PluginHub
     Ingest --> OTA
+    Ingest --> Rules
 
     %% Core → Services
     Ingest --> DB
     Ingest --> WS
-    Ingest --> Rules
     PluginHub -->|"InvokeRPC"| Broker
-    OTA -->|"MQTT downlink<br/>v1/o/upd"| Broker
+    OTA -->|"MQTT downlink<br/>v1/me/o/upd"| Broker
 
     %% Services internal
     API --> Auth
     API --> DB
-    API --> WS
     API --> PluginHub
     MCP --> API
+    Setup -->|"config.yml"| DB
 
     %% Services ↔ External
-    Rules -->|"platform/v1/events/..."| NR
+    Rules -->|"platform/v1/events/{account}/..."| NR
     NR -->|"platform/v1/commands/..."| Broker
-    UI -->|"REST + WS<br/>JWT / API token"| API
+    UI -->|"REST + WebSocket<br/>JWT / API token"| API
+    UI --> WS
     LLM -->|"Streamable HTTP<br/>JWT / API token"| MCP
+    PluginHub -->|"prometheus-exporter"| Prom
 
     style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
     style Transport fill:#0f3460,stroke:#16213e,color:#eee
@@ -87,6 +91,8 @@ graph TB
 ```
 
 ## External Plugin Architecture
+
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
 
 High-level architecture of the external plugin system showing the IoT Platform
 components and an out-of-process plugin communicating over HTTP/gRPC.
@@ -153,6 +159,8 @@ graph TB
 
 ## External Plugin Event Flow
 
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
+
 Sequence diagram showing how a device telemetry event flows through the platform
 to an external plugin and back as an RPC command.
 
@@ -172,6 +180,8 @@ sequenceDiagram
 
 ## External Plugin Tick Flow
 
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
+
 Plugins with `auto: true` and `interval_ms > 0` receive periodic tick events.
 The platform owns the timer; the plugin only reacts.
 
@@ -188,6 +198,8 @@ sequenceDiagram
 ```
 
 ## External Plugin Heartbeat
+
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
 
 The plugin periodically reports liveness to the platform. If no heartbeat arrives
 within 90 seconds the plugin is marked offline and event delivery is paused.
@@ -208,6 +220,8 @@ sequenceDiagram
 ```
 
 ## External Plugin End-to-End Flow
+
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
 
 Complete interaction flow for the Python temperature-alert plugin: registration,
 config apply, telemetry ingest, threshold check, and RPC dispatch.
@@ -232,6 +246,8 @@ sequenceDiagram
 ```
 
 ## External Plugin Lifecycle
+
+> **Status: planned, not implemented in v1.0.x.** External plugins currently talk to the platform over MQTT only — see [External Plugin Account ACL](#external-plugin-account-acl).
 
 Full lifecycle from plugin process start through registration, heartbeat,
 binding, device events, apply, offline detection, and detach.
@@ -396,7 +412,7 @@ graph TB
             MD["metrics-dashboard<br/>UI tab"]
         end
 
-        subgraph DB["SQLite (WAL)"]
+        subgraph DB["Database (SQLite WAL / PostgreSQL)"]
             ACC[("accounts")]
             MEM[("account_memberships")]
             INV[("account_invitations")]
@@ -414,7 +430,6 @@ graph TB
 
     %% Clients to Auth
     U1 & U2 -->|"Bearer JWT"| JWT
-    P1 & P2 -->|"Bearer token"| JWT
 
     %% Auth to Core
     JWT --> IAM
@@ -466,10 +481,10 @@ sequenceDiagram
     participant P as Platform
     participant M as Mail (SMTP/log)
     participant R as Recipient
-    participant DB as SQLite
+    participant DB as Database
 
     Note over A: Active account = acme
-    A->>P: POST /api/v1/accounts/{id}/invitations {email, role}
+    A->>P: POST /api/v1/invitations {email, role} (active account)
     P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
     P-->>A: {token: "raw-once", link: "/invite/{token}"}
     P->>M: send invite email with link
@@ -494,9 +509,11 @@ sequenceDiagram
     end
 
     Note over P: Resend / Revoke paths
-    A->>P: POST /accounts/{id}/invitations/{id}/resend
+    A->>P: POST /api/v1/invitations/{id}/resend
     P->>DB: UPDATE old.status='revoked', INSERT new
     P->>M: send new email
+    A->>P: DELETE /api/v1/invitations/{id}
+    P->>DB: UPDATE status='revoked'
 ```
 
 ## External Plugin Account ACL
@@ -516,9 +533,9 @@ sequenceDiagram
     Note over Adm: Active account = acme
     Adm->>P: POST /api/v1/plugins/external {id: "telegram-bot"}
     P->>P: mqtt_user = "extplg_acme_telegram-bot"
-    P->>P: mqtt_pass = random, token = random
-    P->>P: hash both, store in external_plugins (account_id=acme)
-    P-->>Adm: {token, mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
+    P->>P: mqtt_pass = random (shown once)
+    P->>P: hash, store in external_plugins (account_id=acme)
+    P-->>Adm: {mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
     Adm->>Pl: pass credentials
 
     Pl->>Br: CONNECT mqtt_user=extplg_acme_telegram-bot, mqtt_pass=...
@@ -568,10 +585,10 @@ sequenceDiagram
     participant H as PluginHub
     participant EX as prometheus-exporter runner
     participant Pr as Prometheus (external)
-    participant DB as SQLite
+    participant DB as Database
 
-    Note over Adm: Settings -> Integrations -> prometheus-exporter enabled
-    Adm->>H: PATCH /accounts/{id}/plugins/policies/prometheus-exporter {enabled:true}
+    Note over Adm: Account -> Plugin policies -> prometheus-exporter enabled
+    Adm->>H: PATCH /api/v1/plugins/policies/prometheus-exporter {enabled:true}
     H->>DB: UPSERT account_plugin_policies
     H->>H: rebuild account runners
 
@@ -587,7 +604,7 @@ sequenceDiagram
 
     Pr->>EX: GET /metrics (Authorization: Bearer <token>)
     EX->>EX: validate bearer (if configured)
-    EX-->>Pr: 200 text/plain (Prometheus exposition, account=acme labels)
+    EX-->>Pr: 200 text/plain (Prometheus exposition, account labels)
     EX->>EX: counter cogitor_device_telemetry_samples_total{account=acme,...}++ on StoreTelemetry (in-process hook)
     EX->>EX: counter cogitor_device_rpc_calls_total{...}++ on InvokeRPC
 
@@ -644,7 +661,7 @@ flowchart TB
     SKIP -.-> AC1
 
     %% UI control
-    UI["Admin UI<br/>Settings -> Integrations"] -->|"PATCH policy"| Policy
+    UI["Admin UI<br/>Account -> Plugin policies"] -->|"PATCH /api/v1/plugins/policies/{id}"| Policy
 
     style Catalog fill:#1a1a2e,stroke:#0f3460,color:#eee
     style Policy fill:#0f3460,stroke:#16213e,color:#eee

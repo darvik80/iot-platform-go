@@ -124,6 +124,16 @@ func (p *Platform) GetDeviceScoped(accountID, id int64) (*models.Device, error) 
 	return d, nil
 }
 
+// GetDeviceByAccountIdentity looks a device up inside one account only.
+func (p *Platform) GetDeviceByAccountIdentity(accountSlug, productID, deviceID string) (*models.Device, error) {
+	row := p.DB.QueryRow(deviceSelect+` WHERE a.slug=? AND pr.product_id=? AND d.device_id=?`, accountSlug, productID, deviceID)
+	d, err := scanDevice(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errors.New("not found")
+	}
+	return d, err
+}
+
 func (p *Platform) GetDeviceByIdentity(productID, deviceID string) (*models.Device, error) {
 	row := p.DB.QueryRow(deviceSelect+` WHERE pr.product_id=? AND d.device_id=?`, productID, deviceID)
 	d, err := scanDevice(row)
@@ -133,16 +143,25 @@ func (p *Platform) GetDeviceByIdentity(productID, deviceID string) (*models.Devi
 	return d, err
 }
 
-func (p *Platform) CreateDevice(in DeviceInput) (*models.Device, *models.DeviceCredentials, error) {
+// CreateDevice adds a device to a product of accountID. The MQTT username
+// product.device must stay unique across the whole broker, so the pair is
+// rejected if any account already uses it.
+func (p *Platform) CreateDevice(accountID int64, in DeviceInput) (*models.Device, *models.DeviceCredentials, error) {
 	in.ProductID = strings.TrimSpace(in.ProductID)
 	in.DeviceID = strings.TrimSpace(in.DeviceID)
 	in.Name = strings.TrimSpace(in.Name)
 	if err := ValidateIDs(in.ProductID, in.DeviceID); err != nil {
 		return nil, nil, err
 	}
-	pr, err := p.GetProductBySlug(in.ProductID)
+	pr, err := p.GetProductBySlugInAccount(accountID, in.ProductID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("product: %w", err)
+	}
+	var taken int
+	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM devices d JOIN products pr ON pr.id=d.product_pk
+		WHERE pr.product_id=? AND d.device_id=?`, in.ProductID, in.DeviceID).Scan(&taken)
+	if taken > 0 {
+		return nil, nil, fmt.Errorf("device %s.%s already exists on this platform", in.ProductID, in.DeviceID)
 	}
 	if in.Name == "" {
 		in.Name = in.DeviceID
@@ -320,7 +339,7 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	d.Status = "online"
 	d.LastSeenAt = &now
 	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, true)
-	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
+	p.emit(d.AccountID, "device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
 	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
 	p.flushPendingOTA(d)
@@ -335,7 +354,7 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 	_, _ = p.DB.Exec(`UPDATE devices SET status='offline', updated_at=? WHERE id=?`, now, d.ID)
 	d.Status = "offline"
 	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, false)
-	p.emit("device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
+	p.emit(d.AccountID, "device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
 	msg := "Device offline"
 	if reason != "" {

@@ -20,34 +20,36 @@ graph TB
 
     subgraph Platform["Cogitor IoT Platform (один Go бинарник)"]
         subgraph Transport["MQTT Транспорт"]
-            Broker["MQTT Broker<br/>(mochi-mqtt, встроенный)"]
+            Broker["MQTT Broker<br/>(mochi-mqtt, встроенный)<br/>TCP :1883 · WS :8083 · TLS :8883"]
+            ACL["Auth hook + ACL<br/>(product.device / extplg_account_id)"]
         end
 
         subgraph Core["Основная обработка"]
-            ACL["Device ACL<br/>(product.device идентичность)"]
-            Ingest["Приём телеметрии"]
-            PluginHub["Plugin Hub<br/>(в процессе)"]
-            OTA["OTA Manager<br/>(Auto-OTA)"]
+            Ingest["Ingest<br/>(телеметрия, статус, события, логи)"]
+            PluginHub["Plugin Hub<br/>(в процессе, политики аккаунтов)"]
+            OTA["OTA Manager<br/>(Auto-OTA, задачи)"]
+            Rules["Rules Bus<br/>(events / commands)"]
         end
 
         subgraph Services["Сервисы и хранилище"]
-            Rules["Rules Bus<br/>publisher"]
-            WS["WebSocket Hub<br/>(real-time)"]
-            DB["SQLite<br/>(WAL mode)"]
-            API["REST API<br/>(chi router)"]
-            Auth["JWT / OAuth<br/>Auth"]
-            MCP["MCP Endpoint<br/>/mcp"]
+            API["REST API /api/v1<br/>(chi router)"]
+            Auth["Auth и тенанты<br/>(JWT, OAuth, аккаунты)"]
+            WS["WebSocket Hub<br/>(/api/v1/ws)"]
+            MCP["MCP Endpoint<br/>(/mcp)"]
+            Setup["Мастер установки<br/>(/api/v1/setup, первый запуск)"]
+            DB["База данных<br/>(SQLite WAL / PostgreSQL)"]
         end
     end
 
     subgraph External["Внешние клиенты"]
         UI["React Dashboard<br/>(embedded SPA)"]
-        NR["Node-RED<br/>(опционально)"]
         LLM["LLM / AI Client<br/>(Cursor, Claude)"]
+        NR["Node-RED / внешние плагины<br/>(MQTT, креды extplg_)"]
+        Prom["Prometheus<br/>(скрейпит :9100)"]
     end
 
     %% Устройство → Транспорт
-    ESP1 & ESP2 & ESP3 -->|"MQTT TCP :1883<br/>MQTT WS :8083"| Broker
+    ESP1 & ESP2 & ESP3 -->|"MQTT TCP / WS / TLS"| Broker
 
     %% Транспорт → Ядро
     Broker --> ACL
@@ -56,26 +58,28 @@ graph TB
     %% Ядро внутреннее
     Ingest --> PluginHub
     Ingest --> OTA
+    Ingest --> Rules
 
     %% Ядро → Сервисы
     Ingest --> DB
     Ingest --> WS
-    Ingest --> Rules
     PluginHub -->|"InvokeRPC"| Broker
-    OTA -->|"MQTT downlink<br/>v1/o/upd"| Broker
+    OTA -->|"MQTT downlink<br/>v1/me/o/upd"| Broker
 
     %% Сервисы внутреннее
     API --> Auth
     API --> DB
-    API --> WS
     API --> PluginHub
     MCP --> API
+    Setup -->|"config.yml"| DB
 
     %% Сервисы ↔ Внешние
-    Rules -->|"platform/v1/events/..."| NR
+    Rules -->|"platform/v1/events/{account}/..."| NR
     NR -->|"platform/v1/commands/..."| Broker
-    UI -->|"REST + WS<br/>JWT / API token"| API
+    UI -->|"REST + WebSocket<br/>JWT / API token"| API
+    UI --> WS
     LLM -->|"Streamable HTTP<br/>JWT / API token"| MCP
+    PluginHub -->|"prometheus-exporter"| Prom
 
     style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
     style Transport fill:#0f3460,stroke:#16213e,color:#eee
@@ -86,6 +90,8 @@ graph TB
 ```
 
 ## Архитектура внешних плагинов
+
+> **Статус: запланировано, в v1.0.x не реализовано.** Сейчас внешние плагины общаются с платформой только по MQTT — см. [Account ACL внешнего плагина](#account-acl-внешнего-плагина).
 
 ```mermaid
 graph TB
@@ -149,6 +155,8 @@ graph TB
 
 ## Поток событий внешнего плагина
 
+> **Статус: запланировано, в v1.0.x не реализовано.** Сейчас внешние плагины общаются с платформой только по MQTT — см. [Account ACL внешнего плагина](#account-acl-внешнего-плагина).
+
 ```mermaid
 sequenceDiagram
     participant D as Устройство
@@ -165,6 +173,8 @@ sequenceDiagram
 
 ## Поток тиков внешнего плагина
 
+> **Статус: запланировано, в v1.0.x не реализовано.** Сейчас внешние плагины общаются с платформой только по MQTT — см. [Account ACL внешнего плагина](#account-acl-внешнего-плагина).
+
 ```mermaid
 sequenceDiagram
     participant Hub as PluginHub
@@ -178,6 +188,8 @@ sequenceDiagram
 ```
 
 ## Heartbeat внешнего плагина
+
+> **Статус: запланировано, в v1.0.x не реализовано.** Сейчас внешние плагины общаются с платформой только по MQTT — см. [Account ACL внешнего плагина](#account-acl-внешнего-плагина).
 
 ```mermaid
 sequenceDiagram
@@ -195,6 +207,8 @@ sequenceDiagram
 ```
 
 ## Жизненный цикл внешнего плагина
+
+> **Статус: запланировано, в v1.0.x не реализовано.** Сейчас внешние плагины общаются с платформой только по MQTT — см. [Account ACL внешнего плагина](#account-acl-внешнего-плагина).
 
 ```mermaid
 sequenceDiagram
@@ -347,7 +361,7 @@ graph TB
             MD["metrics-dashboard<br/>UI tab"]
         end
 
-        subgraph DB["SQLite (WAL)"]
+        subgraph DB["База данных (SQLite WAL / PostgreSQL)"]
             ACC[("accounts")]
             MEM[("account_memberships")]
             INV[("account_invitations")]
@@ -365,8 +379,6 @@ graph TB
 
     %% Клиенты → Auth
     U1 & U2 -->|"Bearer JWT"| JWT
-    P1 & P2 -->|"Bearer token"| JWT
-
     %% Auth → Core
     JWT --> IAM
     IAM --> ACL
@@ -416,10 +428,10 @@ sequenceDiagram
     participant P as Платформа
     participant M as Mail (SMTP/log)
     participant R as Получатель
-    participant DB as SQLite
+    participant DB as База данных
 
     Note over A: Активный аккаунт = acme
-    A->>P: POST /api/v1/accounts/{id}/invitations {email, role}
+    A->>P: POST /api/v1/invitations {email, role} (активный аккаунт)
     P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
     P-->>A: {token: "raw-once", link: "/invite/{token}"}
     P->>M: отправить email со ссылкой
@@ -444,9 +456,11 @@ sequenceDiagram
     end
 
     Note over P: Resend / Revoke
-    A->>P: POST /accounts/{id}/invitations/{id}/resend
+    A->>P: POST /api/v1/invitations/{id}/resend
     P->>DB: UPDATE old.status='revoked', INSERT new
     P->>M: отправить новое письмо
+    A->>P: DELETE /api/v1/invitations/{id}
+    P->>DB: UPDATE status='revoked'
 ```
 
 ## Account ACL внешнего плагина
@@ -465,9 +479,9 @@ sequenceDiagram
     Note over Adm: Активный аккаунт = acme
     Adm->>P: POST /api/v1/plugins/external {id: "telegram-bot"}
     P->>P: mqtt_user = "extplg_acme_telegram-bot"
-    P->>P: mqtt_pass = random, token = random
+    P->>P: mqtt_pass = random (показывается один раз)
     P->>P: хешируем, сохраняем в external_plugins (account_id=acme)
-    P-->>Adm: {token, mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
+    P-->>Adm: {mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
     Adm->>Pl: передаёт креды
 
     Pl->>Br: CONNECT mqtt_user=extplg_acme_telegram-bot, mqtt_pass=...
@@ -515,10 +529,10 @@ sequenceDiagram
     participant H as PluginHub
     participant EX as prometheus-exporter runner
     participant Pr as Prometheus (внешний)
-    participant DB as SQLite
+    participant DB as База данных
 
-    Note over Adm: Settings → Integrations → prometheus-exporter enabled
-    Adm->>H: PATCH /accounts/{id}/plugins/policies/prometheus-exporter {enabled:true}
+    Note over Adm: Account → Plugin policies → prometheus-exporter enabled
+    Adm->>H: PATCH /api/v1/plugins/policies/prometheus-exporter {enabled:true}
     H->>DB: UPSERT account_plugin_policies
     H->>H: пересборка runners аккаунта
 
@@ -534,7 +548,7 @@ sequenceDiagram
 
     Pr->>EX: GET /metrics (Authorization: Bearer <token>)
     EX->>EX: проверка bearer (если задан)
-    EX-->>Pr: 200 text/plain (Prometheus exposition, account=acme labels)
+    EX-->>Pr: 200 text/plain (Prometheus exposition, account labels)
     EX->>EX: counter cogitor_device_telemetry_samples_total{account=acme,...}++ на StoreTelemetry (in-process hook)
     EX->>EX: counter cogitor_device_rpc_calls_total{...}++ на InvokeRPC
 
@@ -590,7 +604,7 @@ flowchart TB
     SKIP -.-> AC1
 
     %% UI control
-    UI["Admin UI<br/>Settings → Integrations"] -->|"PATCH policy"| Policy
+    UI["Admin UI<br/>Account → Plugin policies"] -->|"PATCH /api/v1/plugins/policies/{id}"| Policy
 
     style Catalog fill:#1a1a2e,stroke:#0f3460,color:#eee
     style Policy fill:#0f3460,stroke:#16213e,color:#eee

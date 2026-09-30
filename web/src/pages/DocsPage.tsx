@@ -215,7 +215,7 @@ export function DocsPage() {
             and publishes a response to the uplink topic. The platform correlates the response and returns it.
           </p>
           <p>
-            Default timeout is {settings?.rpc_default_timeout_ms || 5000}ms (configurable in platform settings).
+            Default timeout is {settings?.rpc_default_timeout_ms || 30000}ms (configurable in platform settings).
           </p>
         </>
       ),
@@ -283,6 +283,7 @@ export function DocsPage() {
             <li><span className="mono">telemetry</span> — telemetry data</li>
             <li><span className="mono">event</span> — device events</li>
             <li><span className="mono">attributes/reported</span> — attribute changes</li>
+            <li><span className="mono">rpc/result</span> — RPC call results</li>
             <li><span className="mono">ota</span> — OTA status changes</li>
             <li><span className="mono">log</span> — device log messages</li>
           </ul>

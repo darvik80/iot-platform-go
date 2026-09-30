@@ -119,6 +119,12 @@ func (p *Platform) GetProductBySlug(slug string) (*models.Product, error) {
 	return scanProduct(p.DB.QueryRow(productSelect+` WHERE product_id=?`, slug))
 }
 
+// GetProductBySlugInAccount resolves a product slug inside one account;
+// slugs are only unique per account.
+func (p *Platform) GetProductBySlugInAccount(accountID int64, slug string) (*models.Product, error) {
+	return scanProduct(p.DB.QueryRow(productSelect+` WHERE product_id=? AND account_id=?`, slug, accountID))
+}
+
 type ProductInput struct {
 	ProductID         string                    `json:"product_id"`
 	Name              string                    `json:"name"`

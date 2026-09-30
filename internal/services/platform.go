@@ -29,14 +29,22 @@ type Publisher interface {
 	Connected() bool
 }
 
+// DevicePublisher delivers a packet only to the sessions of one MQTT username.
+// Short-style downlink topics (v1/me/...) are shared by every device, so they
+// must never be published to the topic tree.
+type DevicePublisher interface {
+	PublishToUser(username, topic string, qos byte, payload []byte) error
+}
+
 // MQTTSession drops live broker sessions and exposes connection status.
 type MQTTSession interface {
 	DropUsername(username string)
 	Status() models.MQTTStatus
 }
 
+// Hub delivers dashboard events. accountID 0 means platform-wide (platform admin only).
 type Hub interface {
-	Broadcast(event string, data any)
+	Broadcast(accountID int64, event string, data any)
 }
 
 type Platform struct {
@@ -120,10 +128,33 @@ func (p *Platform) ResolveByToken(token string) *models.Device {
 	return p.byToken[h]
 }
 
-func (p *Platform) emit(event string, data any) {
+func (p *Platform) emit(accountID int64, event string, data any) {
 	if p.Hub != nil {
-		p.Hub.Broadcast(event, data)
+		p.Hub.Broadcast(accountID, event, data)
 	}
+}
+
+// AccountIDForMQTTUser maps a broker username (device or external plugin) to its account; 0 if unknown.
+func (p *Platform) AccountIDForMQTTUser(username string) int64 {
+	if username == "" {
+		return 0
+	}
+	if rest, ok := strings.CutPrefix(username, "extplg_"); ok {
+		slug, _, found := strings.Cut(rest, "_")
+		if !found || slug == "" {
+			return 0
+		}
+		var id int64
+		_ = p.DB.QueryRow(`SELECT id FROM accounts WHERE slug=?`, slug).Scan(&id)
+		return id
+	}
+	if d := p.ResolveByClientID(username); d != nil {
+		return d.AccountID
+	}
+	if d := p.ResolveByToken(username); d != nil {
+		return d.AccountID
+	}
+	return 0
 }
 
 func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, payload any) {
@@ -181,13 +212,29 @@ func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
 	if p.Log != nil {
 		p.Log.Info("topic style detected", "product", d.ProductID, "device", d.DeviceID, "style", style)
 	}
-	p.emit("mqtt", map[string]any{
+	p.emit(d.AccountID, "mqtt", map[string]any{
 		"product_id": d.ProductID, "device_id": d.DeviceID, "topic_style": style,
 	})
 }
 
 func (p *Platform) DownTopic(d *models.Device, capability, operation string) string {
 	return protocol.DownTopic(d.TopicStyle, d.ProductID, d.DeviceID, capability, operation)
+}
+
+// publishDown sends a downlink to exactly one device (QoS 1, not retained).
+func (p *Platform) publishDown(d *models.Device, capability, operation string, payload []byte) error {
+	if p.Pub == nil {
+		return errors.New("mqtt publisher not ready")
+	}
+	topic := p.DownTopic(d, capability, operation)
+	if d.TopicStyle == protocol.StyleFull {
+		return p.Pub.Publish(topic, 1, false, payload)
+	}
+	dp, ok := p.Pub.(DevicePublisher)
+	if !ok {
+		return errors.New("publisher cannot address a single device")
+	}
+	return dp.PublishToUser(d.ProductID+"."+d.DeviceID, topic, 1, payload)
 }
 
 func ValidateIDs(productID, deviceID string) error {

@@ -169,7 +169,7 @@ func Load() Config {
 			TLSCA:   getenv("MQTT_TLS_CA", ""),
 		},
 		Auth: AuthConfig{
-			JWTSecret: getenv("JWT_SECRET", "dev-jwt-secret-change-me", "AUTH_JWT_SECRET"),
+			JWTSecret: getenv("JWT_SECRET", DevJWTSecret, "AUTH_JWT_SECRET"),
 		},
 		Email: EmailConfig{
 			SMTPHost: getenv("SMTP_HOST", "", "EMAIL_SMTP_HOST"),

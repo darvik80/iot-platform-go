@@ -1,8 +1,12 @@
 # REST API
 
-Все эндпоинты на `/api/v1`. Авторизация: `Authorization: Bearer <JWT>` или `Bearer <API-токен>`.
+Все эндпоинты на `/api/v1` (кроме нескольких корневых, перечисленных в [Служебных эндпоинтах](#служебные-эндпоинты)). Авторизация: `Authorization: Bearer <JWT>` или `Bearer <API-токен>`.
 
-SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt>` — `Content-Type: text/event-stream`, JSON-сообщения `{ "event", "data" }`, auto-reconnect через `Last-Event-ID`. HTTP-based, не требует sticky sessions; один endpoint в single и cluster mode.
+WebSocket для real-time обновлений: `GET /api/v1/ws?token=<jwt>` — JSON-сообщения `{ "event", "data" }` только по активному аккаунту токена. `Origin` браузера должен совпадать с хостом платформы, хостом из `PUBLIC_BASE_URL` или `localhost` (клиенты без `Origin` принимаются).
+
+Все пути с `{id}` разрешаются внутри активного аккаунта: ID устройств, продуктов, прошивок, привязок плагинов и внешних плагинов других аккаунтов дают `404`.
+
+Требуемая роль указана у эндпоинтов: **public** (без авторизации), **member** (любой участник активного аккаунта), **write** (`admin` или `operator`), **admin**. Если не указано иное, чтение доступно любому участнику, а изменения требуют write.
 
 ---
 
@@ -18,21 +22,65 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 { "login": "jdoe", "email": "jdoe@example.com", "password": "secret123", "display_name": "Jane" }
 ```
 
-Логин: `^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`. Роль по умолчанию — `REGISTER_DEFAULT_ROLE` (обычно `viewer`).
+Логин: `^[a-zA-Z][a-zA-Z0-9._-]{2,31}$`. Опционально `account_slug` (иначе генерируется из логина). Регистрация создаёт личный аккаунт, в котором новый пользователь — `admin`. `REGISTER_DEFAULT_ROLE` (по умолчанию `admin`) записывается только в глобальное поле `role` пользователя.
 
 ### `POST /auth/login`
 
 ```json
-{ "email": "admin@cogitor.local", "password": "admin" }
+{ "email": "admin@example.com", "password": "<password>" }
 ```
 
 Поле `email` принимает **логин или email**. Возвращает `{ "token": "<jwt>" }`.
 
+Ограничения частоты (в памяти процесса): `login`, `register`, `resend-verification` и `check-slug` — до 20 запросов подряд с одного IP, затем один раз в 3 с; после 5 неудачных входов для одного логина/email дальнейшие попытки получают `429` (с `Retry-After`), пока не восстановится лимит — одна попытка в минуту.
+
 Подробнее: [03-auth.md](03-auth.md).
 
-### `GET /me`
+### Прочие эндпоинты авторизации
 
-Текущий пользователь (профиль, роль).
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| GET | `/auth/check-slug?slug=` | public | Доступность slug аккаунта: `{ "available", "slug" }` |
+| GET | `/auth/verify-email?token=` | public | Подтверждение email (HTML-страница) |
+| POST | `/auth/resend-verification` | public | `{ "email" }` или `{ "login" }` — повторная отправка письма |
+| GET | `/auth/google`, `/auth/google/callback` | public | Google OAuth |
+| POST | `/auth/switch-account` | authenticated | `{ "account_id" }` → `{ "token" }` — новый JWT с другим активным аккаунтом |
+
+### Текущий пользователь
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| GET | `/me` | authenticated | Текущий пользователь (профиль, роль) |
+| GET | `/me/accounts` | authenticated | Аккаунты, в которых состоит пользователь |
+| GET | `/me/tokens` | authenticated | Список API-токенов |
+| POST | `/me/tokens` | authenticated | Создать API-токен `{ "name" }`; токен показывается один раз |
+| DELETE | `/me/tokens/{id}` | authenticated | Отозвать API-токен |
+| GET | `/me/avatar` | authenticated | Получить аватар |
+| POST | `/me/avatar` | authenticated | Загрузить аватар (multipart-поле `file`, до ~3 МБ) |
+| DELETE | `/me/avatar` | authenticated | Удалить аватар |
+
+Эндпоинты с ролью «authenticated» не требуют активного аккаунта.
+
+---
+
+## Участники аккаунта, приглашения, пользователи
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| GET | `/invitations/{token}` | public | Информация о приглашении |
+| POST | `/invitations/{token}/accept` | authenticated | Принять приглашение |
+| GET | `/invitations` | admin | Список приглашений активного аккаунта |
+| POST | `/invitations` | admin | Создать: `{ "email", "role", "delivery_method" }` |
+| POST | `/invitations/{id}/resend` | admin | Повторно отправить приглашение |
+| DELETE | `/invitations/{id}` | admin | Отозвать приглашение |
+| GET | `/members` | admin | Список участников аккаунта |
+| POST | `/members` | admin | Добавить участника |
+| PATCH | `/members/{userId}` | admin | Сменить роль: `{ "role" }` |
+| DELETE | `/members/{userId}` | admin | Удалить участника |
+| GET | `/users` | админ платформы | Список всех пользователей |
+| PATCH | `/users/{id}` | admin | Изменить профиль (`display_name`, `email`, `password` ≥ 8 символов). Админ аккаунта может менять себя и пользователей, состоящих только в его аккаунте; `role` / `disabled` — только админ платформы |
+| DELETE | `/users/{id}` | админ платформы | Удалить пользователя |
+| GET | `/audit-log?limit=` | admin | Аудит-лог |
 
 ---
 
@@ -59,6 +107,9 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 | GET | `/products/{id}` |
 | PUT | `/products/{id}` |
 | DELETE | `/products/{id}` |
+| POST | `/products/{id}/esp-defaults` |
+
+`POST /products/{id}/esp-defaults` (write) заново применяет к продукту пресетные ESP-методы и метрики, сохраняя специфичные для продукта.
 
 Тело запроса:
 
@@ -81,7 +132,7 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | `/devices?product_id=&status=&q=` | Список с фильтрацией |
-| POST | `/devices` | Создание. Возвращает `credentials` **один раз** |
+| POST | `/devices` | Создание в продукте активного аккаунта. Пара `product_id.device_id` — это MQTT-логин, поэтому она уникальна на всей платформе. Возвращает `credentials` **один раз** |
 | GET | `/devices/{id}` | Детали + атрибуты + последняя телеметрия |
 | PUT | `/devices/{id}` | Обновить метаданные |
 | DELETE | `/devices/{id}` | Удаление |
@@ -158,15 +209,15 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 
 ### Вызов метода
 
-`POST /devices/{id}/rpc?wait=1`
+`POST /devices/{id}/rpc`
 
 ```json
 { "method": "reboot", "params": { "delayMs": 1000 }, "timeout_ms": 30000 }
 ```
 
-`wait=1` — ждать ответ устройства. Без `wait` — fire-and-forget.
+По умолчанию запрос ждёт ответ устройства (до `timeout_ms`, иначе — таймаут платформы по умолчанию). `?wait=0` — fire-and-forget.
 
-**Механизм корреляции:** платформа генерирует UUID для `request_id` и сохраняет связь `{request_id → HTTP-канал}` в памяти (с таймаутом). `request_id` помещается в поле `id` MQTT-сообщения (стандарт JSON-RPC). Устройство копирует `id` из запроса в ответ. Платформа сопоставляет ответ с ожидающим запросом по `request_id` и отправляет HTTP-ответ клиенту.
+**Механизм корреляции:** платформа выдаёт последовательный целочисленный `request_id` и сохраняет связь `{request_id → HTTP-канал}` в памяти (с таймаутом). `request_id` помещается в поле `id` MQTT-сообщения (стандарт JSON-RPC). Устройство копирует `id` из запроса в ответ. Платформа сопоставляет ответ с ожидающим запросом по `request_id` и отправляет HTTP-ответ клиенту.
 
 Подробнее о протоколе: [04-mqtt.md → RPC](04-mqtt.md#rpc).
 
@@ -192,7 +243,7 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | `/ota/firmwares?product_id=` | Список прошивок |
-| POST | `/ota/firmwares/upload` | Multipart: `file` + `product_id` + `version` + опционально `module` / `sha256` |
+| POST | `/ota/firmwares/upload` | Multipart: `file` + `product_id` + `version` + опционально `module` / `sha256` / `sign_method` / `sign` / `size` |
 | POST | `/ota/firmwares` | Зарегистрировать внешний URL: `{ product_id, version, url, sha256?, size?, module? }` |
 | DELETE | `/ota/firmwares/{id}` | Удалить образ и связанные OTA-задачи |
 
@@ -217,18 +268,16 @@ SSE для real-time обновлений: `GET /api/v1/events/stream?token=<jwt
 
 ---
 
-## Внешние плагины (admin)
+## Внешние плагины
 
-| Метод | Путь | Описание |
-|-------|------|----------|
-| GET | `/plugins/external` | Список внешних плагинов |
-| POST | `/plugins/external` | Регистрация; возвращает `token`, `mqtt_user`, `mqtt_pass` |
-| DELETE | `/plugins/external/{id}` | Удаление |
-| POST | `/plugins/external/{id}/regenerate-mqtt` | Перевыпустить MQTT-креды |
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| GET | `/plugins/external` | member | Список внешних плагинов |
+| POST | `/plugins/external` | admin | Регистрация в активном аккаунте; `id` — `^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`, нельзя занять id плагина другого аккаунта. Возвращает `{ ok, id, mqtt_user, mqtt_pass, mqtt_port, mqtt_host, mqtt_ws, rules_bus }` |
+| DELETE | `/plugins/external/{id}` | admin | Удаление |
+| POST | `/plugins/external/{id}/regenerate-mqtt` | admin | Перевыпустить MQTT-креды |
 
-JSON-RPC endpoint для внешних плагинов: `POST /api/plugins/external/rpc` (авторизация по токену плагина).
-
-Методы: `platform.heartbeat`, `platform.poll_events`, `platform.ack_events`, `platform.invoke_rpc`.
+Формат MQTT-логина: `extplg_{account_slug}_{plugin_id}`. Внешние плагины работают только через MQTT (шина правил); отдельного HTTP API для них нет.
 
 Подробнее: [08-external-plugins.md](08-external-plugins.md).
 
@@ -272,15 +321,26 @@ JSON-RPC endpoint для внешних плагинов: `POST /api/plugins/ext
 
 ---
 
-## Управление аккаунтами (platform-admin)
+## Служебные эндпоинты
+
+Корневые (не под `/api/v1`), если в пути не указано иное.
+
+| Метод | Путь | Роль | Описание |
+|-------|------|------|----------|
+| GET | `/metrics` | public | Метрики Prometheus |
+| GET | `/api/v1/mqtt/ca.pem` | public | CA-сертификат MQTT TLS (404, если `MQTT_TLS_CA` не задан) |
+| любой | `/mcp` | authenticated | Встроенный MCP-сервер (Streamable HTTP), см. [10-mcp.md](10-mcp.md) |
+
+### Мастер настройки
+
+Доступен только пока работает мастер настройки (пустая база при первом запуске); без авторизации.
 
 | Метод | Путь | Описание |
 |-------|------|----------|
-| DELETE | `/accounts/{id}?force=true` | Удалить аккаунт с каскадным удалением |
-
-Без `force=true`: только если `devices.count=0` и `external_plugins.count=0`.
-
-С `force=true`: каскадное удаление через продукты, устройства, привязки плагинов, прошивки, OTA-задачи, телеметрию, события, логи, RPC-вызовы, аудит-логи, членства, приглашения, политики плагинов, внешние плагины.
+| GET | `/api/v1/setup/state` | Текущее состояние мастера |
+| POST | `/api/v1/setup/step` | Сохранить шаг мастера |
+| POST | `/api/v1/setup/apply` | Применить конфигурацию, создать первый аккаунт и администратора |
+| POST | `/api/v1/setup/generate-tls` | Сгенерировать MQTT TLS `ca.pem`, `cert.pem`, `key.pem`: `{ "host"?, "dir"? }` |
 
 ---
 
@@ -292,4 +352,4 @@ JSON-RPC endpoint для внешних плагинов: `POST /api/plugins/ext
 | `operator` | да | да |
 | `viewer` | да | нет |
 
-Начальный пользователь — `admin` (из env `ADMIN_LOGIN` / `ADMIN_PASSWORD`).
+Первый пользователь и первый аккаунт создаются мастером настройки; этот пользователь — `admin`.

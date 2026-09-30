@@ -9,6 +9,18 @@
 | **Scope** | adding multi-tenant isolation, IAM roles, monitoring plugins, and catalog plugin management to the current single-tenant distribution |
 | **Canonical version** | this document is maintained in Russian; English ([ru/16-multi-account.md](../ru/16-multi-account.md)) is the source of truth |
 
+> **Implementation status (checked against code, 30.09.2026).** This is a specification; the shipped code differs in several places:
+> - **Routes are flat**, scoped to the active account from the JWT: `/members`, `/invitations`, `/plugins/policies`, `/audit-log`, `/me/accounts`, `POST /auth/switch-account` — not `/accounts/{id}/...`. There is no accounts CRUD (`/accounts`), no `POST /auth/refresh` and no `X-Account-Id` header.
+> - No `users.is_platform_admin` column. The platform admin is the user whose id is stored in `settings.platform_admin_user_id` (the wizard's admin; on older DBs the first user with `users.role=admin`). Only this user can list/delete all users (`GET/DELETE /users`); an account admin can `PATCH /users/{id}` only for users who belong to that account alone.
+> - Env vars `INVITE_TTL_HOURS` (TTL is hardcoded to 72 h), `WIZARD_AUTO_DISABLE`, `WIZARD_WRITE_ENV`, `PROMETHEUS_EXPORTER_DEFAULT_PORT`, `DB_STATEMENT_TIMEOUT_MS` do not exist; `DB_MAX_OPEN_CONNS` / `DATABASE_MAX_OPEN_CONNS` is parsed but not applied.
+> - **Setup wizard**: API `/api/v1/setup/*`, UI `/setup`; state is kept **server-side in memory** (not `localStorage`); it runs when the DB has no users and no accounts; the result goes to the `settings` table and `config.yml`. Setup routes are mounted only while the wizard runs; once it completes, `GET /api/v1/setup/state` returns `{"completed":true}` and everything else under `/setup` is gone. The state API never returns secrets (only `*_set` flags and a redacted DSN).
+> - Real-time channel is **WebSocket** `/api/v1/ws`, not SSE; each connection receives events of its active account only (platform-wide broker events go to the platform admin).
+> - **MCP** is scoped to the token's active account (no `account_id` parameter — switch account to change scope).
+> - Rules-bus events and commands both carry the slug (`platform/v1/{events|commands}/{account_slug}/...`); the ACL rejects other accounts' subtrees and commands resolve the device inside the plugin's account.
+> - `REGISTER_DEFAULT_ROLE` (code default `admin`) is written to `users.role` on every registration but grants no platform-wide rights; in the user's personal account the membership is always `admin`.
+>
+> Current behaviour: [02-api](02-api.md), [11-operations](11-operations.md).
+
 This document defines the next major release of the platform: **multi-account tenancy** with role-based access, a new system MQTT topic layout, and built-in monitoring (Prometheus). The release is additive — recreating the DB and configuration on transition is acceptable (no migration utilities are provided).
 
 Related docs: [01-prd](01-prd.md), [02-api](02-api.md), [03-auth](03-auth.md), [04-mqtt](04-mqtt.md), [07-internal-plugins](07-internal-plugins.md), [08-external-plugins](08-external-plugins.md), [11-operations](11-operations.md).
@@ -85,7 +97,7 @@ The guiding principle of this release: **no migrations, no dual-write**. This is
 | Goal | Metric | Target |
 |------|--------|--------|
 | Account isolation | `404` on cross-account device access | 100% denials on ACL integration tests |
-| Invite latency | `POST /accounts/{id}/invitations` → response | < 200 ms to return token |
+| Invite latency | `POST /invitations` → response | < 200 ms to return token |
 | Invite acceptance | `POST /invitations/{token}/accept` → JWT with active account | < 1 s |
 | Account switching | `POST /auth/switch-account` → new JWT | < 100 ms (no DB hit when membership is cached) |
 | Topic isolation | Cross-account `acl_deny` | 100% denials on `subscribe platform/v1/events/other_account/#` |
@@ -265,7 +277,7 @@ graph TB
 4. **Publish telemetry** → `Ingest` → `StoreTelemetry` (account_id from device) → `publishRules(account.slug, product, device, kind)` → MQTT `platform/v1/events/{account_slug}/{product}/{device}/{kind}`. Topic contains `account_slug` — an external plugin from another account cannot subscribe via ACL.
 5. **RPC call to device**: platform generates a UUID for `request_id`, stores `{request_id → HTTP channel}` in memory (with timeout), publishes the command to MQTT with `id = request_id` (JSON-RPC standard). Device copies `id` from request to response. Platform matches the response to the pending request by `request_id` and sends the HTTP response to the client. Details: [04-mqtt.md → RPC](04-mqtt.md#rpc), [17-ha-architecture.md → §3.2](../ru/17-ha-architecture.md#32-маршрутизация-команд-и-корреляция-ответов).
 6. **External plugin (polling)**: `POST /api/plugins/external/rpc` with token `extplg_acme_telegram-bot` → `ValidateToken` → `plugin.account_id = 1` → `platform.invoke_rpc` → middleware `RequireAccount(account_id=1)` → handler checks `device.account_id == 1` → 200. Cross-account → 403.
-7. **SSE**: `GET /api/v1/events/stream?token=...` with active account 7 → Hub subscribes the SSE connection to filter `account_id=7` → events from other accounts never arrive. Browser natively reconnects via `Last-Event-ID`; HTTP-based, no sticky sessions.
+7. **WebSocket**: `GET /api/v1/ws?token=...` with active account 7 → Hub should filter the connection to `account_id=7` so that events from other accounts never arrive. *(Implementation: WebSocket, not SSE; per-account filtering is not implemented yet — the hub broadcasts to all clients.)*
 8. **Prometheus scrape**: external Prometheus with job `{account: "acme", scrape_url: "http://platform:9100/metrics"}` — each account gets its own port (`prometheus-exporter` starts an instance on the binding-defined port, all metrics labelled `account="acme"`).
 
 ### 7.3 Invitation Flow
@@ -286,13 +298,13 @@ sequenceDiagram
     Note over A: Active account = acme
     
     alt Method 1: Invite via email
-        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "email"}
+        A->>P: POST /api/v1/invitations {email, role, delivery_method: "email"}
         P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
         P-->>A: {token: "raw-once", link: "/invite/{token}"}
         P->>M: send email with link
         M-->>R: email delivered
     else Method 2: Create shareable link
-        A->>P: POST /api/v1/accounts/{id}/invitations {email, role, delivery_method: "link"}
+        A->>P: POST /api/v1/invitations {email, role, delivery_method: "link"}
         P->>DB: INSERT account_invitations (token_hash, expires_at = +72h)
         P-->>A: {link: "/invite/{token}"} (email NOT sent)
         A->>A: copies link, shares via messenger
@@ -323,7 +335,7 @@ sequenceDiagram
     end
 
     Note over P: Resend / Revoke (methods 1 and 2 only)
-    A->>P: POST /accounts/{id}/invitations/{id}/resend
+    A->>P: POST /invitations/{id}/resend
     P->>DB: UPDATE old.status='revoked', INSERT new
     P->>M: send new email (only if delivery_method="email")
 ```
@@ -340,9 +352,9 @@ sequenceDiagram
     Note over Adm: Active account = acme
     Adm->>P: POST /api/v1/plugins/external {id: "telegram-bot"}
     P->>P: mqtt_user = "extplg_acme_telegram-bot"
-    P->>P: mqtt_pass = random, token = random
-    P->>P: hash both, store in external_plugins (account_id=acme)
-    P-->>Adm: {token, mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
+    P->>P: mqtt_pass = random (shown once)
+    P->>P: hash, store in external_plugins (account_id=acme)
+    P-->>Adm: {mqtt_user, mqtt_pass, mqtt_host, mqtt_port}
     Adm->>Pl: pass credentials
 
     Pl->>Br: CONNECT mqtt_user=extplg_acme_telegram-bot, mqtt_pass=...
@@ -396,7 +408,7 @@ sequenceDiagram
     participant DB as SQLite
 
     Note over Adm: Settings → Integrations → prometheus-exporter enabled
-    Adm->>H: PATCH /accounts/{id}/plugins/policies/prometheus-exporter {enabled:true}
+    Adm->>H: PATCH /plugins/policies/prometheus-exporter {enabled:true}
     H->>DB: UPSERT account_plugin_policies
     H->>H: rebuild account runners
 
@@ -588,15 +600,15 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | | `DELETE /accounts/{id}/members/{userId}` | new |
 | Invitations | `GET /invitations/{token}` (public) | new |
 | | `POST /invitations/{token}/accept` | new |
-| | `GET /accounts/{id}/invitations` | new |
-| | `POST /accounts/{id}/invitations` `{email, role}` | new |
-| | `POST /accounts/{id}/invitations/{id}/resend` | new |
-| | `DELETE /accounts/{id}/invitations/{id}` | new |
-| Plugin policies | `GET /accounts/{id}/plugins/policies` | new |
-| | `PATCH /accounts/{id}/plugins/policies/{pluginId}` `{enabled?, settings?}` | new |
+| | `GET /invitations` | new |
+| | `POST /invitations` `{email, role}` | new |
+| | `POST /invitations/{id}/resend` | new |
+| | `DELETE /invitations/{id}` | new |
+| Plugin policies | `GET /plugins/policies` | new |
+| | `PATCH /plugins/policies/{pluginId}` `{enabled?, settings?}` | new |
 | Existing | `GET/POST/PUT/DELETE /products`, `/devices`, … — all require `X-Account-Id` (or take it from JWT active) and verify account scope; `?account_id=` query is supported for platform-admin | all breaking |
 | MCP | Each list/get tool gains an `account_id` parameter (optional, default — active) | minor |
-| SSE (real-time) | `GET /api/v1/events/stream?token=...&account_id=<active>` — `text/event-stream`, filtered by account, HTTP-based, auto-reconnect via `Last-Event-ID` | extension |
+| WebSocket (real-time) | `GET /api/v1/ws?token=...` — WebSocket (not SSE); account filtering planned, not implemented | extension |
 
 Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (addendum).
 
@@ -609,7 +621,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DATABASE_DRIVER` | auto (see F-1301) | `sqlite` or `postgres` |
-| `DATABASE_DSN` | `data/platform.db` | DSN: file path (sqlite) or URL (postgres) |
+| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | DSN: file path (sqlite) or URL (postgres) |
 | `BOOTSTRAP_ACCOUNT_SLUG` | `default` | Slug of the account created by the wizard (F-1404) or bootstrap logic (F-102) |
 | `BOOTSTRAP_ACCOUNT_NAME` | `Default` | Display name |
 | `INVITE_TTL_HOURS` | `72` | Invitation TTL |
@@ -617,7 +629,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 | `PROMETHEUS_EXPORTER_DEFAULT_PORT` | `9100` | Default port for the plugin |
 | `WIZARD_WRITE_ENV` | `false` | If `true` — Apply also writes config to `.env` (F-1413) |
 | `DB_STATEMENT_TIMEOUT_MS` | `30000` | Postgres `statement_timeout` (sqlite ignores it) |
-| `DB_MAX_OPEN_CONNS` | `8` | For postgres — connection pool; for sqlite — ignored (always 1 writer) |
+| `DB_MAX_OPEN_CONNS` | `8` | For postgres — connection pool; for sqlite — ignored (always 1 writer). *Not applied yet: pool is hardcoded (postgres 8 open / 2 idle, sqlite 1)* |
 
 ### Removed / deprecated
 
@@ -670,7 +682,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 | Case | Behaviour |
 |------|-----------|
 | API token (per-account) used in another account | `403 token_account_mismatch` |
-| SSE client: user connected, active account changed (new login) | old SSE session keeps the old filter until disconnect; new one uses the new filter. Browser reopens SSE with the new token automatically |
+| WebSocket client: user connected, active account changed (new login) | old WebSocket session keeps the old filter until disconnect; new one uses the new filter. The dashboard reopens the WebSocket with the new token *(implementation: WebSocket, not SSE; per-account filtering not implemented yet)* |
 | Audit log overflow | 90-day retention for `audit_log` per account, separate from telemetry retention |
 | Invitation token lost | resend; old token is revoked |
 | Invitation token expired | UI/email marks it `expired`; cannot accept |
@@ -690,10 +702,10 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 
 | Case | Behaviour |
 |------|-----------|
-| `accounts.count > 0`, user opens `/setup` | `404 setup_disabled` (route disabled) |
-| Wizard open in two tabs simultaneously | Each tab has its own `localStorage`; if Apply succeeds in one — the other gets 404 on the next step. UI shows "Setup already completed, please log in" |
+| `accounts.count > 0`, user opens `/setup` | `404 setup_disabled` (route disabled). *Implementation: on a normal start `/api/v1/setup/*` is simply not mounted; after the wizard completes the routes stay mounted until restart and `step`/`apply` return `setup already completed`* |
+| Wizard open in two tabs simultaneously | Each tab has its own `localStorage`; if Apply succeeds in one — the other gets 404 on the next step. UI shows "Setup already completed, please log in". *Implementation: state is shared server-side in memory, so both tabs see the same state* |
 | Postgres DSN entered incorrectly (host does not resolve) | "Test connection" button shows error; next step disabled. After 30s timeout — UI shows "Connection timed out" |
-| `JWT_SECRET` not set in env, wizard just reached Step 5, user closed the tab | On next visit to `/setup` — wizard starts from Step 1, secret is not saved (state in localStorage) |
+| `JWT_SECRET` not set in env, wizard just reached Step 5, user closed the tab | On next visit to `/setup` — wizard starts from Step 1, secret is not saved (state in localStorage). *Implementation: state lives in server memory — reopening the tab resumes the same state until the process restarts* |
 | Admin chose slug `default` in wizard, but `BOOTSTRAP_ACCOUNT_SLUG=acme` in env | Env priority: wizard shows warning "env has different value, please update .env or accept default" |
 | Email in Step 2 already taken in `users` | `409 user_exists`; UI suggests "Use existing account" (if login matches) or "Use different email" |
 | Apply crashed on Step 8 (e.g. DB migration failed on constraint) | `setup_state.error=true`, logged in audit. Next Apply starts from scratch (idempotency via transaction: look at partial state, roll back) |
@@ -721,7 +733,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 - SAML / OIDC SSO per account
 - Account transfer (merge / split)
 - Cross-account dashboards
-- WebSocket multi-account subscription (one SSE stream receiving events from multiple accounts) — in v1 SSE streams events for the active account only; multi-account SSE (one stream for all memberships) is out of scope
+- WebSocket multi-account subscription (one WebSocket stream receiving events from multiple accounts) — in v1 the stream is meant to carry events for the active account only; a single stream for all memberships is out of scope
 
 ---
 
@@ -738,7 +750,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 
 ### 13.2 Invitations
 
-- [ ] `POST /accounts/{id}/invitations` creates a record and sends an email with link `{PUBLIC_BASE_URL}/invite/{token}`
+- [ ] `POST /invitations` creates a record and sends an email with link `{PUBLIC_BASE_URL}/invite/{token}`
 - [ ] The link pre-fills the email on registration (`/auth/register?invite=...`)
 - [ ] After `accept` the user immediately sees the account in the switcher
 - [ ] Resend revokes the old token and sends a new one
@@ -760,7 +772,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 ### 13.4 Catalog plugins / policy
 
 - [ ] By default `account_plugin_policies` is empty, all catalog plugins work
-- [ ] `PATCH /accounts/{id}/plugins/policies/led-garland {enabled:false}` stops runners; in `GET /devices/{id}/plugins` the plugin shows as `disabled`; `tick` events do not reach it
+- [ ] `PATCH /plugins/policies/led-garland {enabled:false}` stops runners; in `GET /devices/{id}/plugins` the plugin shows as `disabled`; `tick` events do not reach it
 - [ ] `PATCH ... {enabled:true}` restarts the runner on the next online device
 - [ ] `metrics-dashboard` shows the virtual "Metrics+" tab on the device page with the default template
 

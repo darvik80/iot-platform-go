@@ -23,6 +23,17 @@ func (s *Server) requireAdmin(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) requirePlatformAdmin(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := userFrom(r)
+		if u == nil || !s.Plat.IsPlatformAdmin(u.ID) {
+			writeErr(w, http.StatusForbidden, "platform admin access required")
+			return
+		}
+		h(w, r)
+	}
+}
+
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
 	if s.Plat == nil {
 		// Setup mode — return minimal config
@@ -119,8 +130,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if identity == "" {
 		identity = in.Login
 	}
+	key := loginKey(identity)
+	if s.limits.loginFailure.Blocked(key) {
+		tooMany(w, s.limits.loginFailure.RetryAfter(key))
+		return
+	}
 	u, tok, err := s.Plat.Login(identity, in.Password)
 	if err != nil {
+		s.limits.loginFailure.Allow(key)
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -169,6 +186,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
+	}
+	me := userFrom(r)
+	if me == nil || !s.Plat.IsPlatformAdmin(me.ID) {
+		if in.Role != "" || in.Disabled != nil {
+			writeErr(w, http.StatusForbidden, "platform admin access required")
+			return
+		}
+		if me == nil || (me.ID != id && !s.Plat.CanAccountAdminManageUser(accountFrom(r.Context()), id)) {
+			writeErr(w, http.StatusForbidden, "user is not managed by this account")
+			return
+		}
 	}
 	u, err := s.Plat.UpdateUser(id, in)
 	if err != nil {

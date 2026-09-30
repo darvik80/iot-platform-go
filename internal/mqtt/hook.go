@@ -23,7 +23,7 @@ func (h *platHook) ID() string { return "cogitor-auth" }
 func (h *platHook) Provides(b byte) bool {
 	switch b {
 	case mochi.OnConnect, mochi.OnConnectAuthenticate, mochi.OnACLCheck,
-		mochi.OnSessionEstablished, mochi.OnDisconnect, mochi.OnPublished, mochi.OnSubscribed:
+		mochi.OnSessionEstablished, mochi.OnDisconnect, mochi.OnPublish, mochi.OnPublished, mochi.OnSubscribed:
 		return true
 	default:
 		return false
@@ -115,18 +115,19 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if user == "" || strings.HasPrefix(topic, "$") {
 		return false
 	}
-	// External plugin ACL — read account-scoped events, write product/device commands
+	// External plugin ACL — read and write only inside the plugin's own account
 	if strings.HasPrefix(user, "extplg_") {
-		if extPluginSlug(user) == "" {
+		slug := extPluginSlug(user)
+		if slug == "" {
 			return false // malformed username
 		}
 		prefix := strings.TrimRight(h.b.cfg.Rules.Prefix, "/")
 		if write {
-			// Commands topic: {prefix}/commands/{productID}/{deviceID}/{capability}
-			return topicUnder(topic, protocol.RulesCommandsRoot(prefix))
+			// Commands topic: {prefix}/commands/{accountSlug}/{productID}/{deviceID}/{capability}
+			return topicUnder(topic, protocol.RulesCommandsRootForAccount(prefix, slug))
 		}
 		// Events topic: {prefix}/events/{accountSlug}/{productID}/{deviceID}/{kind}
-		return topicUnder(topic, protocol.RulesEventsRootForAccount(prefix, extPluginSlug(user)))
+		return topicUnder(topic, protocol.RulesEventsRootForAccount(prefix, slug))
 	}
 	d := h.deviceFor(user)
 	if d == nil || !d.Enabled {
@@ -212,6 +213,16 @@ func (h *platHook) OnSubscribed(cl *mochi.Client, pk packets.Packet, _ []byte) {
 			break
 		}
 	}
+}
+
+// OnPublish keeps client publishes out of the topic tree: devices and plugins
+// only talk to the platform (ingest / rules bus), never to each other. The
+// packet is still handed to OnPublished for ingest.
+func (h *platHook) OnPublish(cl *mochi.Client, pk packets.Packet) (packets.Packet, error) {
+	if cl.Net.Inline {
+		return pk, nil
+	}
+	return pk, packets.CodeSuccessIgnore
 }
 
 func (h *platHook) OnPublished(cl *mochi.Client, pk packets.Packet) {

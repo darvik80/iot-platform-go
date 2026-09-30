@@ -3,6 +3,8 @@ package ws
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,29 +17,60 @@ const (
 )
 
 type client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
-	once sync.Once
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	once      sync.Once
+	accountID int64
+	global    bool // platform admin: also receives platform-wide events
 }
 
 type Hub struct {
 	mu      sync.RWMutex
 	clients map[*client]struct{}
+
+	// AllowedHosts are extra Origin hosts (host[:port]) accepted besides the request host.
+	AllowedHosts []string
 }
 
 func NewHub() *Hub {
 	return &Hub{clients: map[*client]struct{}{}}
 }
 
-var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+// OriginAllowed accepts non-browser clients (no Origin), same-host pages,
+// localhost dev servers and AllowedHosts.
+func (h *Hub) OriginAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	for _, h := range h.AllowedHosts {
+		if strings.EqualFold(u.Host, h) {
+			return true
+		}
+	}
+	return false
+}
 
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+// ServeWS subscribes the connection to events of accountID; global also adds platform-wide events.
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, accountID int64, global bool) {
+	upgrader := websocket.Upgrader{CheckOrigin: h.OriginAllowed}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	c := &client{hub: h, conn: conn, send: make(chan []byte, sendBuf)}
+	c := &client{hub: h, conn: conn, send: make(chan []byte, sendBuf), accountID: accountID, global: global}
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
 	h.mu.Unlock()
@@ -75,7 +108,7 @@ func (c *client) writePump() {
 	}
 }
 
-func (h *Hub) Broadcast(event string, data any) {
+func (h *Hub) Broadcast(accountID int64, event string, data any) {
 	msg, err := json.Marshal(map[string]any{"event": event, "data": data})
 	if err != nil {
 		return
@@ -83,6 +116,13 @@ func (h *Hub) Broadcast(event string, data any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
+		if accountID == 0 {
+			if !c.global {
+				continue
+			}
+		} else if c.accountID != accountID {
+			continue
+		}
 		select {
 		case c.send <- msg:
 		default:

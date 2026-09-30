@@ -1,6 +1,26 @@
 # Внешние плагины — примеры (MQTT)
 
-Примеры внешних плагинов с подпиской на MQTT rules bus.
+Примеры внешних плагинов с подпиской на MQTT rules bus. MQTT — единственный реализованный
+транспорт внешних плагинов (см. [docs/ru/08-external-plugins.md](../../docs/ru/08-external-plugins.md)).
+
+> **Важно: исходники примеров нужно поправить.** Все четыре примера подписываются на
+> `{rules_bus}/events/#`, а ACL брокера это запрещает: внешний плагин может читать только
+> события своего аккаунта, `{rules_bus}/events/{account_slug}/#`. С текущим кодом примеры
+> подключаются, но **не получают ни одного события** (подписка отклоняется с `acl_deny`,
+> хотя пример печатает «Subscribed to …»). Что изменить:
+>
+> | Файл | Строка | Сейчас | Нужно |
+> |------|--------|--------|-------|
+> | `python/mqtt_telemetry_logger.py` | 102 | `f"{self.rules_bus}/events/#"` | `f"{self.rules_bus}/events/{account_slug}/#"` |
+> | `python/mqtt_telemetry_logger.py` | 119 | комментарий `events/{product}/{device}/{kind}` | `events/{account_slug}/{product}/{device}/{kind}` |
+> | `go/mqtt_telemetry_logger.go` | 151 | `p.rulesBus + "/events/#"` | `p.rulesBus + "/events/" + accountSlug + "/#"` |
+> | `java/MqttTelemetryLogger.java` | 136 | `config.rulesBus + "/events/#"` | `config.rulesBus + "/events/" + accountSlug + "/#"` |
+> | `cpp/mqtt_telemetry_logger.cpp` | 179 | `config_.rules_bus + "/events/#"` | `config_.rules_bus + "/events/" + account_slug + "/#"` |
+>
+> `account_slug` в ответе регистрации нет — его берут из `mqtt_user`: это часть между `extplg_`
+> и следующим `_` (`extplg_acme_mqtt-telemetry-logger` → `acme`). Кроме того, разбор `kind` как
+> последнего сегмента топика даёт `result` / `reported` / `desired` для `rpc/result` и
+> `attributes/*`; поле `Token` в структуре ответа Go-примера (строка 61) всегда пустое.
 
 ## Примеры
 
@@ -20,13 +40,18 @@
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"login":"admin","password":"admin"}' | jq -r '.token')
+  -d '{"login":"<admin-login>","password":"<admin-password>"}' | jq -r '.token')
 ```
+
+Логин и пароль — те, что заданы при первом запуске в setup wizard. Плагин регистрируется в
+**активном аккаунте** этого пользователя.
 
 ### Два режима запуска
 
-1. **Регистрация** — `--token <admin-jwt>` — плагин регистрируется, получает credentials
+1. **Регистрация** — `--token <admin-jwt>` — плагин регистрируется и получает MQTT credentials
+   (`mqtt_user`, `mqtt_pass`, host/port, `rules_bus`; API-токена в ответе нет)
 2. **Готовые credentials** — `--mqtt-user` / `--mqtt-pass` или env vars — без регистрации
+   (креды из Settings → External Plugins; username всегда вида `extplg_{account_slug}_{plugin_id}`)
 
 #### Python
 
@@ -38,10 +63,10 @@ cd examples/plugins/python
 python mqtt_telemetry_logger.py --platform http://localhost:8080 --token $TOKEN
 
 # Режим 2: Готовые credentials
-python mqtt_telemetry_logger.py --mqtt-user extplg_logger --mqtt-pass <password>
+python mqtt_telemetry_logger.py --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 
 # Режим 3: Environment variables
-export MQTT_USER=extplg_logger
+export MQTT_USER=extplg_acme_mqtt-telemetry-logger
 export MQTT_PASS=<password>
 python mqtt_telemetry_logger.py
 ```
@@ -56,10 +81,10 @@ go mod tidy
 go run mqtt_telemetry_logger.go --platform http://localhost:8080 --token $TOKEN
 
 # Режим 2: Готовые credentials
-go run mqtt_telemetry_logger.go --mqtt-user extplg_logger --mqtt-pass <password>
+go run mqtt_telemetry_logger.go --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 
 # Режим 3: Environment variables
-MQTT_USER=extplg_logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
+MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
 ```
 
 #### Java
@@ -72,10 +97,10 @@ mvn clean package
 java -jar target/mqtt-telemetry-logger-1.0.0.jar --platform http://localhost:8080 --token $TOKEN
 
 # Режим 2: Готовые credentials
-java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_logger --mqtt-pass <password>
+java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 
 # Режим 3: Environment variables
-MQTT_USER=extplg_logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
+MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
 ```
 
 #### C++
@@ -92,10 +117,10 @@ cmake --build build
 ./build/mqtt_telemetry_logger --platform http://localhost:8080 --token $TOKEN
 
 # Режим 2: Готовые credentials
-./build/mqtt_telemetry_logger --mqtt-user extplg_logger --mqtt-pass <password>
+./build/mqtt_telemetry_logger --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 
 # Режим 3: Environment variables
-MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
+MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 ```
 
 ---
@@ -103,9 +128,11 @@ MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 ## Как это работает
 
 1. Плагин регистрируется на платформе через `POST /api/v1/plugins/external` (нужен admin JWT)
-2. Платформа возвращает MQTT credentials (username/password) + host/port
+2. Платформа возвращает `ok`, `id`, `mqtt_user` (`extplg_{account_slug}_{plugin_id}`), `mqtt_pass`,
+   `mqtt_host`, `mqtt_port`, `mqtt_ws`, `rules_bus` — **без** API-токена
 3. Плагин подключается к MQTT брокеру с этими credentials
-4. Подписывается на `platform/v1/events/#` — все события всех устройств
+4. Подписывается на `{rules_bus}/events/{account_slug}/#` — все события устройств своего аккаунта
+   (`{rules_bus}/events/#` ACL запрещает — см. предупреждение в начале)
 5. Логирует telemetry, status, events, OTA в консоль
 
 ```
@@ -113,13 +140,13 @@ MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 │  MQTT Plugin                                                │
 ├─────────────────────────────────────────────────────────────┤
 │  1. Registration (POST /api/v1/plugins/external)           │
-│     → Получает: token, mqtt_user, mqtt_pass, host, port    │
+│     → Получает: mqtt_user, mqtt_pass, host, port, rules_bus│
 │                                                             │
 │  2. MQTT Connect (tcp://host:port)                         │
 │     → Auth: mqtt_user / mqtt_pass                          │
 │                                                             │
-│  3. Subscribe (platform/v1/events/#)                       │
-│     → Получает все события устройств                       │
+│  3. Subscribe ({rules_bus}/events/{account_slug}/#)        │
+│     → Получает события устройств своего аккаунта           │
 │                                                             │
 │  4. Process Events                                         │
 │     → telemetry, status, event, log, ota                   │
@@ -143,24 +170,33 @@ MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 
 1. Скопируйте пример на нужном языке
 2. Измените `id`, `name`, `description` в коде
-3. Реализуйте логику обработки событий
-4. Запустите и привяжите к устройству через UI
+3. Подпишитесь на `{rules_bus}/events/{account_slug}/#` (или уже, например `{rules_bus}/events/{account_slug}/+/+/telemetry`)
+4. Реализуйте логику обработки событий
+5. Запустите — привязка к устройству не нужна (binding-и для внешних плагинов не реализованы)
+
+Команды устройствам публикуются в
+`{rules_bus}/commands/{account_slug}/{product_id}/{device_id}/{rpc|attributes/desired|ota}` — только со slug
+своего аккаунта; устройство ищется внутри этого аккаунта, форма без slug не принимается
+(см. [docs/ru/06-automation.md](../../docs/ru/06-automation.md#мультиаккаунтные-топики)).
 
 ### Формат событий
 
+Топик: `{rules_bus}/events/{account_slug}/{product_id}/{device_id}/{kind}`, где `kind` —
+`status`, `telemetry`, `event`, `attributes/reported`, `attributes/desired`, `rpc/result`, `ota`, `log`.
+
 **Telemetry:**
 ```json
-{"metrics": {"temperature": 23.5, "humidity": 65}}
+{"ts": 1451649600512, "product_id": "esp32-cam", "device_id": "cam-001", "keys": {"temperature": 23.5, "humidity": 65}}
 ```
 
 **Status:**
 ```json
-{"online": true}
+{"ts": 1451649600512, "product_id": "esp32-cam", "device_id": "cam-001", "online": true}
 ```
 
 **Event:**
 ```json
-{"type": "button_press", "value": 1}
+{"ts": 1451649600512, "product_id": "esp32-cam", "device_id": "cam-001", "type": "button_press", "severity": "info", "code": "", "message": "", "data": {"value": 1}}
 ```
 
 ### Преимущества MQTT
@@ -169,6 +205,6 @@ MQTT_USER=extplg_logger MQTT_PASS=<password> ./build/mqtt_telemetry_logger
 |---|------|
 | Подключение | Плагин → Платформа (MQTT subscribe) |
 | NAT traversal | Не нужен публичный IP |
-| Привязка к устройству | Не нужна — видит все события |
-| ACL | Rules bus (events read, commands write) |
+| Привязка к устройству | Не нужна — видит все события своего аккаунта |
+| ACL | Rules bus: чтение `events/{account_slug}/…`, запись `commands/…` |
 | Зависимости | MQTT клиент |

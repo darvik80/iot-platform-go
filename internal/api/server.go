@@ -30,9 +30,14 @@ type Server struct {
 	Hub   *ws.Hub
 	SpaFS fs.FS                  // optional embedded SPA (dist contents)
 	Setup *services.SetupService // setup wizard service (nil if setup not needed)
+
+	limits *authLimits
 }
 
 func (s *Server) Router() http.Handler {
+	if s.limits == nil {
+		s.limits = newAuthLimits()
+	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
@@ -84,8 +89,9 @@ func (s *Server) Router() http.Handler {
 	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
 	r.Get("/api/v1/mqtt/ca.pem", s.mqttCACert)
 
-	// Setup wizard endpoints (public, no auth)
-	if s.Setup != nil {
+	// Setup wizard endpoints (public, no auth) — only in setup mode.
+	// Once the platform runs, only a static "completed" state is exposed.
+	if s.Setup != nil && s.Plat == nil {
 		setupHandler := &SetupHandler{Setup: s.Setup}
 		r.Route("/api/v1/setup", func(r chi.Router) {
 			r.Get("/state", setupHandler.GetState)
@@ -93,15 +99,19 @@ func (s *Server) Router() http.Handler {
 			r.Post("/apply", setupHandler.Apply)
 			r.Post("/generate-tls", setupHandler.GenerateTLS)
 		})
+	} else {
+		r.Get("/api/v1/setup/state", func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]bool{"completed": true})
+		})
 	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/auth/config", s.authConfig)
-		r.Post("/auth/login", s.login)
-		r.Post("/auth/register", s.register)
+		r.Post("/auth/login", s.limitByIP(s.login))
+		r.Post("/auth/register", s.limitByIP(s.register))
 		r.Get("/auth/verify-email", s.verifyEmail)
-		r.Post("/auth/resend-verification", s.resendVerification)
-		r.Get("/auth/check-slug", s.checkSlugAvailable)
+		r.Post("/auth/resend-verification", s.limitByIP(s.resendVerification))
+		r.Get("/auth/check-slug", s.limitByIP(s.checkSlugAvailable))
 		r.Get("/auth/google", s.googleStart)
 		r.Get("/auth/google/callback", s.googleCallback)
 
@@ -134,9 +144,9 @@ func (s *Server) Router() http.Handler {
 				r.Get("/overview", s.overview)
 				r.Get("/mqtt", s.mqttStatus)
 
-				r.Get("/users", s.requireAdmin(s.listUsers))
+				r.Get("/users", s.requirePlatformAdmin(s.listUsers))
 				r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
-				r.Delete("/users/{id}", s.requireAdmin(s.deleteUser))
+				r.Delete("/users/{id}", s.requirePlatformAdmin(s.deleteUser))
 
 				r.Get("/products", s.listProducts)
 				r.Post("/products", s.requireWrite(s.createProduct))
@@ -204,7 +214,10 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/audit-log", s.requireAdmin(s.listAuditLog))
 
-				r.Get("/ws", s.Hub.ServeWS)
+				r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+					u := userFrom(r)
+					s.Hub.ServeWS(w, r, accountFrom(r.Context()), u != nil && s.Plat.IsPlatformAdmin(u.ID))
+				})
 			})
 		})
 	})
@@ -213,13 +226,22 @@ func (s *Server) Router() http.Handler {
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
 		c := claimsFrom(req)
 		role := models.Role("")
+		var accID int64
+		var slug string
 		if c != nil {
 			role = c.ActiveRole()
+			accID = c.ActiveAccountID
+			for _, a := range c.Accounts {
+				if a.AccountID == accID {
+					slug = a.AccountSlug
+				}
+			}
 		}
-		return mcpbridge.NewServer(mcpbridge.NewLocal(s.Plat, role))
+		return mcpbridge.NewServer(mcpbridge.NewLocal(s.Plat, role, accID, slug))
 	}, &mcp.StreamableHTTPOptions{Stateless: true})
 	r.Group(func(r chi.Router) {
 		r.Use(s.authenticate)
+		r.Use(s.requireAccount)
 		r.Handle("/mcp", mcpHandler)
 		r.Handle("/mcp/*", mcpHandler)
 	})
@@ -403,7 +425,37 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) mqttStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.Plat.MQTTStatus())
+	st := s.Plat.MQTTStatus()
+	if u := userFrom(r); u != nil && s.Plat.IsPlatformAdmin(u.ID) {
+		writeJSON(w, http.StatusOK, st)
+		return
+	}
+	acc := accountFrom(r.Context())
+	owned := map[string]bool{}
+	mine := func(username string) bool {
+		v, ok := owned[username]
+		if !ok {
+			v = acc != 0 && s.Plat.AccountIDForMQTTUser(username) == acc
+			owned[username] = v
+		}
+		return v
+	}
+	clients := st.Clients[:0]
+	for _, c := range st.Clients {
+		if mine(c.Username) {
+			clients = append(clients, c)
+		}
+	}
+	st.Clients = clients
+	st.ClientCount = len(clients)
+	events := st.Events[:0]
+	for _, e := range st.Events {
+		if mine(e.Username) {
+			events = append(events, e)
+		}
+	}
+	st.Events = events
+	writeJSON(w, http.StatusOK, st)
 }
 
 // mqttCACert serves the MQTT TLS CA certificate (public, no auth).
@@ -577,7 +629,7 @@ func (s *Server) createDevice(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	d, creds, err := s.Plat.CreateDevice(in)
+	d, creds, err := s.Plat.CreateDevice(accountFrom(r.Context()), in)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -828,6 +880,17 @@ func (s *Server) notifyFirmware(w http.ResponseWriter, r *http.Request) {
 		Force    bool  `json:"force"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&in)
+	acc := accountFrom(r.Context())
+	if !s.Plat.FirmwareInAccount(acc, fwID) {
+		writeErr(w, http.StatusNotFound, "firmware not found")
+		return
+	}
+	if in.DeviceID > 0 {
+		if _, err := s.Plat.GetDeviceScoped(acc, in.DeviceID); err != nil {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+	}
 	out, err := s.Plat.NotifyFirmware(fwID, in.DeviceID, in.Force)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -901,7 +964,7 @@ func (s *Server) registerFirmware(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	fw, err := s.Plat.RegisterFirmware(in)
+	fw, err := s.Plat.RegisterFirmware(accountFrom(r.Context()), in)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -911,6 +974,10 @@ func (s *Server) registerFirmware(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteFirmware(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if !s.Plat.FirmwareInAccount(accountFrom(r.Context()), id) {
+		writeErr(w, http.StatusNotFound, "firmware not found")
+		return
+	}
 	if err := s.Plat.DeleteFirmware(id); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -941,7 +1008,7 @@ func (s *Server) uploadFirmware(w http.ResponseWriter, r *http.Request) {
 	if sz := strings.TrimSpace(r.FormValue("size")); sz != "" {
 		in.Size, _ = strconv.ParseInt(sz, 10, 64)
 	}
-	fw, err := s.Plat.StoreFirmwareFile(in, file)
+	fw, err := s.Plat.StoreFirmwareFile(accountFrom(r.Context()), in, file)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

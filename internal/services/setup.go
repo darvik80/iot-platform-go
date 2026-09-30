@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,15 +84,15 @@ type SetupService struct {
 func NewSetupService(log *slog.Logger) *SetupService {
 	return &SetupService{
 		state: &SetupState{
-			CurrentStep:    1,
-			DatabaseDriver: "sqlite",
-			DatabaseDSN:    "/var/lib/iot-platform/platform.db",
-			AdminLogin:     "admin",
-			AdminEmail:     "admin@example.com",
-			AccountSlug:    "default",
-			AccountName:    "Default",
-			SMTPPort:       587,
-			JWTSecret:      generateSecret(),
+			CurrentStep:      1,
+			DatabaseDriver:   "sqlite",
+			DatabaseDSN:      "/var/lib/iot-platform/platform.db",
+			AdminLogin:       "admin",
+			AdminEmail:       "admin@example.com",
+			AccountSlug:      "default",
+			AccountName:      "Default",
+			SMTPPort:         587,
+			JWTSecret:        generateSecret(),
 			PublicBaseURL:    "http://localhost:8080",
 			BrokerHostPublic: "localhost",
 		},
@@ -99,11 +100,67 @@ func NewSetupService(log *slog.Logger) *SetupService {
 	}
 }
 
-// GetState returns the current setup state.
-func (s *SetupService) GetState() SetupState {
+// SetupView is the public (unauthenticated) projection of SetupState.
+// Secrets are never returned — only whether they have been set.
+type SetupView struct {
+	CurrentStep      int    `json:"current_step"`
+	DatabaseDriver   string `json:"database_driver"`
+	DatabaseDSN      string `json:"database_dsn"`
+	AdminLogin       string `json:"admin_login"`
+	AdminEmail       string `json:"admin_email"`
+	AdminPasswordSet bool   `json:"admin_password_set"`
+	AccountSlug      string `json:"account_slug"`
+	AccountName      string `json:"account_name"`
+	SMTPHost         string `json:"smtp_host"`
+	SMTPPort         int    `json:"smtp_port"`
+	SMTPUser         string `json:"smtp_user"`
+	SMTPPassSet      bool   `json:"smtp_pass_set"`
+	SMTPFrom         string `json:"smtp_from"`
+	JWTSecretSet     bool   `json:"jwt_secret_set"`
+	MQTTTLSCert      string `json:"mqtt_tls_cert"`
+	MQTTTLSKey       string `json:"mqtt_tls_key"`
+	MQTTTLSCA        string `json:"mqtt_tls_ca,omitempty"`
+	PublicBaseURL    string `json:"public_base_url"`
+	BrokerHostPublic string `json:"broker_host_public"`
+	Error            string `json:"error,omitempty"`
+	Completed        bool   `json:"completed"`
+}
+
+// View returns the current setup state without secrets.
+func (s *SetupService) View() SetupView {
 	s.state.mu.RLock()
 	defer s.state.mu.RUnlock()
-	return *s.state
+	st := s.state
+	return SetupView{
+		CurrentStep:      st.CurrentStep,
+		DatabaseDriver:   st.DatabaseDriver,
+		DatabaseDSN:      config.RedactDSN(st.DatabaseDSN),
+		AdminLogin:       st.AdminLogin,
+		AdminEmail:       st.AdminEmail,
+		AdminPasswordSet: st.AdminPassword != "",
+		AccountSlug:      st.AccountSlug,
+		AccountName:      st.AccountName,
+		SMTPHost:         st.SMTPHost,
+		SMTPPort:         st.SMTPPort,
+		SMTPUser:         st.SMTPUser,
+		SMTPPassSet:      st.SMTPPass != "",
+		SMTPFrom:         st.SMTPFrom,
+		JWTSecretSet:     st.JWTSecret != "",
+		MQTTTLSCert:      st.MQTTTLSCert,
+		MQTTTLSKey:       st.MQTTTLSKey,
+		MQTTTLSCA:        st.MQTTTLSCA,
+		PublicBaseURL:    st.PublicBaseURL,
+		BrokerHostPublic: st.BrokerHostPublic,
+		Error:            st.Error,
+		Completed:        st.Completed,
+	}
+}
+
+// Completed reports whether Apply has finished successfully.
+func (s *SetupService) Completed() bool {
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+	return s.state.Completed
 }
 
 // UpdateStep updates the state for a specific step.
@@ -120,7 +177,7 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 		if v, ok := data["database_driver"].(string); ok && v != "" {
 			s.state.DatabaseDriver = v
 		}
-		if v, ok := data["database_dsn"].(string); ok && v != "" {
+		if v, ok := data["database_dsn"].(string); ok && v != "" && v != config.RedactDSN(s.state.DatabaseDSN) {
 			s.state.DatabaseDSN = v
 		}
 	case 2: // Admin
@@ -150,7 +207,7 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 		if v, ok := data["smtp_user"].(string); ok {
 			s.state.SMTPUser = v
 		}
-		if v, ok := data["smtp_pass"].(string); ok {
+		if v, ok := data["smtp_pass"].(string); ok && v != "" {
 			s.state.SMTPPass = v
 		}
 		if v, ok := data["smtp_from"].(string); ok {
@@ -201,7 +258,7 @@ func (s *SetupService) Apply() error {
 
 	s.log.Info("applying setup wizard",
 		"driver", s.state.DatabaseDriver,
-		"dsn", s.state.DatabaseDSN,
+		"dsn", config.RedactDSN(s.state.DatabaseDSN),
 		"admin_email", s.state.AdminEmail,
 		"account_slug", s.state.AccountSlug)
 
@@ -329,21 +386,26 @@ func bootstrapSetup(database *db.DB, cfg config.Config) error {
 		return fmt.Errorf("create membership: %w", err)
 	}
 
+	if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		PlatformAdminSettingKey, fmt.Sprintf("%d", adminID)); err != nil {
+		return fmt.Errorf("store platform admin: %w", err)
+	}
+
 	return tx.Commit()
 }
 
 // storeSettings persists wizard configuration to the settings table.
 func storeSettings(database *db.DB, cfg config.Config) error {
 	settings := map[string]string{
-		"jwt_secret":      cfg.Auth.JWTSecret,
-		"smtp_host":       cfg.Email.SMTPHost,
-		"smtp_port":       fmt.Sprintf("%d", cfg.Email.SMTPPort),
-		"smtp_user":       cfg.Email.SMTPUser,
-		"smtp_pass":       cfg.Email.SMTPPass,
-		"smtp_from":       cfg.Email.SMTPFrom,
-		"mqtt_tls_cert":   cfg.MQTT.TLSCert,
-		"mqtt_tls_key":    cfg.MQTT.TLSKey,
-		"mqtt_tls_ca":     cfg.MQTT.TLSCA,
+		"jwt_secret":         cfg.Auth.JWTSecret,
+		"smtp_host":          cfg.Email.SMTPHost,
+		"smtp_port":          fmt.Sprintf("%d", cfg.Email.SMTPPort),
+		"smtp_user":          cfg.Email.SMTPUser,
+		"smtp_pass":          cfg.Email.SMTPPass,
+		"smtp_from":          cfg.Email.SMTPFrom,
+		"mqtt_tls_cert":      cfg.MQTT.TLSCert,
+		"mqtt_tls_key":       cfg.MQTT.TLSKey,
+		"mqtt_tls_ca":        cfg.MQTT.TLSCA,
 		"public_base_url":    cfg.Platform.PublicBaseURL,
 		"broker_host_public": cfg.Platform.BrokerHostPublic,
 	}
@@ -364,10 +426,31 @@ func storeSettings(database *db.DB, cfg config.Config) error {
 func generateSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback to a fixed secret if crypto/rand fails (should not happen)
-		return "dev-jwt-secret-change-me"
+		panic(fmt.Sprintf("crypto/rand: %v", err))
 	}
 	return hex.EncodeToString(b)
+}
+
+// EnsureJWTSecret replaces an empty or publicly known JWT secret with the one
+// stored by the setup wizard in the settings table, or generates and stores a
+// new random one. Returns the source used ("config", "settings", "generated").
+func EnsureJWTSecret(database *db.DB, cfg *config.Config) (string, error) {
+	if s := cfg.Auth.JWTSecret; s != "" && s != config.DevJWTSecret {
+		return "config", nil
+	}
+	var stored string
+	if err := database.QueryRow(`SELECT value FROM settings WHERE key='jwt_secret'`).Scan(&stored); err == nil &&
+		stored != "" && stored != config.DevJWTSecret {
+		cfg.Auth.JWTSecret = stored
+		return "settings", nil
+	}
+	secret := generateSecret()
+	if _, err := database.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		"jwt_secret", secret); err != nil {
+		return "", fmt.Errorf("store jwt secret: %w", err)
+	}
+	cfg.Auth.JWTSecret = secret
+	return "generated", nil
 }
 
 // configYAMLPaths returns candidate paths for writing config.yml,
@@ -477,15 +560,17 @@ func writeConfigYAML(cfg config.Config) error {
 	var lastErr error
 	for _, path := range paths {
 		if dir := filepath.Dir(path); dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0750); err != nil {
 				lastErr = fmt.Errorf("create config dir %s: %w", dir, err)
 				continue
 			}
 		}
-		if err := os.WriteFile(path, yamlData, 0644); err != nil {
+		// config.yml holds the JWT secret, DB DSN and SMTP password.
+		if err := os.WriteFile(path, yamlData, 0600); err != nil {
 			lastErr = fmt.Errorf("write %s: %w", path, err)
 			continue
 		}
+		_ = os.Chmod(path, 0600)
 		return nil // success
 	}
 	return fmt.Errorf("all config paths failed: %w", lastErr)
@@ -501,11 +586,17 @@ type MQTTTLSResult struct {
 // GenerateMQTTTLS generates a self-signed CA + server certificate for MQTT TLS.
 // host is used as the CN and SAN (DNS or IP). Files are written to dir.
 func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult, error) {
+	if s.Completed() {
+		return nil, errors.New("setup already completed")
+	}
 	if host == "" {
 		host = "localhost"
 	}
 	if dir == "" {
 		dir = defaultCertDir()
+	}
+	if err := validateCertDir(dir); err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create cert dir: %w", err)
@@ -582,6 +673,19 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 // defaultCertDir returns where generated MQTT TLS certs are stored.
 func defaultCertDir() string {
 	return "/etc/iot-platform/certs/mqtt"
+}
+
+// validateCertDir only allows the default cert dir or a relative path inside
+// the working directory; the endpoint is unauthenticated.
+func validateCertDir(dir string) error {
+	clean := filepath.Clean(dir)
+	if clean == filepath.Clean(defaultCertDir()) {
+		return nil
+	}
+	if filepath.IsAbs(clean) || strings.HasPrefix(filepath.ToSlash(clean), "/") || !filepath.IsLocal(clean) {
+		return fmt.Errorf("cert dir must be %s or a relative path without '..'", defaultCertDir())
+	}
+	return nil
 }
 
 // writePEM writes a DER-encoded certificate to a PEM file.

@@ -30,6 +30,10 @@ graph TB
     Internet -->|"iot.cogitor.dev:1883<br/>(MQTT TCP, напрямую)"| PLAT
 ```
 
+> **Уточнение к диаграмме**: real-time канал дашборда — WebSocket `/api/v1/ws`, а не SSE. БД может быть SQLite (по умолчанию) или PostgreSQL (`DATABASE_DRIVER=postgres`, `DATABASE_DSN`).
+
+Ниже описаны два варианта установки: ручная раскладка в `/opt/iot-platform-go` (её использует CI-workflow `deploy-vds.yml`) и [Debian-пакет](#debian-пакет) (`make deb`) со своей раскладкой.
+
 ## CI/CD pipeline
 
 ```mermaid
@@ -109,6 +113,8 @@ sudo systemctl enable iot-platform
 
 ### 3. Переменные окружения
 
+Сам бинарник `.env` не читает; здесь файл загружает systemd через `EnvironmentFile=` в юните выше. Заданные здесь значения — это OS env, поэтому они перекрывают любой `config.yml`.
+
 ```bash
 sudo tee /opt/iot-platform-go/etc/.env << 'EOF'
 # --- Обязательные ---
@@ -116,12 +122,9 @@ PUBLIC_BASE_URL=https://iot.cogitor.dev
 JWT_SECRET=<сгенерировать-случайный-64-символа>
 BROKER_HOST_PUBLIC=iot.cogitor.dev
 
-# --- Администратор ---
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=<надёжный-пароль>
-
-# --- База данных ---
-SQLITE_PATH=/opt/iot-platform-go/data/platform.db
+# --- База данных (SQLite по умолчанию; или DATABASE_DRIVER=postgres + DSN postgres://) ---
+DATABASE_DRIVER=sqlite
+DATABASE_DSN=/opt/iot-platform-go/data/platform.db
 
 # --- Сеть ---
 HTTP_ADDR=:8080
@@ -136,6 +139,15 @@ EOF
 sudo chown iot:iot /opt/iot-platform-go/etc/.env
 sudo chmod 600 /opt/iot-platform-go/etc/.env
 ```
+
+### 4. Первый запуск — мастер настройки
+
+Администратора в env нет (переменные `ADMIN_*` игнорируются). При первом запуске БД пуста, поэтому платформа вместо дашборда поднимает на `:8080` **мастер настройки** (`/setup`, API `/api/v1/setup/*`). Он создаёт администратора и аккаунт по умолчанию — см. [Эксплуатация → мастер настройки](11-operations.md#первый-запуск-мастер-настройки).
+
+- Эндпоинты мастера без авторизации — откройте мастер **до** включения публичного сайта в nginx, например через `ssh -L 8080:127.0.0.1:8080 user@HOST` и `http://localhost:8080/setup`.
+- На шаге 1 укажите DSN, совпадающий с `DATABASE_DSN` из `.env` (`/opt/iot-platform-go/data/platform.db`); значение мастера по умолчанию `/var/lib/iot-platform/platform.db` недоступно на запись при `ProtectSystem=strict` в этом юните.
+- В этом юните на запись открыт только `/opt/iot-platform-go/data`, поэтому мастер не сможет сохранить `config.yml` (предупреждение `failed to write config.yml` ожидаемо); источником истины остаются значения в `.env`.
+- После завершения мастера перезапустите сервис, чтобы маршруты мастера отключились.
 
 ---
 
@@ -159,19 +171,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # SSE (дашборд real-time) — HTTP-based, не WebSocket
-    location /api/v1/events/stream {
+    # WebSocket (дашборд real-time)
+    location /api/v1/ws {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
-        # SSE не использует Upgrade/Connection: upgrade — оставляем обычный HTTP/1.1
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        # Критично для SSE: выключаем буферизацию и увеличиваем таймаут
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_read_timeout 86400s;
+        proxy_read_timeout 86400;
     }
 
     # MQTT over WebSocket
@@ -203,8 +210,9 @@ sudo nginx -t && sudo systemctl reload nginx
 | Порт | Протокол | Назначение |
 |------|----------|-----------|
 | 80 | TCP | HTTP → redirect на HTTPS |
-| 443 | TCP | HTTPS (дашборд + API + SSE + MQTT-over-WebSocket) |
+| 443 | TCP | HTTPS (дашборд + API + WebSocket + MQTT-over-WebSocket) |
 | 1883 | TCP | MQTT TCP (для устройств) |
+| 8883 | TCP | MQTT over TLS (только если заданы `MQTT_TLS_CERT` / `MQTT_TLS_KEY`) |
 
 ---
 
@@ -214,11 +222,13 @@ sudo nginx -t && sudo systemctl reload nginx
 
 Workflow **`.gitea/workflows/deploy-vds.yml`** — push в ветку `vds` или ручной запуск:
 
-1. Собирает web UI (`npm ci && npm run build`)
-2. Собирает Go-бинарник (`CGO_ENABLED=0 GOOS=linux`)
-3. `scp` бинарник + systemd unit на сервер
-4. `systemctl restart iot-platform`
+1. Собирает web UI (`npm ci && npm run build`, Node 22)
+2. Собирает Go-бинарник (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`)
+3. `scp` бинарник + `deploy/iot-platform.service` на сервер, запускает `deploy/remote-deploy.sh`
+4. Устанавливает юнит, если он изменился, `systemctl restart iot-platform`
 5. Проверка health: `curl http://127.0.0.1:8080/healthz`
+
+> **Известная проблема**: `deploy-vds.yml` (и `build-deb.yml`) фиксируют `go-version: "1.25.x"`, тогда как `go.mod` требует `go 1.26.0`, а `Dockerfile` использует `golang:1.26-bookworm`. Если сборка падает на проверке версии Go, поднимите версию в workflow до `1.26.x` (или положитесь на автозагрузку toolchain).
 
 **Секреты Gitea:**
 
@@ -259,8 +269,11 @@ sudo journalctl -u iot-platform -f
 curl -fsS https://iot.cogitor.dev/healthz   # liveness
 curl -fsS https://iot.cogitor.dev/readyz    # readiness (MQTT + DB)
 
-# MQTT
-mosquitto_sub -h iot.cogitor.dev -t '#' -u 'product.device' -P '<token>' -v
+# MQTT — подписка с кредами устройства на его собственные downlink-топики
+# (маска '#' отклоняется ACL брокера)
+mosquitto_sub -h iot.cogitor.dev -u 'product.device' -P '<token>' -v -t 'v1/me/r/req'
+# отправить тестовую телеметрию
+mosquitto_pub -h iot.cogitor.dev -u 'product.device' -P '<token>' -t 'v1/t' -m '{"temp":21.5}'
 ```
 
 ---
@@ -272,7 +285,29 @@ mosquitto_sub -h iot.cogitor.dev -t '#' -u 'product.device' -P '<token>' -v
 2. Загружает на сервер
 3. Перезапускает сервис (простой ~2 секунды)
 
-SQLite-база и данные сохраняются в `/opt/iot-platform-go/data/` — не затрагиваются при обновлении.
+SQLite-база и данные сохраняются в `/opt/iot-platform-go/data/` — не затрагиваются при обновлении. При PostgreSQL данные хранятся на сервере БД; бэкап через `pg_dump` (см. [Эксплуатация → База данных](11-operations.md#база-данных)).
+
+---
+
+## Debian-пакет
+
+Альтернатива ручной раскладке выше: собрать `.deb` через `make deb` (запускает `deb/build.sh`, нужен Linux или WSL с `dpkg-deb`, Node и Go). CI-workflow `.gitea/workflows/build-deb.yml` собирает тот же пакет при push в `master` / теги `v*` и на тегах прикладывает его к Gitea Release.
+
+```bash
+make deb                                   # → dist/iot-platform_<version>_amd64.deb (версия из version.txt)
+sudo dpkg -i dist/iot-platform_<version>_amd64.deb
+```
+
+| Что | Где |
+|-----|-----|
+| Бинарник | `/usr/bin/iot-platform` |
+| Системный пользователь / группа | `iot-platform` (создаётся в `preinst`, home `/var/lib/iot-platform`, без login shell) |
+| Конфиг | `/etc/iot-platform/config.yml` (поставляется пустым; записывается мастером настройки), сертификаты в `/etc/iot-platform/certs/` |
+| Данные | `/var/lib/iot-platform` (рабочий каталог; файл SQLite по умолчанию `/var/lib/iot-platform/platform.db`) |
+| Логи | `/var/log/iot-platform/platform.log` (ротация через `/etc/logrotate.d/iot-platform`) |
+| systemd-юнит | `/lib/systemd/system/iot-platform.service` (исходник: `deb/iot-platform.service`) |
+
+Юнит запускается от `iot-platform`, имеет `ProtectSystem=strict` с `ReadWritePaths=/var/lib/iot-platform /etc/iot-platform /var/log/iot-platform` и без `EnvironmentFile`. `postinst` включает и (пере)запускает сервис и печатает адрес мастера `http://<host>:8080`. Так как `/etc/iot-platform` доступен на запись, мастер сохраняет результат в `/etc/iot-platform/config.yml`. Предупреждения безопасности мастера действуют и здесь — завершите его до открытия порта 8080 наружу.
 
 ---
 
@@ -281,8 +316,9 @@ SQLite-база и данные сохраняются в `/opt/iot-platform-go/
 | Сервис | URL |
 |--------|-----|
 | Дашборд / API | `https://iot.cogitor.dev` |
-| SSE (real-time) | `https://iot.cogitor.dev/api/v1/events/stream` |
+| WebSocket (real-time) | `wss://iot.cogitor.dev/api/v1/ws` |
 | MQTT TCP | `iot.cogitor.dev:1883` |
+| MQTT TLS (опционально) | `mqtts://iot.cogitor.dev:8883` |
 | MQTT WebSocket | `wss://iot.cogitor.dev/mqtt` |
 | Healthcheck | `https://iot.cogitor.dev/healthz` |
 

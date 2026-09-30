@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="420" viewBox="0 0 1400 420" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c9d4ea"/>
+    </marker>
+    <style>
+      .title { fill:#eee; font-size:22px; font-weight:600; }
+      .num { fill:#0d1020; font-size:15px; font-weight:700; text-anchor:middle; }
+      .ct { fill:#fff; font-size:20px; font-weight:600; }
+      .cl { fill:#e3e8f3; font-size:13.5px; }
+      .chip { fill:#0d1020; opacity:0.55; }
+      .code { fill:#b8f5c8; font-size:12px; font-family:'Cascadia Mono', Consolas, 'Courier New', monospace; }
+      .foot { fill:#dbe3f5; font-size:12px; font-family:'Cascadia Mono', Consolas, 'Courier New', monospace; opacity:0.85; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="420" fill="#0d1020"/>
+  <text x="40" y="48" class="title">Device onboarding &#8212; from product to online device</text>
+
+  <!-- Card 1 -->
+  <rect x="40" y="80" width="300" height="300" rx="14" fill="#1e4f8f"/>
+  <circle cx="74" cy="114" r="17" fill="#8fc2ff"/><text x="74" y="119" class="num">1</text>
+  <text x="62" y="172" class="ct">Create product</text>
+  <text x="62" y="202" class="cl">Products &#8594; New product</text>
+  <text x="62" y="222" class="cl">Define metrics, attributes</text>
+  <text x="62" y="242" class="cl">and RPC methods (schema)</text>
+  <rect x="58" y="276" width="264" height="32" rx="6" class="chip"/>
+  <text x="70" y="297" class="code">product_id: "esp32-climate"</text>
+  <text x="62" y="352" class="foot">POST /api/v1/products</text>
+
+  <!-- Card 2 -->
+  <rect x="380" y="80" width="300" height="300" rx="14" fill="#1f6b45"/>
+  <circle cx="414" cy="114" r="17" fill="#8ee6b0"/><text x="414" y="119" class="num">2</text>
+  <text x="402" y="172" class="ct">Register device</text>
+  <text x="402" y="202" class="cl">Devices &#8594; Add device</text>
+  <text x="402" y="222" class="cl">Access token is shown once</text>
+  <text x="402" y="242" class="cl">(only its SHA-256 is stored)</text>
+  <rect x="398" y="276" width="264" height="32" rx="6" class="chip"/>
+  <text x="410" y="297" class="code">user: esp32-climate.kitchen</text>
+  <text x="402" y="352" class="foot">POST /api/v1/devices</text>
+
+  <!-- Card 3 -->
+  <rect x="720" y="80" width="300" height="300" rx="14" fill="#8a4b12"/>
+  <circle cx="754" cy="114" r="17" fill="#ffc98a"/><text x="754" y="119" class="num">3</text>
+  <text x="742" y="172" class="ct">Flash firmware</text>
+  <text x="742" y="202" class="cl">Embed credentials or the</text>
+  <text x="742" y="222" class="cl">provisioning JSON; for TLS get</text>
+  <text x="742" y="242" class="cl">the CA from /api/v1/mqtt/ca.pem</text>
+  <rect x="738" y="276" width="264" height="32" rx="6" class="chip"/>
+  <text x="748" y="297" class="code" style="font-size:10.5px">CogitorCredentials::createAccessToken(&#8230;)</text>
+  <text x="742" y="352" class="foot">MQTT :1883 &#183; WS :8083 &#183; TLS :8883</text>
+
+  <!-- Card 4 -->
+  <rect x="1060" y="80" width="300" height="300" rx="14" fill="#146b78"/>
+  <circle cx="1094" cy="114" r="17" fill="#8eeaf5"/><text x="1094" y="119" class="num">4</text>
+  <text x="1082" y="172" class="ct">Device online</text>
+  <text x="1082" y="202" class="cl">Telemetry on v1/me/t,</text>
+  <text x="1082" y="222" class="cl">RPC on v1/me/r/req, desired</text>
+  <text x="1082" y="242" class="cl">attributes, Auto-OTA on connect</text>
+  <rect x="1078" y="276" width="264" height="32" rx="6" class="chip"/>
+  <circle cx="1094" cy="292" r="5" fill="#34d399"/>
+  <text x="1106" y="297" class="code">status: online</text>
+  <text x="1082" y="352" class="foot">live updates via WebSocket</text>
+
+  <!-- arrows -->
+  <path d="M344,230 H376" stroke="#c9d4ea" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M684,230 H716" stroke="#c9d4ea" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M1024,230 H1056" stroke="#c9d4ea" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+</svg>

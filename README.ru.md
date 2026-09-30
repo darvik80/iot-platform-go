@@ -4,9 +4,9 @@
 
 [English version](README.md)
 
-Один Go-бинарник. Встроенный MQTT-брокер. SQLite. React-дашборд. Без облачных зависимостей.
+Один Go-бинарник. Встроенный MQTT-брокер. SQLite или PostgreSQL. React-дашборд. Мультиаккаунтность. Без облачных зависимостей.
 
-![Архитектура](docs/images/architecture.png)
+![Архитектура](docs/images/architecture.svg)
 
 ---
 
@@ -37,10 +37,10 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 
 | Слой | Стек |
 |------|------|
-| API / ingest | Go 1.25+, chi router, SQLite |
+| API / ingest | Go 1.26+, chi router, SQLite / PostgreSQL |
 | Брокер | Встроенный MQTT ([mochi-mqtt](https://github.com/mochi-mqtt/server)) в процессе платформы |
-| Автоматизация | Node-RED (опционально, шина правил на `platform/v1/...`) |
-| UI | React + Bootstrap 5 (Vite), встроен в Go-бинарник |
+| Автоматизация | Встроенные плагины + внешние плагины / Node-RED через MQTT-шину `platform/v1/...` |
+| UI | React 19 + Bootstrap 5 (Vite), встроен в Go-бинарник |
 | MCP | Встроенный `/mcp` (JWT) — LLM-инструменты для устройств |
 
 **Без облака. Без SaaS. Без платы за устройство.** Данные остаются на вашем оборудовании.
@@ -54,10 +54,12 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 - **Желаемые атрибуты** — отправка конфигурации на устройства через MQTT downlink
 - **RPC-консоль** — вызов методов устройства (перезагрузка, пользовательские) с автозаполнением форм
 - **OTA-обновления** — загрузка `.bin` прошивок, хостинг URL, авто-отправка при переподключении (Auto-OTA)
-- **Встроенный MQTT-брокер** — внешний брокер не нужен; ACL устройств по идентификатору
-- **Дашборд реального времени** — SSE-обновления статуса, телеметрии, MQTT-сессий (HTTP-based, не WebSocket)
-- **Автоматизация** — шина правил Node-RED для меж-устройственной логики; встроенные плагины для поведения каждого устройства (LED-гирлянда, расписание)
-- **Внешние плагины** — отдельные процессы на любом языке (HTTP / MQTT / gRPC)
+- **Встроенный MQTT-брокер** — внешний брокер не нужен; TCP, WebSocket и TLS (опционально mTLS); ACL по идентификатору устройства
+- **Дашборд реального времени** — обновления статуса, телеметрии и MQTT-сессий через WebSocket
+- **Автоматизация** — встроенные плагины (LED-гирлянда, расписание, Prometheus-экспортер, дашборд метрик); шина правил для внешних плагинов и Node-RED
+- **Внешние плагины** — отдельные процессы на любом языке, подключаются по MQTT
+- **Мультиаккаунтность** — аккаунты, участники, приглашения, политики плагинов для каждого аккаунта
+- **Мастер установки** — при первом запуске настраивает БД, администратора, SMTP и MQTT TLS
 - **MCP-эндпоинт** — AI-клиенты (Cursor, Claude и др.) могут просматривать устройства, читать телеметрию, вызывать RPC
 - **Аутентификация и роли** — JWT-логин, Google OAuth, саморегистрация, роли admin / operator / viewer
 - **API-токены** — долгоживущие токены для скриптов и MCP-интеграции
@@ -68,7 +70,7 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 
 ### Требования
 
-- Go 1.25+ (для bare-metal) или Docker (для контейнерного развёртывания)
+- Go 1.26+ (для bare-metal) или Docker (для контейнерного развёртывания)
 - Node.js 22+ (только для сборки фронтенда; в Docker уже собран)
 
 ### 1. Сборка и запуск (bare metal)
@@ -95,22 +97,29 @@ go build -o bin/platform.exe ./cmd/platform       # собрать Go-бинар
 ### 2. Запуск через Docker
 
 ```bash
-cd deploy
-cp .env.example .env
-# Отредактировать .env — указать PUBLIC_BASE_URL, JWT_SECRET, ADMIN_PASSWORD
-docker compose up -d --build
+# Образ платформы (тома и переменные — docs/ru/13-deploy-docker.md)
+docker build -t cogitor-iot .
+docker run -d --name cogitor-iot -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v cogitor-data:/data -v cogitor-etc:/etc/iot-platform cogitor-iot
+# В мастере установки укажите SQLite DSN /data/platform.db, чтобы БД лежала на томе
+
+# Опционально: Node-RED (deploy/docker-compose.yml содержит только Node-RED)
+cd deploy && cp .env.example .env && docker compose up -d
 ```
 
-### 3. Открыть дашборд
+### 3. Первый запуск — мастер установки
+
+Если `DATABASE_DSN` не задан и `config.yml` нет, платформа стартует в **режиме установки**: откройте http://localhost:8080, и мастер проведёт через выбор БД (SQLite / PostgreSQL), первого администратора, первый аккаунт, SMTP, JWT-секрет, MQTT TLS и публичный URL. Результат записывается в `config.yml`, платформа продолжает запуск. Логина `admin/admin` по умолчанию нет.
+
+> **Безопасность**: эндпоинты мастера работают без авторизации. Проходите мастер на localhost или в доверенной сети и перезапустите процесс после завершения.
 
 | Сервис | URL |
 |--------|-----|
 | Дашборд / API | http://localhost:8080 |
 | MQTT-брокер | `mqtt://localhost:1883` |
 | MQTT WebSocket | `ws://localhost:8083/` (подпротокол `mqtt`) |
+| MQTT TLS | `mqtts://localhost:8883` (если настроены сертификаты) |
 | Node-RED (опционально) | http://localhost:1880 |
-
-**Логин по умолчанию**: `admin@cogitor.local` / `admin`
 
 > **Совет**: Для разработки с hot-reload UI выполните `cd web && npm run dev` в отдельном терминале (API должен работать на `:8080`).
 
@@ -132,21 +141,27 @@ React SPA, встроенный в Go-бинарник. Тёмная тема, �
 | **Devices** | Все зарегистрированные устройства со статусом, версией прошивки, последним появлением |
 | **Device Detail** | Информация о подключении, телеметрия, желаемые атрибуты, OTA-панель, плагины, RPC-консоль, события |
 | **Events** | События устройств с фильтрацией по серьёзности, устройству, времени |
-| **Logs** | Лог-сообщения устройств из MQTT `v1/l` |
+| **Logs** | Лог-сообщения устройств из MQTT `v1/me/l` |
 | **OTA** | Управление прошивками — загрузка `.bin`, регистрация URL, уведомление устройств, Auto-OTA, отслеживание задач |
-| **Automation** | Встроенный редактор Node-RED (iframe) для меж-устройственной логики |
-| **Settings** | Информация о платформе, управление API-токенами, конфигурация |
+| **Settings** | Информация о платформе, API-токены, внешние плагины |
 | **Users** | (Только admin) Список пользователей, управление ролями, отключение/удаление |
+| **Account** | Участники аккаунта, приглашения, политики плагинов |
+| **Audit Log** | Журнал действий в аккаунте |
+| **Docs** | Встроенная справка |
+
+![Устройства](docs/images/dashboard-devices.png)
+
+![Карточка устройства](docs/images/dashboard-device-detail.png)
 
 ### Обновления в реальном времени
 
-Дашборд использует SSE (`GET /api/v1/events/stream?token=<jwt>`) для живых обновлений. При подключении устройства, отправке телеметрии или изменении статуса — дашборд обновляется автоматически. SSE — HTTP-based (не WebSocket), работает через любой reverse proxy без sticky sessions, браузер сам переподключается при обрыве через `Last-Event-ID`.
+Дашборд держит WebSocket (`GET /api/v1/ws?token=<jwt>`) и получает события `device_status`, `telemetry`, `event`, `mqtt` и др. При подключении устройства, телеметрии или смене статуса страницы обновляются автоматически; клиент сам переподключается при обрыве. За reverse proxy нужно пробросить `Upgrade`/`Connection`.
 
 ---
 
 ## Подключение устройств
 
-![Подключение устройства](docs/images/device-onboarding.png)
+![Подключение устройства](docs/images/device-onboarding.svg)
 
 ### Шаг 1 — Создать продукт
 
@@ -203,11 +218,11 @@ password  = <access_token>
 
 ### Телеметрия
 
-Устройства публикуют телеметрию на `v1/t` (короткий) или `iot/v1/.../up/telemetry/data` (полный). Платформа:
+Устройства публикуют телеметрию на `v1/me/t` (короткий) или `iot/v1/.../up/telemetry/data` (полный). Платформа:
 - Парсит JSON-пейлоад
-- Сохраняет в SQLite с временными метками
-- Транслирует через SSE на дашборд
-- Публикует в шину правил для Node-RED
+- Сохраняет в БД с временными метками
+- Транслирует через WebSocket на дашборд
+- Публикует в шину правил для внешних плагинов / Node-RED
 
 **Запрос телеметрии** через REST:
 
@@ -230,7 +245,7 @@ PATCH /api/v1/devices/{id}/attributes/desired
 { "targetTemperature": 22, "mode": "auto" }
 ```
 
-Платформа сохраняет и публикует через MQTT `v1/a/upd`.
+Платформа сохраняет и публикует через MQTT `v1/me/a/upd`.
 
 ---
 
@@ -239,8 +254,8 @@ PATCH /api/v1/devices/{id}/attributes/desired
 RPC-консоль на странице устройства позволяет вызывать любой метод, поддерживаемый устройством.
 
 1. Дашборд отправляет `POST /api/v1/devices/{id}/rpc` с методом и параметрами
-2. Платформа публикует MQTT downlink на `v1/r/req`
-3. Устройство обрабатывает и отвечает на `v1/r/res`
+2. Платформа публикует MQTT downlink на `v1/me/r/req`
+3. Устройство обрабатывает и отвечает на `v1/me/r/res`
 4. Платформа сопоставляет ответ по корреляционному `id`
 
 ### Встроенные методы
@@ -270,7 +285,7 @@ RPC-консоль на странице устройства позволяет
 - **Notify product** — отправка OTA всем устройствам продукта
 - **Notify single device** — одному устройству
 
-Устройство получает URL через MQTT `v1/o/upd` и начинает загрузку.
+Устройство получает URL через MQTT `v1/me/o/upd` и начинает загрузку.
 
 ### Auto-OTA
 
@@ -288,21 +303,26 @@ RPC-консоль на странице устройства позволяет
 Платформа публикует нормализованные JSON-события:
 
 ```
-platform/v1/events/{product_id}/{device_id}/telemetry
-platform/v1/events/{product_id}/{device_id}/status
-platform/v1/events/{product_id}/{device_id}/event
-platform/v1/events/{product_id}/{device_id}/attributes/reported
-platform/v1/events/{product_id}/{device_id}/rpc/result
-platform/v1/events/{product_id}/{device_id}/ota
+platform/v1/events/{account_slug}/{product_id}/{device_id}/telemetry
+platform/v1/events/{account_slug}/{product_id}/{device_id}/status
+platform/v1/events/{account_slug}/{product_id}/{device_id}/event
+platform/v1/events/{account_slug}/{product_id}/{device_id}/attributes/reported
+platform/v1/events/{account_slug}/{product_id}/{device_id}/rpc/result
+platform/v1/events/{account_slug}/{product_id}/{device_id}/ota
+platform/v1/events/{account_slug}/{product_id}/{device_id}/log
 ```
 
-Node-RED подписывается и может публиковать команды обратно:
+Внешние плагины (включая Node-RED) подписываются на события своего аккаунта (`platform/v1/events/{account_slug}/#`) и могут публиковать команды обратно:
 
 ```
-platform/v1/commands/{product_id}/{device_id}/rpc
-platform/v1/commands/{product_id}/{device_id}/attributes/desired
-platform/v1/commands/{product_id}/{device_id}/ota
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/rpc
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/attributes/desired
+platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 ```
+
+Отдельных кредов для Node-RED нет: зарегистрируйте его в **Settings → External plugins** и используйте выданные MQTT-логин `extplg_{account_slug}_{id}` и пароль в MQTT-узле Node-RED. Подробнее — [06-automation](docs/ru/06-automation.md).
+
+> Команды **обязаны** содержать slug собственного аккаунта плагина: ACL брокера отклоняет чужие slug, а целевое устройство ищется только внутри этого аккаунта. Старая форма без slug `commands/{product_id}/{device_id}/…` больше не принимается.
 
 ### Встроенные плагины
 
@@ -321,18 +341,18 @@ platform/v1/commands/{product_id}/{device_id}/ota
 - Установить время и дни недели (напр. перезагрузка в 04:00 по будням)
 - С учётом часовой зоны (`TIMEZONE` или переопределение для каждого binding)
 
+#### Prometheus-экспортер и дашборд метрик
+
+- **prometheus-exporter** — отдельный HTTP-листенер (по умолчанию `:9100`, опционально bearer-токен) со счётчиками устройств / телеметрии / RPC с меткой аккаунта
+- **metrics-dashboard** — дашборд устройства: графики телеметрии, индикаторы, история RPC, таймлайн онлайна
+
+Плагины каталога включаются и выключаются для каждого аккаунта (страница **Account**, `/api/v1/plugins/policies`).
+
 ### Внешние плагины
 
-Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой через четыре транспорта:
+Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой по **MQTT** (шина правил): подписываются на события своего аккаунта и публикуют команды. Транспорты webhook / polling / gRPC из [08-external-plugins](docs/ru/08-external-plugins.md) запланированы, но не реализованы.
 
-| Режим | Направление | Когда использовать |
-|-------|-------------|--------------------|
-| **Webhook** (HTTP push) | Платформа → Плагин | Низкая задержка, у плагина есть публичный IP |
-| **Polling** (HTTP pull) | Плагин → Платформа | Плагин за NAT/файрволом |
-| **MQTT** (шина правил) | Плагин подписывается на брокер | Кросс-устройственные события, стиль Node-RED |
-| **gRPC** | Платформа → Плагин | Высокая пропускная способность, строгая типизация |
-
-Создать внешний плагин: **Settings → External Plugins**. Платформа генерирует API-токен + MQTT-креды (`extplg_…`). Пишите на Python, Go, Java, C++ — любом языке, который говорит HTTP, MQTT или gRPC. Примеры: [examples/plugins/](examples/plugins/).
+Создать внешний плагин: **Settings → External Plugins**. Платформа выдаёт MQTT-креды (`extplg_{account_slug}_{id}` + пароль, показывается один раз). Пишите на Python, Go, Java, C++ — любом языке с MQTT-клиентом. Примеры: [examples/plugins/](examples/plugins/).
 
 ---
 
@@ -374,6 +394,10 @@ platform/v1/commands/{product_id}/{device_id}/ota
 | `get_attributes` | Reported + desired атрибуты |
 | `set_desired_attributes` | Отправка desired-атрибутов |
 
+Операции записи (`invoke_rpc`, `reboot_device`, `set_desired_attributes`) требуют роли **operator** или **admin**.
+
+> MCP-инструменты ограничены активным аккаунтом токена (членство и статус аккаунта проверяются на каждый запрос); инструменты записи требуют роль `operator` или `admin` в этом аккаунте.
+
 ---
 
 ## Аутентификация и пользователи
@@ -382,11 +406,13 @@ platform/v1/commands/{product_id}/{device_id}/ota
 
 - **Пароль** — логин по username или email + пароль
 - **Google OAuth** — вход / регистрация через Google
-- **Саморегистрация** — создание аккаунта с подтверждением email (если включено)
+- **Саморегистрация** — создаёт пользователя **и личный аккаунт**, в котором он admin (включена по умолчанию; для приватных инсталляций задайте `REGISTER_ENABLED=false`)
 
 ### Роли
 
-| Роль | Чтение | Запись (устройства, RPC, OTA) | Админ (пользователи, настройки) |
+Роли назначаются **в рамках аккаунта** (membership): один пользователь может быть admin в одном аккаунте и viewer в другом.
+
+| Роль | Чтение | Запись (устройства, RPC, OTA) | Админ (участники, приглашения, политики) |
 |------|--------|-------------------------------|-------------------------------|
 | `admin` | да | да | да |
 | `operator` | да | да | нет |
@@ -403,7 +429,7 @@ platform/v1/commands/{product_id}/{device_id}/ota
 
 ## Конфигурация
 
-Приоритет конфигурации (первый непустой выигрывает): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**.
+Приоритет конфигурации (первый непустой выигрывает): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**. Мастер установки записывает `config.yml` (в нём секреты — держите `chmod 600`). Бинарник **не читает** `.env`; `.env` используется только Docker Compose / systemd `EnvironmentFile`.
 
 ### Основные переменные
 
@@ -412,37 +438,48 @@ platform/v1/commands/{product_id}/{device_id}/ota
 | `HTTP_ADDR` | `:8080` | Адрес HTTP |
 | `MQTT_ADDR` | `:1883` | MQTT TCP |
 | `MQTT_WS_ADDR` | `:8083` | MQTT over WebSocket. `off` для отключения |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Файл БД SQLite |
+| `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS (требует cert + key) |
+| `MQTT_TLS_CERT` | | Путь к TLS-сертификату (включает TLS при указании с ключом) |
+| `MQTT_TLS_KEY` | | Путь к приватному ключу TLS |
+| `MQTT_TLS_CA` | | Путь к CA-сертификату (включает mutual TLS) |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Файл БД SQLite (legacy, используйте DATABASE_DSN) |
+| `DATABASE_DRIVER` | `sqlite` | Драйвер БД: `sqlite` или `postgres` |
+| `DATABASE_DSN` | (auto) | DSN базы данных (напр. `postgres://user:pass@host/db?sslmode=disable`) |
+| `DB_MAX_OPEN_CONNS` | `8` | Читается, но пока не применяется (SQLite — 1, PostgreSQL — 8) |
+| `DATA_DIR` | (auto) | Каталог данных (по умолчанию — каталог БД для SQLite, `./data` для Postgres) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL для OTA, email, OAuth. **Доступен с устройств** |
+| `PLATFORM_NAME` | `Cogitor IoT` | Отображаемое имя платформы |
 | `TIMEZONE` | `UTC` | Часовая зона IANA для расписаний и тихих часов |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `JWT_SECRET` | (dev) | Ключ JWT — **сменить в production** |
-| `ADMIN_EMAIL` | `admin@cogitor.local` | Email администратора |
-| `ADMIN_PASSWORD` | `admin` | Пароль администратора |
+| `ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin` / `admin@cogitor.local` / `admin` | Используются только мастером установки; существующая БД не пересоздаётся |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Период хранения телеметрии |
+| `RPC_DEFAULT_TIMEOUT_MS` | `30000` | Таймаут ожидания ответа RPC |
 | `BROKER_HOST_PUBLIC` | `localhost` | MQTT-хост для credentials устройств |
-| `REGISTER_ENABLED` | `true` | Разрешить саморегистрацию |
-| `REGISTER_DEFAULT_ROLE` | `viewer` | Роль для новых регистраций |
-| `REQUIRE_EMAIL_VERIFY` | `true` | Требовать подтверждение email |
-| `RULES_BUS_ENABLED` | `true` | Шина событий Node-RED |
-| `NODERED_URL` | `http://localhost:1880` | URL Node-RED для страницы Automation |
+| `REGISTER_ENABLED` | `true` | Разрешить саморегистрацию (отключайте на приватных инсталляциях) |
+| `REGISTER_DEFAULT_ROLE` | `admin` | Роль в личном аккаунте зарегистрировавшегося |
+| `REQUIRE_EMAIL_VERIFY` | `false` | Требовать подтверждение email |
+| `RULES_BUS_ENABLED` | `true` | Шина событий/команд для внешних плагинов и Node-RED |
+| `RULES_BUS_PREFIX` | `platform/v1` | Префикс топиков шины правил |
+| `NODERED_URL` | `http://localhost:1880` | Ссылка на Node-RED в UI (без iframe) |
+| `LAB_ALLOW_UNKNOWN_DEVICES` | `false` | Зарезервировано, сейчас не используется |
+| `BOOTSTRAP_ACCOUNT_SLUG` / `BOOTSTRAP_ACCOUNT_NAME` | `default` / `Default` | Первый аккаунт, создаваемый мастером установки |
 
 ---
 
 ## Развёртывание
 
-### Docker Compose (рекомендуется для production)
+### Docker
+
+Образ платформы собирается из корневого `Dockerfile` (см. [Запуск через Docker](#2-запуск-через-docker)). Пути в образе: том данных `/data` (используйте `DATABASE_DSN=/data/platform.db`), конфиг `/etc/iot-platform/config.yml`, порты `8080 1883 8083 8883`.
+
+`deploy/docker-compose.yml` сейчас содержит **только Node-RED** (`:1880`, том `nodered_data`):
 
 ```bash
 cd deploy
 cp .env.example .env
-# Отредактировать .env
-docker compose up -d --build
+docker compose up -d
 ```
-
-Запускает:
-- **platform** — HTTP на `:8080`, MQTT на `:1883`
-- **nodered** — Node-RED на `:1880` (опционально)
 
 ### Bare Metal (разработка)
 
@@ -453,7 +490,7 @@ make build
 
 ### VPS (`iot.cogitor.dev`)
 
-Production — **systemd** сервис (без Docker).
+Production — **systemd** сервис (без Docker). CI: [docs/ru/12-deploy-vds.md](docs/ru/12-deploy-vds.md).
 
 ```bash
 make build-linux
@@ -465,39 +502,67 @@ make build-linux
 | Эндпоинт | Назначение |
 |----------|-----------|
 | `GET /healthz` | Liveness probe (без авторизации) |
-| `GET /readyz` | DB + MQTT ready (без авторизации) |
+| `GET /readyz` | DB + MQTT ready (без авторизации); содержит `mqtt_clients` |
+| `GET /metrics` | Метрики платформы (сейчас **без авторизации** — ограничьте на reverse proxy) |
 
 ---
 
 ## MQTT-протокол
 
-Платформа **является** MQTT-брокером. Устройства и Node-RED подключаются к `MQTT_ADDR` (по умолчанию `:1883`) или MQTT-over-WebSocket на `MQTT_WS_ADDR` (по умолчанию `:8083`).
+Платформа **является** MQTT-брокером. Устройства и Node-RED подключаются к `MQTT_ADDR` (по умолчанию `:1883`), MQTT-over-WebSocket на `MQTT_WS_ADDR` (по умолчанию `:8083`) или MQTT over TLS на `MQTT_TLS_ADDR` (по умолчанию `:8883`, см. [05-mqtt-tls](docs/ru/05-mqtt-tls.md)).
 
 ### Стили топиков
 
-Стиль **автоопределяется** из первого пакета устройства:
+Новые устройства по умолчанию используют `short`; стиль **автоопределяется** по первому пакету устройства:
 
 | Префикс | Стиль |
 |---------|-------|
 | `iot/v1/{product}/{device}/…` | Полный |
-| `v1/me/…` или `v1/t`, `v1/r/req`, … | Короткий |
+| `v1/me/…` или `v1/me/t`, `v1/me/r/req`, … | Короткий |
 
-### Основные топики (короткий стиль)
+### Основные топики (короткий и полный стиль)
 
-| Топик | Направление | Назначение |
-|-------|-------------|-----------|
-| `v1/s` | up | Статус (LWT — онлайн/офлайн) |
-| `v1/t` | up | Телеметрия |
-| `v1/e` | up | События устройства |
-| `v1/a` | up | Отчёт об атрибутах |
-| `v1/a/upd` | down | Обновление desired-атрибутов |
-| `v1/r/req` | down | RPC-запрос |
-| `v1/r/res` | up | RPC-ответ |
-| `v1/o/upd` | down | Уведомление OTA (URL) |
-| `v1/o/p` | up | Прогресс OTA |
-| `v1/n/req` | up | Запрос NTP |
-| `v1/n/res` | down | Ответ NTP |
-| `v1/l` | up | Лог-сообщения устройства |
+Топики полного стиля начинаются с `iot/v1/{product}/{device}/` (в таблице — `…/`). Короткие аплинк-топики принимаются и как `v1/me/…`, и как `v1/…`; короткий даунлинк платформа всегда шлёт в `v1/me/…`.
+
+| Назначение | Напр. | Короткий | Полный |
+|------------|-------|----------|--------|
+| Статус (LWT — онлайн/офлайн) | up | `v1/me/s` | `…/up/status` |
+| Телеметрия | up | `v1/me/t` | `…/up/telemetry/data` |
+| События устройства | up | `v1/me/e` | `…/up/events/post` |
+| Отчёт об атрибутах | up | `v1/me/a` | `…/up/attributes/report` |
+| Запрос desired-атрибутов | up | `v1/me/a/req` | `…/up/attributes/request` |
+| Ответ с desired-атрибутами | down | `v1/me/a/res` | `…/down/attributes/response` |
+| Обновление desired-атрибутов | down | `v1/me/a/upd` | `…/down/attributes/update` |
+| RPC-запрос (платформа → устройство) | down | `v1/me/r/req` | `…/down/rpc/request` |
+| RPC-ответ (устройство → платформа) | up | `v1/me/r/res` | `…/up/rpc/response` |
+| RPC-запрос (устройство → платформа) | up | `v1/me/r/creq` | `…/up/rpc/request` |
+| RPC-ответ (платформа → устройство) | down | `v1/me/r/cres` | `…/down/rpc/response` |
+| Запрос NTP | up | `v1/me/n/req` | `…/up/ntp/request` |
+| Ответ NTP | down | `v1/me/n/res` | `…/down/ntp/response` |
+| Версия OTA | up | `v1/me/o/ver` | `…/up/ota/version` |
+| Запрос OTA (pull) | up | `v1/me/o/q` | `…/up/ota/query` |
+| Уведомление OTA (URL) | down | `v1/me/o/upd` | `…/down/ota/update` |
+| Отмена OTA | down | `v1/me/o/can` | `…/down/ota/cancel` |
+| Прогресс OTA | up | `v1/me/o/p` | `…/up/ota/progress` |
+| Лог-сообщения устройства | up | `v1/me/l` | `…/up/logs/report` |
+
+### Аутентификация устройства
+
+1. Дашборд создаёт устройство → генерирует токен доступа → в БД хранится SHA-256
+2. MQTT CONNECT: `username={product}.{device}`, `password=token`
+3. ACL разрешает устройству его топики `iot/v1/{product}/{device}/…` и дерево короткого стиля `v1/…`
+4. Ротация токена разрывает текущую сессию; устройство должно переподключиться с новым токеном
+
+> Даунлинк-топики короткого стиля (`v1/me/…`) у всех устройств одинаковые, но платформа доставляет каждое сообщение напрямую в сессию целевого устройства. Публикации устройство→устройство брокер не пересылает: сообщения устройств получает только платформа.
+
+### Мониторинг
+
+Страница **MQTT** показывает:
+- Статус брокера (listening / down)
+- Подключённых клиентов (тип, username, IP, подписки)
+- Ленту событий брокера в реальном времени (auth, connect/disconnect, ACL deny, ingest, publish)
+
+![Страница MQTT](docs/images/dashboard-mqtt.png)
 
 ---
 
@@ -529,12 +594,12 @@ make build-linux
 ## Чек-лист приёмки
 
 - [ ] Устройство подключается с токеном и появляется **online** в дашборде
-- [ ] Телеметрия видна на странице устройства и обновляется через SSE
-- [ ] Desired-атрибут достигает устройства (`v1/a/upd`)
+- [ ] Телеметрия видна на странице устройства и обновляется через WebSocket
+- [ ] Desired-атрибут достигает устройства (`v1/me/a/upd`)
 - [ ] RPC round-trip с совпадающим `id` и `code: 0`
 - [ ] NTP-запрос получает `serverRecvTime` / `serverSendTime`
 - [ ] Ротация токена отключает старую сессию; новый токен работает
-- [ ] Node-RED получает `platform/v1/events/.../telemetry`
+- [ ] Node-RED получает `platform/v1/events/{account}/.../telemetry`
 - [ ] Auto-OTA отправляет прошивку при включении и переподключении устройства
 
 ---

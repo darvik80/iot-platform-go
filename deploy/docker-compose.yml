@@ -12,6 +12,8 @@ services:
       NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-cogitor-nodered-dev}
       # Container runtime: Docker=host.docker.internal, Podman=host.containers.internal
       MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-host.docker.internal}
+      # Account slug of the external plugin used by Node-RED (extplg_{slug}_{id})
+      ACCOUNT_SLUG: ${ACCOUNT_SLUG:-default}
     entrypoint: ["/entrypoint-custom.sh"]
     volumes:
       - ./nodered/data:/data

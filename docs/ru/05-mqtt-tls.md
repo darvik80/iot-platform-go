@@ -4,7 +4,7 @@
 
 Платформа поддерживает два режима:
 - **Серверный TLS** (стандартный) — шифрование трафика, устройство проверяет сертификат сервера
-- **Взаимный TLS** (mTLS) — дополнительно сервер проверяет сертификат каждого устройства
+- **Взаимный TLS** (mTLS) — дополнительно сервер проверяет сертификат каждого устройства (только на TLS-слушателе `:8883`)
 
 ---
 
@@ -53,9 +53,9 @@ mqtt:
   addr: ":1883"
   ws_addr: ":8083"
   tls_addr: ":8883"
-  tls_cert: "/etc/iot-platform-go/certs/cert.pem"
-  tls_key: "/etc/iot-platform-go/certs/key.pem"
-  # tls_ca: "/etc/iot-platform-go/certs/ca.pem"   # раскомментировать для взаимного TLS
+  tls_cert: "/etc/iot-platform/certs/mqtt/cert.pem"
+  tls_key: "/etc/iot-platform/certs/mqtt/key.pem"
+  # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"   # раскомментировать для взаимного TLS
   broker_host_public: "192.168.1.22"
 ```
 
@@ -74,6 +74,10 @@ make gen-mqtt-tls DIR=certs    # другой каталог
 - `ca.pem` / `ca-key.pem` — самоподписанный CA (действителен 10 лет)
 - `cert.pem` / `key.pem` — серверный сертификат, подписанный CA (действителен 1 год)
 - `client.pem` / `client-key.pem` — клиентский сертификат для взаимного TLS (действителен 1 год)
+
+### Мастером настройки
+
+При первом запуске мастер настройки может сгенерировать сертификаты через `POST /api/v1/setup/generate-tls` (`{ "host"?, "dir"? }`). Каталог по умолчанию: `/etc/iot-platform/certs/mqtt`. Создаются только `ca.pem`, `cert.pem` (серверный, CN/SAN = `host`) и `key.pem`; клиентский сертификат **не** создаётся — для mTLS используйте `make gen-mqtt-tls` или openssl.
 
 ### Через openssl
 
@@ -104,7 +108,7 @@ rm client.csr ca.srl
 
 ## Подключение устройств
 
-Когда TLS включён, API учётных данных устройства (`GET /api/devices/{id}/credentials`) автоматически возвращает TLS-порт:
+Учётные данные устройства возвращают только `POST /api/v1/devices` (создание) и `POST /api/v1/devices/{id}/token/rotate`. Когда TLS включён, в них автоматически подставляется TLS-порт:
 
 ```json
 {
@@ -118,6 +122,11 @@ rm client.csr ca.srl
   }
 }
 ```
+
+### Скачивание CA-сертификата
+
+`GET /api/v1/mqtt/ca.pem` (публичный, без авторизации) отдаёт файл, указанный в `MQTT_TLS_CA`.
+Если `MQTT_TLS_CA` не задан, возвращается `404`; в этом случае передайте `ca.pem` на устройства самостоятельно.
 
 ### ESP32 (стандартный TLS)
 
@@ -153,7 +162,7 @@ client.connect("product.device", "product.device", token);
 
 ## Взаимный TLS (mTLS)
 
-Когда `MQTT_TLS_CA` установлен, платформа требует от каждого MQTT-клиента предъявить действительный сертификат, подписанный этим CA. Полезно для deployments, где токенов недостаточно.
+Когда `MQTT_TLS_CA` установлен, платформа требует от каждого MQTT-клиента, подключающегося к TLS-слушателю (`:8883`), предъявить действительный сертификат, подписанный этим CA. Обычный MQTT (`:1883`) и WebSocket (`:8083`) клиентские сертификаты не проверяют. Полезно для deployments, где токенов недостаточно.
 
 ```bash
 export MQTT_TLS_CERT=./certs/mqtt/cert.pem
@@ -167,20 +176,23 @@ export MQTT_TLS_CA=./certs/mqtt/ca.pem    # включает взаимный TL
 
 ## Docker-развёртывание
 
+`deploy/docker-compose.yml` содержит только Node-RED; контейнер платформы собирается из корневого `Dockerfile` и запускается отдельно. Смонтируйте сертификаты и передайте пути через окружение:
+
 ```bash
-# Положить сертификаты в deploy/certs/
-cp cert.pem key.pem deploy/certs/
+docker build -t cogitor-iot-platform .
 
-# Добавить в deploy/.env
-cat >> deploy/.env <<EOF
-MQTT_TLS_CERT=/etc/iot-platform-go/certs/cert.pem
-MQTT_TLS_KEY=/etc/iot-platform-go/certs/key.pem
-EOF
-
-docker compose up -d --build
+docker run -d --name iot-platform \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v iot-platform-data:/data \
+  -v "$PWD/certs/mqtt:/etc/iot-platform/certs/mqtt:ro" \
+  -e MQTT_TLS_CERT=/etc/iot-platform/certs/mqtt/cert.pem \
+  -e MQTT_TLS_KEY=/etc/iot-platform/certs/mqtt/key.pem \
+  cogitor-iot-platform
 ```
 
-`deploy/docker-compose.yml` монтирует `./certs` read-only в контейнер: `/etc/iot-platform-go/certs/`.
+Процесс работает от пользователя `platform` (uid 1000), поэтому смонтированный `key.pem` должен быть доступен этому uid на чтение.
+
+Bare-metal / systemd: положите файлы в `/etc/iot-platform/certs/mqtt/` и задайте `mqtt.tls_cert` / `mqtt.tls_key` в `config.yml` (или переменные окружения `MQTT_TLS_*`).
 
 Не забудьте открыть порт 8883 наружу, если устройства подключаются через TLS.
 

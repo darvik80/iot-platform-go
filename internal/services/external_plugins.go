@@ -8,11 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"sync"
 
 	"cogitor-iot-platform/internal/db"
 	"cogitor-iot-platform/internal/models"
 )
+
+// pluginIDRe keeps the id safe inside the MQTT username extplg_{slug}_{id}.
+var pluginIDRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 // ExternalPluginHub manages out-of-process plugins that connect via MQTT (or AMQP in cluster mode).
 type ExternalPluginHub struct {
@@ -60,8 +65,14 @@ func (h *ExternalPluginHub) Register(in RegisterExternalPluginInput) (*models.Ex
 	if in.ID == "" {
 		return nil, "", errors.New("plugin id required")
 	}
+	if !pluginIDRe.MatchString(in.ID) {
+		return nil, "", errors.New("invalid plugin id: 1-64 chars [a-zA-Z0-9._-], starting with a letter or digit")
+	}
 	if in.Name == "" {
 		return nil, "", errors.New("plugin name required")
+	}
+	if existing, ok := h.GetPlugin(in.ID); ok && existing.AccountID != in.AccountID {
+		return nil, "", errors.New("plugin id already taken")
 	}
 
 	// Generate MQTT credentials — username includes account slug for ACL scoping
@@ -131,6 +142,26 @@ func (h *ExternalPluginHub) ListAll() []models.ExternalPlugin {
 		out = append(out, *p)
 	}
 	return out
+}
+
+// ListForAccount returns the external plugins registered in accountID, sorted by ID.
+func (h *ExternalPluginHub) ListForAccount(accountID int64) []models.ExternalPlugin {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	out := make([]models.ExternalPlugin, 0)
+	for _, p := range h.plugins {
+		if p.AccountID == accountID {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// OwnedBy reports whether plugin id exists and belongs to accountID.
+func (h *ExternalPluginHub) OwnedBy(id string, accountID int64) bool {
+	p, ok := h.GetPlugin(id)
+	return ok && p.AccountID == accountID
 }
 
 // ValidateMQTTCreds checks MQTT username/password for external plugin auth.

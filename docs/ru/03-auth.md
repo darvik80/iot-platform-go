@@ -6,9 +6,11 @@
 - **Саморегистрация** с подтверждением email (опционально)
 - **Google OAuth** — вход / регистрация / привязка к существующему аккаунту
 
-Начальный администратор создаётся из переменных окружения: `ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+Первый администратор и первый аккаунт создаются **мастером настройки**, который запускается автоматически, если база данных пуста. Переменные окружения `ADMIN_*` для создания администратора не используются.
 
-Роль по умолчанию для новых пользователей: `viewer` (настраивается через `REGISTER_DEFAULT_ROLE`).
+Саморегистрация создаёт **личный аккаунт**, в котором новый пользователь — `admin`. `REGISTER_DEFAULT_ROLE` (по умолчанию `admin`) записывается только в глобальное поле `role` пользователя.
+
+> **Замечания по безопасности.** При значениях по умолчанию (`REGISTER_ENABLED=true`, `REQUIRE_EMAIL_VERIFY=false`) любой, у кого есть доступ к дашборду, может зарегистрироваться и получить собственный аккаунт. Для закрытых установок задайте `REGISTER_ENABLED=false` и добавляйте пользователей через приглашения или раздел **Members**.
 
 ---
 
@@ -25,6 +27,20 @@
 | POST | `/api/v1/auth/resend-verification` | Повторная отправка письма подтверждения |
 | GET | `/api/v1/auth/google` | Начало Google OAuth (редирект) |
 | GET | `/api/v1/auth/google/callback` | Callback от Google → редирект в SPA с `#auth=<jwt>` |
+| GET | `/api/v1/auth/check-slug?slug=` | Доступность slug аккаунта |
+| GET | `/api/v1/invitations/{token}` | Информация о приглашении |
+
+### С авторизацией (активный аккаунт не требуется)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/api/v1/me` | Текущий пользователь |
+| GET | `/api/v1/me/accounts` | Аккаунты пользователя |
+| POST | `/api/v1/auth/switch-account` | `{ "account_id" }` → новый JWT |
+| GET / POST | `/api/v1/me/tokens` | Список / создание API-токенов |
+| DELETE | `/api/v1/me/tokens/{id}` | Отзыв API-токена |
+| GET / POST / DELETE | `/api/v1/me/avatar` | Аватар |
+| POST | `/api/v1/invitations/{token}/accept` | Принять приглашение |
 
 ### Только для администратора
 
@@ -33,6 +49,14 @@
 | GET | `/api/v1/users` |
 | PATCH | `/api/v1/users/{id}` |
 | DELETE | `/api/v1/users/{id}` |
+| GET / POST | `/api/v1/invitations` |
+| POST | `/api/v1/invitations/{id}/resend` |
+| DELETE | `/api/v1/invitations/{id}` |
+| GET / POST | `/api/v1/members` |
+| PATCH / DELETE | `/api/v1/members/{userId}` |
+| GET | `/api/v1/audit-log` |
+
+Полный список: [02-api.md](02-api.md).
 
 ---
 
@@ -68,8 +92,9 @@
 | `EMAIL_MODE` | `log` | `log` — ссылка в stdout; `smtp` — отправка письма |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | — | Обязательны для режима `smtp` |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Ссылки подтверждения, Google callback, OTA URL |
-| `REQUIRE_EMAIL_VERIFY` | `true` | Требовать подтверждение для входа |
+| `REQUIRE_EMAIL_VERIFY` | `false` | Требовать подтверждение для входа |
 | `REGISTER_ENABLED` | `true` | Разрешить саморегистрацию |
+| `REGISTER_DEFAULT_ROLE` | `admin` | Глобальная `role`, записываемая саморегистрирующимся пользователям |
 
 ---
 
@@ -115,7 +140,7 @@ PUBLIC_BASE_URL=http://localhost:8080
 # Создание токена через API
 JWT=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin","password":"admin"}' | jq -r .token)
+  -d '{"email":"admin","password":"<password>"}' | jq -r .token)
 
 curl -s -X POST http://localhost:8080/api/v1/me/tokens \
   -H "Authorization: Bearer $JWT" \
@@ -128,18 +153,14 @@ curl -s -X POST http://localhost:8080/api/v1/me/tokens \
 
 ## Аудит-лог
 
-Все действия администраторов логируются в таблицу `audit_log` со следующими полями:
+В таблицу `audit_log` логируется часть изменяющих действий: создание продуктов и устройств, ротация токена, desired-атрибуты, RPC, запуск и уведомление OTA, изменение политик плагинов. Поля:
 
 - `user_id` — кто выполнил действие (nullable для системных действий)
-- `actor_kind` — тип актора: `user`, `platform_admin`, `api_token`, `setup`
+- `actor_kind` — тип актора (в схеме зарезервированы `user`, `platform_admin`, `api_token`, `setup`; сейчас пишется только `user`)
 - `action` — что было сделано (например, `create`, `update`, `delete`)
 - `entity_type` — что было затронуто (например, `device`, `product`, `user`)
 - `entity_id` — идентификатор затронутой сущности
 - `detail` — JSON с дополнительным контекстом
 - `created_at` — временная метка
 
-Поле `actor_kind` различает:
-- `user` — обычные действия администратора аккаунта
-- `platform_admin` — общеплатформенные административные действия (например, удаление аккаунта)
-- `api_token` — действия, выполненные через API-токен
-- `setup` — действия во время мастера начальной настройки
+Сейчас у всех записей `actor_kind = user`, в том числе для действий через API-токен. Значения `platform_admin`, `api_token` и `setup` зарезервированы и пока не пишутся.

@@ -18,7 +18,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 		t.Fatalf("CreateProduct: %v", err)
 	}
 
-	fw, err := p.StoreFirmwareFile(FirmwareInput{
+	fw, err := p.StoreFirmwareFile(1, FirmwareInput{
 		ProductID: pr.ProductID,
 		Version:   "1.2.0",
 		Module:    "main",
@@ -68,7 +68,7 @@ func TestStoreFirmwareFile(t *testing.T) {
 		t.Fatalf("firmwareByID url=%q want %q", byID.URL, wantURL)
 	}
 
-	replaced, err := p.StoreFirmwareFile(FirmwareInput{
+	replaced, err := p.StoreFirmwareFile(1, FirmwareInput{
 		ProductID: pr.ProductID,
 		Version:   "1.2.0",
 		Module:    "main",
@@ -128,7 +128,7 @@ func TestRegisterFirmwareRequiresURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	if _, err := p.RegisterFirmware(FirmwareInput{ProductID: pr.ProductID, Version: "1.0.0"}); err == nil {
+	if _, err := p.RegisterFirmware(1, FirmwareInput{ProductID: pr.ProductID, Version: "1.0.0"}); err == nil {
 		t.Fatal("expected url required")
 	}
 }

@@ -12,8 +12,7 @@ import (
 // ─── Management endpoints (admin JWT auth) ───────────────────────────────────
 
 func (s *Server) listExternalPlugins(w http.ResponseWriter, r *http.Request) {
-	list := s.Plat.ExternalPlugins.ListAll()
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, s.Plat.ExternalPlugins.ListForAccount(accountFrom(r.Context())))
 }
 
 func (s *Server) registerExternalPlugin(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +56,10 @@ func (s *Server) registerExternalPlugin(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) deleteExternalPlugin(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if !s.Plat.ExternalPlugins.OwnedBy(id, accountFrom(r.Context())) {
+		writeErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
 	if err := s.Plat.ExternalPlugins.Delete(id); err != nil {
 		if s.Plat.Log != nil {
 			s.Plat.Log.Warn("external plugin delete failed", "id", id, "err", err)
@@ -72,6 +75,10 @@ func (s *Server) deleteExternalPlugin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) regenerateExternalPluginMQTT(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if !s.Plat.ExternalPlugins.OwnedBy(id, accountFrom(r.Context())) {
+		writeErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
 	newPass, err := s.Plat.ExternalPlugins.RegenerateMQTTPassword(id)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())

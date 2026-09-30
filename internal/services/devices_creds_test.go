@@ -14,7 +14,7 @@ func TestDeviceProvisionJSON(t *testing.T) {
 	if _, err := p.CreateProduct(1, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)
 	}
-	_, creds, err := p.CreateDevice(DeviceInput{ProductID: "home", DeviceID: "esp32-s3"})
+	_, creds, err := p.CreateDevice(1, DeviceInput{ProductID: "home", DeviceID: "esp32-s3"})
 	if err != nil {
 		t.Fatalf("CreateDevice: %v", err)
 	}

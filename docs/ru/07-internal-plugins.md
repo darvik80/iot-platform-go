@@ -4,7 +4,7 @@
 
 Плагин — это **одно устройство + один тип из каталога**. Получает события устройства (статус, телеметрия, тики), вызывает RPC обратно, имеет UI-панель на странице устройства.
 
-Встроенные плагины: `led-garland` (WS2812-ленты) и `schedule` (RPC по времени). Свой плагин — один Go-файл + `init()`.
+Встроенные плагины: `led-garland` (WS2812-ленты), `schedule` (RPC по времени), `prometheus-exporter` (endpoint метрик Prometheus) и `metrics-dashboard` (панели Metrics+ на странице устройства). Свой плагин — один Go-файл + `init()`.
 
 ---
 
@@ -46,8 +46,9 @@ flowchart TB
 
 | Компонент | Где | Роль |
 |-----------|-----|------|
-| **Каталог** | `internal/plugins` `Register()` в `init()` | Встроенные типы (`led-garland`, `schedule`, …). `GET /plugins`. |
-| **Binding** | SQLite `device_plugin_bindings` | `UNIQUE(device_pk, plugin_id)`. Один плагин на многих устройствах = независимые инстансы/конфиги. |
+| **Каталог** | `internal/plugins` `Register()` в `init()` | Встроенные типы (`led-garland`, `schedule`, `prometheus-exporter`, `metrics-dashboard`). `GET /plugins`. |
+| **Политика** | `/plugins/policies` (admin) | Включение/выключение (и настройки) каждого плагина каталога для аккаунта. |
+| **Binding** | Таблица БД `device_plugin_bindings` (SQLite или PostgreSQL) | `UNIQUE(device_pk, plugin_id)`. Один плагин на многих устройствах = независимые инстансы/конфиги. |
 | **Hub** | `services.PluginHub` | Один runner на каждый включённый binding. Запускается из `main` через `StartPlugins`. |
 | **Instance** | `plugins.Instance` | `ApplyConfig` → `OnEvent` → `IntervalMS` / `Auto`. |
 | **Runtime** | hub → `Platform.InvokeRPC` | Fire-and-forget RPC (без JWT). Тот же downlink, что и консоль дашборда. |
@@ -105,8 +106,12 @@ sequenceDiagram
 |----|----------|
 | `led-garland` | WS2812-ленты через firmware `set_led`, тихие часы / ночной свет |
 | `schedule` | Вызов RPC устройства по локальному времени (перезагрузка в 04:00, свет выключить в 23:00, …) |
+| `prometheus-exporter` | Отдаёт метрики платформы (устройства, телеметрия, RPC) в текстовом формате Prometheus на собственном HTTP-порту — см. [Prometheus exporter](#prometheus-exporter) |
+| `metrics-dashboard` | Пассивный: хранит раскладку панелей вкладки **Metrics+** устройства — см. [Metrics dashboard](#metrics-dashboard) |
 
-Binding хранится в SQLite (`device_plugin_bindings`). Тикер работает пока устройство **онлайн** и плагину нужны кадры (`mode: auto`, анимированный эффект, тихие/активные окна, или `schedule`). Offline приостанавливает. Статические цвета (`off` / `white` / …) не тикают, если не включены временные окна.
+Каждый плагин каталога админ может включить или выключить для аккаунта: `GET /plugins/policies` возвращает каталог с действующей политикой (по умолчанию включено), `PATCH /plugins/policies/{pluginId}` с `{ "enabled"?: bool, "settings"?: {} }` меняет её и сразу пересобирает runner-ы аккаунта.
+
+Binding хранится в БД платформы (SQLite или PostgreSQL, таблица `device_plugin_bindings`). Тикер работает пока устройство **онлайн** и плагину нужны кадры (`mode: auto`, анимированный эффект, тихие/активные окна, или `schedule`). Offline приостанавливает. Статические цвета (`off` / `white` / …) не тикают, если не включены временные окна.
 
 **`TIMEZONE`** платформы (IANA, напр. `Asia/Bangkok`) — по умолчанию для всех временных окон. Настраивается в `config.yml` / `.env`. Binding может переопределить через `config.tz`. Пустой `tz` → зона платформы. Неизвестная зона → ошибка сохранения.
 
@@ -178,6 +183,54 @@ RPC:
 
 ---
 
+## Prometheus exporter
+
+`prometheus-exporter` запускает отдельный HTTP-сервер, который отдаёт внутренние метрики платформы (онлайн-гейджи устройств, сэмплы телеметрии, RPC-вызовы, публикации в шину правил) в текстовом формате Prometheus. RPC не отправляет и не тикает.
+
+Конфиг по умолчанию:
+
+```json
+{
+  "port": 9100,
+  "bind": "0.0.0.0",
+  "path": "/metrics",
+  "bearer_token": "",
+  "update_interval_ms": 5000
+}
+```
+
+| Поле | Значение |
+|------|----------|
+| `port` | Порт (некорректный → `9100`) |
+| `bind` | Адрес (пусто → `0.0.0.0`) |
+| `path` | Путь метрик (пусто → `/metrics`) |
+| `bearer_token` | Если задан, запрос должен содержать `Authorization: Bearer <token>`, иначе `401` |
+| `update_interval_ms` | Принимается, но сейчас не используется (периодического цикла обновления нет) |
+
+HTTP-сервер запускается по событию `apply` (сохранение binding / bind / **Apply now**; привязанное устройство должно быть онлайн). В v1.0.x хаб его никогда не останавливает: выключение или удаление binding оставляет listener работающим, а изменённые `port` / `bind` / `path` не заменяют сервер, уже занявший порт, — для применения таких изменений перезапустите платформу. Метрики берутся из общего стора платформы (`cogitor_device_online`, `cogitor_devices_total`, `cogitor_device_telemetry_samples_total`, `cogitor_device_rpc_calls_total`, `cogitor_event_bus_published_total`, `cogitor_mqtt_clients`, `cogitor_external_plugin_online`, `cogitor_device_ota_jobs_total`), а не только по привязанному устройству.
+
+---
+
+## Metrics dashboard
+
+`metrics-dashboard` пассивный: не выполняет автоматизацию, не шлёт RPC и не запускает сервер. Его конфиг — список панелей, который читает `GET /devices/{id}/dashboard` для вкладки **Metrics+**; без binding используются панели по умолчанию.
+
+Конфиг по умолчанию:
+
+```json
+{
+  "panels": [
+    { "id": "p1", "type": "telemetry_chart", "title": "WiFi RSSI", "keys": ["wifi_rssi"], "window": "1h" },
+    { "id": "p2", "type": "telemetry_gauge", "title": "Free Heap", "key": "free_heap", "window": "1h" },
+    { "id": "p3", "type": "online_timeline", "title": "Online Timeline", "window": "24h" }
+  ]
+}
+```
+
+Поля панели: `id`, `type`, `title`, `keys` (`telemetry_chart`), `key` (`telemetry_gauge`), `window` (`30m`, `1h`, `24h`, `7d`, …; по умолчанию `1h`), `limit` (`rpc_table`, по умолчанию 20), `severity` (`events_count`). Типы панелей: `telemetry_chart`, `telemetry_gauge`, `rpc_table`, `online_timeline`, `events_count`.
+
+---
+
 ## API
 
 | Метод | Путь |
@@ -188,6 +241,8 @@ RPC:
 | PUT | `/devices/{id}/plugins/{bindingId}` | `{ "enabled"?: bool, "config"?: {} }` |
 | DELETE | `/devices/{id}/plugins/{bindingId}` |
 | POST | `/devices/{id}/plugins/{bindingId}/apply` | один кадр сейчас (устройство должно быть онлайн) |
+| GET | `/plugins/policies` | каталог + политика аккаунта (admin) |
+| PATCH | `/plugins/policies/{pluginId}` | `{ "enabled"?: bool, "settings"?: {} }` (admin) |
 
 UI: страница устройства → **Plugins**. Форма рендерится из **`Descriptor.Form`** (GET `/plugins` → `form`). Save / Apply / Remove — в shell. Нет `form` → JSON textarea.
 
@@ -312,6 +367,6 @@ go test ./internal/plugins/ ./internal/services/
 
 ## Внешние плагины
 
-Внешние плагины работают как **отдельные процессы** (любой язык) и общаются с платформой через четыре транспорта (Webhook, Polling, MQTT, gRPC). Получают те же события, что и встроенные, без перекомпиляции Go-бинарника.
+Внешние плагины работают как **отдельные процессы** (любой язык). Единственный реализованный транспорт — **MQTT**: плагин подключается к встроенному брокеру с кредами `extplg_{account_slug}_{plugin_id}`, подписывается на события шины правил своего аккаунта и публикует команды. Транспорты Webhook, Polling и gRPC запланированы, но не реализованы. Внешние плагины не используют binding-и устройств и не получают события `tick` / `apply`.
 
-Полная спецификация — [08-external-plugins.md](08-external-plugins.md), примеры кода — [examples/plugins/](../../examples/plugins/) (Python, Go, Java, C++, gRPC).
+Спецификация (что реализовано, что запланировано) — [08-external-plugins.md](08-external-plugins.md), MQTT-примеры — [examples/plugins/](../../examples/plugins/) (Python, Go, Java, C++).

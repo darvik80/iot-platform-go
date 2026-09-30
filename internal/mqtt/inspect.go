@@ -64,7 +64,7 @@ func (b *Broker) note(level, kind, clientID, username, remote, topic, msg string
 	switch kind {
 	case "connect", "disconnect", "auth_fail", "subscribe", "acl_deny", "kick":
 		if b.plat != nil && b.plat.Hub != nil {
-			b.plat.Hub.Broadcast("mqtt", ev)
+			b.plat.Hub.Broadcast(b.plat.AccountIDForMQTTUser(username), "mqtt", ev)
 		}
 	}
 }

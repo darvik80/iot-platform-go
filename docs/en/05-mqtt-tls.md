@@ -4,7 +4,7 @@ By default, MQTT traffic between devices and the platform is **unencrypted** (po
 
 The platform supports two modes:
 - **Server-side TLS** (standard) — encrypts traffic, device verifies the server certificate
-- **Mutual TLS** (mTLS) — server additionally verifies each device's certificate
+- **Mutual TLS** (mTLS) — server additionally verifies each device's certificate (TLS listener `:8883` only)
 
 ---
 
@@ -75,6 +75,10 @@ This creates:
 - `cert.pem` / `key.pem` — server certificate signed by the CA (valid 1 year)
 - `client.pem` / `client-key.pem` — client certificate for mutual TLS (valid 1 year)
 
+### Using the setup wizard
+
+On first start the setup wizard can generate certificates via `POST /api/v1/setup/generate-tls` (`{ "host"?, "dir"? }`). Default directory: `/etc/iot-platform/certs/mqtt`. It creates only `ca.pem`, `cert.pem` (server, CN/SAN = `host`) and `key.pem`; it does **not** create a client certificate — use `make gen-mqtt-tls` or openssl for mTLS.
+
 ### Using openssl directly
 
 ```bash
@@ -104,8 +108,8 @@ rm client.csr ca.srl
 
 ## Device provisioning
 
-When TLS is enabled, the device credentials API (`GET /api/devices/{id}/credentials`)
-automatically returns the TLS port:
+Device credentials are returned only by `POST /api/v1/devices` (create) and
+`POST /api/v1/devices/{id}/token/rotate`. When TLS is enabled, they automatically contain the TLS port:
 
 ```json
 {
@@ -119,6 +123,11 @@ automatically returns the TLS port:
   }
 }
 ```
+
+### CA certificate download
+
+`GET /api/v1/mqtt/ca.pem` (public, no auth) returns the file configured in `MQTT_TLS_CA`.
+If `MQTT_TLS_CA` is not set, it returns `404`; in that case distribute `ca.pem` to devices yourself.
 
 ### ESP32 (standard TLS)
 
@@ -155,8 +164,9 @@ in the firmware as C strings or loaded from a partition.
 
 ## Mutual TLS
 
-When `MQTT_TLS_CA` is set, the platform requires every MQTT client to present a valid
-certificate signed by that CA. Useful for deployments where token-based auth alone is not sufficient.
+When `MQTT_TLS_CA` is set, the platform requires every MQTT client connecting to the TLS listener
+(`:8883`) to present a valid certificate signed by that CA. Plain MQTT (`:1883`) and WebSocket (`:8083`)
+do not check client certificates. Useful for deployments where token-based auth alone is not sufficient.
 
 ```bash
 export MQTT_TLS_CERT=./certs/mqtt/cert.pem
@@ -170,21 +180,25 @@ Devices must be provisioned with `client.pem` + `client-key.pem` embedded in fir
 
 ## Docker deployment
 
+`deploy/docker-compose.yml` contains only Node-RED; the platform container is built from the root
+`Dockerfile` and run separately. Mount the certificates and pass the paths via environment:
+
 ```bash
-# Place certs in deploy/certs/
-cp cert.pem key.pem deploy/certs/
+docker build -t cogitor-iot-platform .
 
-# Configure
-cat >> deploy/.env <<EOF
-MQTT_TLS_CERT=/etc/iot-platform/certs/mqtt/cert.pem
-MQTT_TLS_KEY=/etc/iot-platform/certs/mqtt/key.pem
-EOF
-
-docker compose up -d --build
+docker run -d --name iot-platform \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v iot-platform-data:/data \
+  -v "$PWD/certs/mqtt:/etc/iot-platform/certs/mqtt:ro" \
+  -e MQTT_TLS_CERT=/etc/iot-platform/certs/mqtt/cert.pem \
+  -e MQTT_TLS_KEY=/etc/iot-platform/certs/mqtt/key.pem \
+  cogitor-iot-platform
 ```
 
-The `deploy/docker-compose.yml` mounts `./certs` read-only into the container at
-`/etc/iot-platform/certs/mqtt/`.
+The process runs as user `platform` (uid 1000), so the mounted `key.pem` must be readable by that uid.
+
+Bare-metal / systemd: put the files in `/etc/iot-platform/certs/mqtt/` and set `mqtt.tls_cert` / `mqtt.tls_key`
+in `config.yml` (or the `MQTT_TLS_*` environment variables).
 
 Don't forget to expose port 8883 if devices connect over TLS.
 

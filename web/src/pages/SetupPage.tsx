@@ -9,15 +9,15 @@ interface SetupState {
   database_dsn: string;
   admin_login: string;
   admin_email: string;
-  admin_password: string;
+  admin_password_set: boolean;
   account_slug: string;
   account_name: string;
   smtp_host: string;
   smtp_port: number;
   smtp_user: string;
-  smtp_pass: string;
+  smtp_pass_set: boolean;
   smtp_from: string;
-  jwt_secret: string;
+  jwt_secret_set: boolean;
   mqtt_tls_cert: string;
   mqtt_tls_key: string;
   mqtt_tls_ca?: string;
@@ -299,7 +299,7 @@ export function SetupPage() {
             </div>
             <div>
               <label className="form-label">Password</label>
-              <input name="smtp_pass" type="password" className="form-control" defaultValue={state.smtp_pass} />
+              <input name="smtp_pass" type="password" className="form-control" placeholder={state.smtp_pass_set ? '(saved — leave empty to keep)' : ''} />
             </div>
             <div>
               <label className="form-label">From Address</label>
@@ -321,7 +321,12 @@ export function SetupPage() {
             <div>
               <label className="form-label">JWT Secret</label>
               <div className="d-flex gap-2">
-                <input name="jwt_secret" className="form-control mono flex-fill" defaultValue={state.jwt_secret} required />
+                <input
+                  name="jwt_secret"
+                  className="form-control mono flex-fill"
+                  required={!state.jwt_secret_set}
+                  placeholder={state.jwt_secret_set ? '(random secret generated — leave empty to keep)' : ''}
+                />
                 <button
                   type="button"
                   className="btn btn-outline-secondary text-nowrap"
@@ -440,7 +445,7 @@ export function SetupPage() {
                   <ReviewRow label="Admin" value={`${state.admin_login} (${state.admin_email})`} />
                   <ReviewRow label="Account" value={`${state.account_name} [${state.account_slug}]`} />
                   <ReviewRow label="SMTP" value={state.smtp_host ? `${state.smtp_host}:${state.smtp_port}` : '(not configured)'} />
-                  <ReviewRow label="JWT Secret" value={state.jwt_secret ? `${state.jwt_secret.slice(0, 8)}...` : '(not set)'} />
+                  <ReviewRow label="JWT Secret" value={state.jwt_secret_set ? '(set)' : '(not set)'} />
                   <ReviewRow label="MQTT TLS" value={state.mqtt_tls_cert ? `${state.mqtt_tls_cert}${state.mqtt_tls_ca ? ' + CA' : ''}` : '(disabled)'} />
                   <ReviewRow label="Public URL" value={state.public_base_url} />
                   <ReviewRow label="Broker Host" value={state.broker_host_public || '(not set)'} />

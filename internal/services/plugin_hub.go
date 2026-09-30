@@ -408,7 +408,8 @@ type PluginBindingInput struct {
 }
 
 func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*models.DevicePluginBinding, error) {
-	if _, err := p.GetDevice(devicePK); err != nil {
+	device, err := p.GetDevice(devicePK)
+	if err != nil {
 		return nil, err
 	}
 	in.PluginID = strings.TrimSpace(in.PluginID)
@@ -419,6 +420,9 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 	var extPlugin *models.ExternalPlugin
 	if !isInternal && p.ExternalPlugins != nil {
 		extPlugin, isExternal = p.ExternalPlugins.GetPlugin(in.PluginID)
+		if isExternal && extPlugin.AccountID != device.AccountID {
+			isExternal = false
+		}
 	}
 	if !isInternal && !isExternal {
 		return nil, errors.New("unknown plugin")

@@ -23,7 +23,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | Pain point | Current alternatives | Cogitor approach |
 |------------|---------------------|------------------|
 | Cloud IoT platforms require internet, incur per-device costs, and lock in data | AWS IoT, ThingsBoard Cloud, Blynk | Self-hosted; all data stays on the operator's NAS / server |
-| Multi-component stacks (broker + backend + DB + UI) are complex to deploy and maintain | ThingsBoard CE + Mosquitto + PostgreSQL + Grafana | Single Go binary with embedded MQTT broker, SQLite, and React dashboard |
+| Multi-component stacks (broker + backend + DB + UI) are complex to deploy and maintain | ThingsBoard CE + Mosquitto + PostgreSQL + Grafana | Single Go binary with embedded MQTT broker, SQLite (or optional PostgreSQL), and React dashboard |
 | Firmware OTA is manual (SCP / TFTP / custom scripts) | Custom shell scripts, manual flashing | Built-in OTA: upload `.bin`, hosted download URL, auto-push on reconnect |
 | Automation requires a separate server with its own state | Standalone Node-RED, Home Assistant | In-process per-device plugins (Go) + optional Node-RED for cross-device rules via MQTT rules bus |
 | No LLM / AI integration for device ops | None in open-source IoT platforms | Embedded MCP endpoint — any MCP-compatible AI client can list devices, invoke RPC, read telemetry |
@@ -81,7 +81,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-201 | Ingest telemetry from MQTT uplink topics; store in SQLite with timestamps | P0 | ✅ |
+| F-201 | Ingest telemetry from MQTT uplink topics; store in the database (SQLite or PostgreSQL) with timestamps | P0 | ✅ |
 | F-202 | Expose latest telemetry and historical range queries via REST | P0 | ✅ |
 | F-203 | Support **reported** and **desired** attributes; desired attributes are published to the device on save | P0 | ✅ |
 | F-204 | Telemetry retention: auto-cleanup of records older than configurable days (default 30) | P1 | ✅ |
@@ -116,7 +116,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | F-502 | Self-registration with optional email verification (SMTP or log mode) | P1 | ✅ |
 | F-503 | Google OAuth sign-in / sign-up with account linking | P1 | ✅ |
 | F-504 | Role-based access: **admin** (full), **operator** (read + write devices/RPC/OTA), **viewer** (read-only) | P0 | ✅ |
-| F-505 | Bootstrap admin account from environment variables | P0 | ✅ |
+| F-505 | First admin account and default account created by the first-start **setup wizard** (`/setup`); `ADMIN_*` / `BOOTSTRAP_*` env vars do not create users | P0 | ✅ |
 | F-506 | Long-lived API tokens for MCP and scripts (created in Settings, shown once) | P0 | ✅ |
 | F-507 | Admin Users page: list, change role, disable, delete | P1 | ✅ |
 
@@ -124,8 +124,8 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-601 | **Rules bus**: normalized JSON events on `platform/v1/events/{product}/{device}/…` via MQTT | P0 | ✅ |
-| F-602 | **Commands**: Node-RED publishes to `platform/v1/commands/{product}/{device}/…` for RPC, desired attributes, OTA | P0 | ✅ |
+| F-601 | **Rules bus**: normalized JSON events on `platform/v1/events/{account_slug}/{product}/{device}/{kind}` via MQTT | P0 | ✅ |
+| F-602 | **Commands**: external plugins / Node-RED publish to `platform/v1/commands/{account_slug}/{product}/{device}/…` for RPC, desired attributes, OTA; ACL allows only the plugin's own slug and the device is resolved inside that account | P0 | ✅ |
 | F-603 | **Device plugins**: in-process per-device automations (LED garland, schedule) with RPC callbacks | P0 | ✅ |
 | F-604 | LED garland plugin: WS2812 strip control with effects, quiet hours, night-light windows | P1 | ✅ |
 | F-605 | Schedule plugin: fire device RPC at configurable local times and weekdays | P1 | ✅ |
@@ -139,6 +139,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | F-701 | Embedded MQTT broker (mochi-mqtt) in the platform process — no external broker required | P0 | ✅ |
 | F-702 | Device ACL scoped to `{product}.{device}` identity (up/down topics only) | P0 | ✅ |
 | F-703 | Optional MQTT-over-WebSocket listener | P2 | ✅ |
+| F-707 | Optional MQTT over TLS listener (`:8883`, optional mTLS via `MQTT_TLS_CA`) | P1 | ✅ |
 | F-704 | LWT-based presence detection (online/offline) | P0 | ✅ |
 | F-705 | MQTT monitoring page: live sessions, broker event trail (auth, connect, ACL, ingest) | P0 | ✅ |
 | F-706 | NTP sync: device sends time request, platform responds with `serverRecvTime` / `serverSendTime` | P1 | ✅ |
@@ -180,15 +181,17 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | ID | Category | Requirement |
 |----|----------|-------------|
 | NF-01 | **Deployment** | Single Docker image (multi-stage: Node.js → Go → Alpine). Runs as non-root user. |
-| NF-02 | **Deployment** | Alternative: bare-metal via `make build` → single binary + SQLite file |
+| NF-02 | **Deployment** | Alternative: bare-metal via `make build` → single binary + SQLite file; Debian package via `make deb` (systemd) |
 | NF-03 | **Portability** | Windows (dev), Linux (production), ARM64 compatible (SQLite pure-Go driver) |
+| NF-03a | **Storage** | Database selected by `DATABASE_DRIVER` (`sqlite` default, WAL mode \| `postgres`) and `DATABASE_DSN`; `SQLITE_PATH` kept as a legacy alias |
+| NF-03b | **First start** | Empty database → built-in setup wizard (web UI `/setup`, API `/api/v1/setup/*`); no default login |
 | NF-04 | **Security** | JWT auth for dashboard/API; SHA-256 hashed device tokens; ACL-scoped MQTT |
-| NF-05 | **Security** | No device tokens in Node-RED flows; rules bus uses separate credentials |
+| NF-05 | **Security** | No device tokens in Node-RED flows; Node-RED connects to the rules bus as an external plugin with its own MQTT credentials (`extplg_{account_slug}_{id}`) |
 | NF-06 | **Security** | OTA firmware download is unauthenticated (ESP HTTP GET) — URL is token-based |
-| NF-07 | **Performance** | SQLite WAL mode for concurrent reads during ingest |
+| NF-07 | **Performance** | SQLite WAL mode for concurrent reads during ingest (PostgreSQL for larger deployments) |
 | NF-08 | **Performance** | WebSocket fan-out for real-time dashboard updates (no polling) |
 | NF-09 | **Reliability** | MQTT session state; LWT for disconnect detection; pending OTA jobs delivered on reconnect |
-| NF-10 | **Configuration** | Priority cascade: OS env → `./config.yml` → `/etc/iot-platform/config.yml` |
+| NF-10 | **Configuration** | Priority cascade: OS env → `./config.yml` → `/etc/iot-platform/config.yml` (`.env` is not read by the binary) |
 | NF-11 | **Maintainability** | Database migrations in `internal/db/migrations/`; auto-applied at startup |
 | NF-12 | **Extensibility** | Plugin catalog with Go `init()` registration; form-driven UI generation |
 
@@ -208,34 +211,36 @@ graph TB
 
     subgraph Platform["Cogitor IoT Platform (single Go binary)"]
         subgraph Transport["MQTT Transport"]
-            Broker["MQTT Broker<br/>(mochi-mqtt, embedded)"]
+            Broker["MQTT Broker<br/>(mochi-mqtt, embedded)<br/>TCP :1883 · WS :8083 · TLS :8883"]
+            ACL["Auth hook + ACL<br/>(product.device / extplg_account_id)"]
         end
 
         subgraph Core["Core Processing"]
-            ACL["Device ACL<br/>(product.device identity)"]
-            Ingest["Telemetry Ingest"]
-            PluginHub["Plugin Hub<br/>(in-process)"]
-            OTA["OTA Manager<br/>(Auto-OTA)"]
+            Ingest["Ingest<br/>(telemetry, status, events, logs)"]
+            PluginHub["Plugin Hub<br/>(in-process, per-account policies)"]
+            OTA["OTA Manager<br/>(Auto-OTA, jobs)"]
+            Rules["Rules Bus<br/>(events / commands)"]
         end
 
         subgraph Services["Services & Storage"]
-            Rules["Rules Bus<br/>publisher"]
-            WS["WebSocket Hub<br/>(real-time)"]
-            DB["SQLite<br/>(WAL mode)"]
-            API["REST API<br/>(chi router)"]
-            Auth["JWT / OAuth<br/>Auth"]
-            MCP["MCP Endpoint<br/>/mcp"]
+            API["REST API /api/v1<br/>(chi router)"]
+            Auth["Auth & tenancy<br/>(JWT, OAuth, accounts)"]
+            WS["WebSocket Hub<br/>(/api/v1/ws)"]
+            MCP["MCP Endpoint<br/>(/mcp)"]
+            Setup["Setup Wizard<br/>(/api/v1/setup, first start)"]
+            DB["Database<br/>(SQLite WAL / PostgreSQL)"]
         end
     end
 
     subgraph External["External Clients"]
         UI["React Dashboard<br/>(embedded SPA)"]
-        NR["Node-RED<br/>(optional, automation)"]
         LLM["LLM / AI Client<br/>(Cursor, Claude)"]
+        NR["Node-RED / External Plugins<br/>(MQTT, extplg_ creds)"]
+        Prom["Prometheus<br/>(scrapes :9100)"]
     end
 
     %% Device → Transport
-    ESP1 & ESP2 & ESP3 -->|"MQTT TCP :1883<br/>MQTT WS :8083"| Broker
+    ESP1 & ESP2 & ESP3 -->|"MQTT TCP / WS / TLS"| Broker
 
     %% Transport → Core
     Broker --> ACL
@@ -244,26 +249,28 @@ graph TB
     %% Core internal
     Ingest --> PluginHub
     Ingest --> OTA
+    Ingest --> Rules
 
     %% Core → Services
     Ingest --> DB
     Ingest --> WS
-    Ingest --> Rules
     PluginHub -->|"InvokeRPC"| Broker
-    OTA -->|"MQTT downlink<br/>v1/o/upd"| Broker
+    OTA -->|"MQTT downlink<br/>v1/me/o/upd"| Broker
 
     %% Services internal
     API --> Auth
     API --> DB
-    API --> WS
     API --> PluginHub
     MCP --> API
+    Setup -->|"config.yml"| DB
 
     %% Services ↔ External
-    Rules -->|"platform/v1/events/..."| NR
+    Rules -->|"platform/v1/events/{account}/..."| NR
     NR -->|"platform/v1/commands/..."| Broker
-    UI -->|"REST + WS<br/>JWT / API token"| API
+    UI -->|"REST + WebSocket<br/>JWT / API token"| API
+    UI --> WS
     LLM -->|"Streamable HTTP<br/>JWT / API token"| MCP
+    PluginHub -->|"prometheus-exporter"| Prom
 
     style Platform fill:#1a1a2e,stroke:#16213e,color:#eee
     style Transport fill:#0f3460,stroke:#16213e,color:#eee
@@ -275,9 +282,9 @@ graph TB
 
 ### Data Flow
 
-1. **Device → Platform**: MQTT CONNECT with `{product}.{device}` / access token. PUBLISH telemetry on `v1/t` or `iot/v1/.../up/telemetry/data`. Platform ingests in-process, stores in SQLite, broadcasts via WebSocket, publishes to rules bus.
-2. **Platform → Device**: RPC requests, desired attribute updates, OTA notifications published on downlink topics. Topic style auto-detected from device's uplink prefix.
-3. **Platform ↔ Node-RED**: Events on `platform/v1/events/...`; commands on `platform/v1/commands/...`. Node-RED uses dedicated MQTT user with ACL-limited topics.
+1. **Device → Platform**: MQTT CONNECT with `{product}.{device}` / access token. PUBLISH telemetry on `v1/t` or `iot/v1/.../up/telemetry/data`. Platform ingests in-process, stores in the database (SQLite or PostgreSQL), broadcasts via WebSocket, publishes to rules bus.
+2. **Platform → Device**: RPC requests, desired attribute updates, OTA notifications published on downlink topics (`v1/me/...` for short style, `iot/v1/{product}/{device}/down/...` for full style). Topic style auto-detected from device's uplink prefix.
+3. **Platform ↔ Node-RED**: Events on `platform/v1/events/{account_slug}/{product}/{device}/{kind}`; commands on `platform/v1/commands/{account_slug}/{product}/{device}/...` (own account only). Node-RED is registered as an external plugin and uses that plugin's MQTT credentials (the former dedicated Node-RED MQTT user was removed by migration `010_drop_nodered_creds.sql`).
 4. **Dashboard → Platform**: REST API + WebSocket for real-time updates. JWT or API token auth.
 5. **LLM → Platform**: MCP endpoint at `/mcp` — tools for device listing, telemetry, RPC, OTA.
 
@@ -290,7 +297,7 @@ graph TB
 | Style | Prefix | Identity source |
 |-------|--------|-----------------|
 | Full | `iot/v1/{product}/{device}/{up|down}/{capability}/{operation}` | Topic path |
-| Short | `v1/t`, `v1/r/req`, `v1/a/upd`, … | MQTT username (`{product}.{device}`) |
+| Short | uplink `v1/t`, `v1/r/res`, …; downlink `v1/me/r/req`, `v1/me/a/upd`, … | MQTT username (`{product}.{device}`) |
 
 ### Key Topics
 
@@ -300,13 +307,15 @@ graph TB
 | Up | `v1/t` | Telemetry data |
 | Up | `v1/e` | Events |
 | Up | `v1/a` | Attributes report |
-| Down | `v1/a/upd` | Attributes update (desired) |
-| Down | `v1/r/req` | RPC request |
+| Down | `v1/me/a/upd` | Attributes update (desired) |
+| Down | `v1/me/r/req` | RPC request |
 | Up | `v1/r/res` | RPC response |
-| Down | `v1/o/upd` | OTA update (URL) |
+| Down | `v1/me/o/upd` | OTA update (URL) |
 | Up | `v1/o/p` | OTA progress |
 | Up | `v1/n/req` | NTP request |
-| Down | `v1/n/res` | NTP response |
+| Down | `v1/me/n/res` | NTP response |
+
+Downlink topics in short style always carry the `v1/me/` prefix; the platform never publishes to `v1/a/upd`, `v1/r/req`, `v1/o/upd` or `v1/n/res`.
 
 ---
 
@@ -318,46 +327,49 @@ graph TB
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address |
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | SQLite database file |
+| `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS listen (active only when `MQTT_TLS_CERT` + `MQTT_TLS_KEY` are set) |
+| `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
+| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | SQLite file path or PostgreSQL URL (`postgres://…`) |
+| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Legacy alias for the SQLite file (used when `DATABASE_DSN` is empty) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth callbacks |
-| `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@cogitor.local` / `admin` | Bootstrap admin credentials |
+| `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** (the setup wizard generates one) |
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Auto-cleanup period |
 | `RULES_BUS_ENABLED` | `true` | Enable Node-RED event/command bus |
 | `BROKER_HOST_PUBLIC` | `localhost` | MQTT host shown in device credentials |
 
+There is no default admin login: on first start with an empty database the platform runs the setup wizard (see [Operations](11-operations.md)), which creates the admin user and default account. `ADMIN_*` / `BOOTSTRAP_*` env vars do not create anything.
+
 ### Configuration File Priority
 
 1. OS environment variables
-2. `.env` file
-3. `./config.yml`
-4. `/etc/iot-platform/config.yml`
+2. `./config.yml`
+3. `/etc/iot-platform/config.yml`
+
+The binary does not read `.env` files; `.env` is only useful if Docker Compose or a systemd `EnvironmentFile=` injects it into the process environment.
 
 ---
 
 ## 10. Deployment
 
-### Docker Compose (recommended)
+### Docker
 
-```yaml
-services:
-  platform:
-    build: .
-    ports:
-      - "8080:8080"   # HTTP + Dashboard
-      - "1883:1883"   # MQTT
-    volumes:
-      - platform_data:/data
-    environment:
-      - PUBLIC_BASE_URL=http://<host-ip>:8080
-      - JWT_SECRET=<change-me>
+The platform image is built from the root `Dockerfile` and run with `docker run` (see [13-deploy-docker.md](13-deploy-docker.md)):
 
-  nodered:              # optional
-    image: nodered/node-red:4.0
-    ports:
-      - "1880:1880"
+```bash
+docker build -t iot-platform-go .
+docker run -d --name iot-platform-go \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v /srv/iot-platform/data:/data \
+  -v /srv/iot-platform/etc:/etc/iot-platform \
+  iot-platform-go
 ```
+
+`deploy/docker-compose.yml` contains **only** the optional Node-RED service (`nodered/node-red:4.0`, port 1880, bind mount `./nodered/data`).
+
+### Debian package
+
+`make deb` builds `dist/iot-platform_<version>_amd64.deb` (systemd unit, `/usr/bin/iot-platform`, config in `/etc/iot-platform`, data in `/var/lib/iot-platform`). See [12-deploy-vds.md](12-deploy-vds.md).
 
 ### Bare Metal (development)
 
@@ -369,8 +381,8 @@ make build        # builds web UI + Go binary → bin/platform.exe
 ### Synology NAS
 
 - Gitea CI builds image on push to `master`
-- Mounts `/volume1/docker/iot-platform-go/data` for SQLite persistence
-- `.env` from `/volume1/docker/iot-platform-go/etc/.env`
+- Mounts `/volume1/docker/iot-platform-go/data` → `/data` for SQLite persistence
+- Mounts `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform` (holds `config.yml` written by the setup wizard; `.env` there is not read)
 
 ---
 
@@ -391,6 +403,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 | MQTT | `GET /mqtt` (sessions + events) |
 | MCP | `/mcp` (streamable HTTP, JWT/token auth) |
 | WebSocket | `GET /api/v1/ws?token=<jwt>` |
+| Setup wizard | `GET /api/v1/setup/state`, `POST /api/v1/setup/step`, `POST /api/v1/setup/apply`, `POST /api/v1/setup/generate-tls` (unauthenticated, first start only) |
 
 ---
 
@@ -398,15 +411,15 @@ make build        # builds web UI + Go binary → bin/platform.exe
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.25+, chi router |
-| Database | SQLite (modernc.org/sqlite — pure Go, no CGO) |
+| Backend | Go 1.26+, chi router |
+| Database | SQLite (modernc.org/sqlite — pure Go, no CGO) or PostgreSQL |
 | MQTT Broker | mochi-mqtt (embedded) |
-| Frontend | React 18 + Bootstrap 5 + Vite |
+| Frontend | React 19 + Bootstrap 5 + Vite |
 | Auth | JWT (golang-jwt), Google OAuth |
-| Real-time | gorilla/websocket |
+| Real-time | gorilla/websocket (`/api/v1/ws`) |
 | Automation | Node-RED (optional, via MQTT rules bus) |
 | AI Integration | MCP (modelcontextprotocol/go-sdk) |
-| Container | Multi-stage Docker (Node.js 22 → Go 1.25 → Alpine 3.20) |
+| Container | Multi-stage Docker (Node.js 22 → Go 1.26 → Alpine 3.20) |
 
 ---
 
@@ -431,7 +444,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 - **Fleet management**: groups, tags, bulk operations
 - **Alerting**: email/webhook on threshold crossing (without Node-RED)
 - **mDNS / local discovery**: auto-detect platform from firmware
-- **TLS for MQTT**: native TLS listener or reverse-proxy guidance
+- ~~**TLS for MQTT**: native TLS listener~~ — implemented (`MQTT_TLS_ADDR`, see [05-mqtt-tls.md](05-mqtt-tls.md))
 - **Grafana integration**: telemetry export / direct SQLite datasource
 
 ---
@@ -446,7 +459,7 @@ A device deployment is considered successful when:
 - [ ] RPC round-trip completes with matching `id` and `code: 0`
 - [ ] NTP request receives `serverRecvTime` / `serverSendTime`
 - [ ] Token rotation invalidates old session; new token works immediately
-- [ ] Node-RED receives events on `platform/v1/events/...`
+- [ ] Node-RED receives events on `platform/v1/events/{account_slug}/...`
 - [ ] Auto-OTA pushes firmware to device on reconnect when enabled
 - [ ] MCP client can list devices and invoke RPC via `/mcp`
 
