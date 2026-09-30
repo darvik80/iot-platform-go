@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build .deb package for iot-platform-go
+# Build .deb package for iot-platform
 # Usage: ./deb/build.sh [version]
 set -euo pipefail
 
@@ -15,7 +15,7 @@ elif [ -f "$PROJECT_ROOT/version.txt" ]; then
 else
     VERSION="0.0.0-$(date +%Y%m%d)"
 fi
-echo "==> Building iot-platform-go_${VERSION}_amd64.deb"
+echo "==> Building iot-platform_${VERSION}_amd64.deb"
 
 # ── Build web UI ─────────────────────────────────────────────────────
 echo "==> Building web UI"
@@ -36,7 +36,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
-PKG="${STAGE}/iot-platform-go"
+PKG="${STAGE}/iot-platform"
 mkdir -p "${PKG}/DEBIAN"
 mkdir -p "${PKG}/usr/bin"
 mkdir -p "${PKG}/etc/iot-platform"
@@ -63,6 +63,7 @@ install -m 0644 "${SCRIPT_DIR}/logrotate" "${PKG}/etc/logrotate.d/iot-platform"
 install -m 0644 "${SCRIPT_DIR}/iot-platform.service" "${PKG}/lib/systemd/system/iot-platform.service"
 
 # Data and log directory ownership
+chmod 0755 "${PKG}/etc/iot-platform"
 chmod 0755 "${PKG}/var/lib/iot-platform"
 chmod 0755 "${PKG}/var/lib/iot-platform/data"
 chmod 0755 "${PKG}/var/log/iot-platform"
@@ -78,12 +79,12 @@ done
 # ── Build .deb ───────────────────────────────────────────────────────
 mkdir -p dist
 echo "==> Running dpkg-deb"
-dpkg-deb --build --root-owner-group "${PKG}" "dist/iot-platform-go_${VERSION}_amd64.deb"
+dpkg-deb --build --root-owner-group "${PKG}" "dist/iot-platform_${VERSION}_amd64.deb"
 
 echo ""
-echo "==> Package ready: dist/iot-platform-go_${VERSION}_amd64.deb"
-ls -lh "dist/iot-platform-go_${VERSION}_amd64.deb"
+echo "==> Package ready: dist/iot-platform_${VERSION}_amd64.deb"
+ls -lh "dist/iot-platform_${VERSION}_amd64.deb"
 echo ""
 echo "Install with:"
-echo "  sudo dpkg -i dist/iot-platform-go_${VERSION}_amd64.deb"
+echo "  sudo dpkg -i dist/iot-platform_${VERSION}_amd64.deb"
 echo "  sudo apt-get install -f   # fix dependencies if needed"

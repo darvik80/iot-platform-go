@@ -32,7 +32,7 @@ jobs:
         run: |
           VERSION="$(tr -d '[:space:]' < version.txt)"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "deb=iot-platform-go_${VERSION}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "deb=iot-platform_${VERSION}_amd64.deb" >> "$GITHUB_OUTPUT"
 
       - name: Build .deb
         run: bash deb/build.sh "${{ steps.version.outputs.version }}"

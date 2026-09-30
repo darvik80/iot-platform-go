@@ -1,4 +1,4 @@
-Package: iot-platform-go
+Package: iot-platform
 Version: 0.0.0
 Section: net
 Priority: optional

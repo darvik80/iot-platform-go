@@ -8,9 +8,8 @@ import (
 
 func TestDeviceProvisionJSON(t *testing.T) {
 	p := newTestPlatform(t, config.Config{
-		BrokerHostPublic: "192.168.1.100",
-		MQTTAddr:         ":1883",
-		MQTTWSAddr:       ":8083",
+		Platform: config.PlatformConfig{BrokerHostPublic: "192.168.1.100"},
+		MQTT:     config.MQTTConfig{Addr: ":1883", WSAddr: ":8083"},
 	})
 	if _, err := p.CreateProduct(1, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
 		t.Fatalf("CreateProduct: %v", err)

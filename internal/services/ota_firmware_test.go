@@ -10,7 +10,7 @@ import (
 
 func TestStoreFirmwareFile(t *testing.T) {
 	p := newTestPlatform(t, config.Config{
-		PublicBaseURL: "http://192.168.1.10:8080",
+		Platform: config.PlatformConfig{PublicBaseURL: "http://192.168.1.10:8080"},
 	})
 
 	pr, err := p.CreateProduct(1, ProductInput{ProductID: "lamp", Name: "Lamp"})

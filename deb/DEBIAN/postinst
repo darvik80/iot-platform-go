@@ -1,6 +1,13 @@
 #!/bin/sh
 set -e
 
+# Fix ownership after package extraction.
+# preinst creates dirs + chowns, but dpkg extract overwrites with root:root
+# (--root-owner-group). Re-chown here so the service user can write.
+chown -R iot-platform:iot-platform /etc/iot-platform
+chown -R iot-platform:iot-platform /var/lib/iot-platform
+chown -R iot-platform:iot-platform /var/log/iot-platform
+
 # Reload systemd units
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload

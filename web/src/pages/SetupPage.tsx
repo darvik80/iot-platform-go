@@ -22,6 +22,7 @@ interface SetupState {
   mqtt_tls_key: string;
   mqtt_tls_ca?: string;
   public_base_url: string;
+  broker_host_public: string;
   completed: boolean;
   error?: string;
 }
@@ -405,7 +406,10 @@ export function SetupPage() {
           <StepForm
             onSubmit={(e) => {
               const fd = new FormData(e.currentTarget);
-              submitStep(7, { public_base_url: fd.get('public_base_url') });
+              submitStep(7, {
+                public_base_url: fd.get('public_base_url'),
+                broker_host_public: fd.get('broker_host_public'),
+              });
             }}
             saving={saving}
           >
@@ -414,6 +418,13 @@ export function SetupPage() {
               <input name="public_base_url" className="form-control mono" defaultValue={state.public_base_url} required placeholder="https://iot.example.com" />
               <div className="form-text">
                 The URL users and devices will use to reach this platform. Used for OTA firmware downloads, email verification links, and MQTT provisioning.
+              </div>
+            </div>
+            <div>
+              <label className="form-label">MQTT Broker Host / Domain</label>
+              <input name="broker_host_public" className="form-control mono" defaultValue={state.broker_host_public} placeholder="iot.example.com" />
+              <div className="form-text">
+                Hostname or IP that devices use to connect to the MQTT broker (TCP, WS, TLS). Defaults to the hostname from Public Base URL if empty.
               </div>
             </div>
           </StepForm>
@@ -432,6 +443,7 @@ export function SetupPage() {
                   <ReviewRow label="JWT Secret" value={state.jwt_secret ? `${state.jwt_secret.slice(0, 8)}...` : '(not set)'} />
                   <ReviewRow label="MQTT TLS" value={state.mqtt_tls_cert ? `${state.mqtt_tls_cert}${state.mqtt_tls_ca ? ' + CA' : ''}` : '(disabled)'} />
                   <ReviewRow label="Public URL" value={state.public_base_url} />
+                  <ReviewRow label="Broker Host" value={state.broker_host_public || '(not set)'} />
                 </tbody>
               </table>
             </div>

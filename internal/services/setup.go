@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -62,7 +63,8 @@ type SetupState struct {
 	MQTTTLSCA   string `json:"mqtt_tls_ca,omitempty"`
 
 	// Step 7: Public URL
-	PublicBaseURL string `json:"public_base_url"`
+	PublicBaseURL    string `json:"public_base_url"`
+	BrokerHostPublic string `json:"broker_host_public"`
 
 	// Error state
 	Error string `json:"error,omitempty"`
@@ -90,7 +92,8 @@ func NewSetupService(log *slog.Logger) *SetupService {
 			AccountName:    "Default",
 			SMTPPort:       587,
 			JWTSecret:      generateSecret(),
-			PublicBaseURL:  "http://localhost:8080",
+			PublicBaseURL:    "http://localhost:8080",
+			BrokerHostPublic: "localhost",
 		},
 		log: log,
 	}
@@ -171,6 +174,9 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 		if v, ok := data["public_base_url"].(string); ok && v != "" {
 			s.state.PublicBaseURL = v
 		}
+		if v, ok := data["broker_host_public"].(string); ok && v != "" {
+			s.state.BrokerHostPublic = v
+		}
 	default:
 		return fmt.Errorf("invalid step: %d", step)
 	}
@@ -214,6 +220,14 @@ func (s *SetupService) Apply() error {
 		return errors.New("setup already completed: accounts exist")
 	}
 
+	// Auto-default broker host from public URL when not explicitly set
+	brokerHost := s.state.BrokerHostPublic
+	if brokerHost == "" {
+		if u, err := url.Parse(s.state.PublicBaseURL); err == nil && u.Hostname() != "" {
+			brokerHost = u.Hostname()
+		}
+	}
+
 	// Build config from wizard state
 	cfg := config.Config{
 		Database: config.DatabaseConfig{
@@ -240,12 +254,15 @@ func (s *SetupService) Apply() error {
 			SMTPFrom: s.state.SMTPFrom,
 		},
 		MQTT: config.MQTTConfig{
+			Addr:    ":1883",
+			WSAddr:  ":8083",
 			TLSCert: s.state.MQTTTLSCert,
 			TLSKey:  s.state.MQTTTLSKey,
 			TLSCA:   s.state.MQTTTLSCA,
 		},
 		Platform: config.PlatformConfig{
-			PublicBaseURL: s.state.PublicBaseURL,
+			PublicBaseURL:    s.state.PublicBaseURL,
+			BrokerHostPublic: brokerHost,
 		},
 	}
 
@@ -327,7 +344,8 @@ func storeSettings(database *db.DB, cfg config.Config) error {
 		"mqtt_tls_cert":   cfg.MQTT.TLSCert,
 		"mqtt_tls_key":    cfg.MQTT.TLSKey,
 		"mqtt_tls_ca":     cfg.MQTT.TLSCA,
-		"public_base_url": cfg.Platform.PublicBaseURL,
+		"public_base_url":    cfg.Platform.PublicBaseURL,
+		"broker_host_public": cfg.Platform.BrokerHostPublic,
 	}
 
 	for key, value := range settings {
@@ -352,13 +370,31 @@ func generateSecret() string {
 	return hex.EncodeToString(b)
 }
 
-// configYAMLPath returns where the wizard persists configuration.
-// Debian layout (/etc/iot-platform) wins when present, otherwise ./config.yml.
-func configYAMLPath() string {
+// configYAMLPaths returns candidate paths for writing config.yml,
+// preferred first. Debian layout (/etc/iot-platform) wins when present
+// and writable, otherwise ./config.yml.
+func configYAMLPaths() []string {
+	const etcPath = "/etc/iot-platform/config.yml"
 	if st, err := os.Stat("/etc/iot-platform"); err == nil && st.IsDir() {
-		return filepath.Join("/etc/iot-platform", "config.yml")
+		// Check that the directory is actually writable
+		if err := syscallAccessW("/etc/iot-platform"); err == nil {
+			return []string{etcPath, "config.yml"}
+		}
 	}
-	return "config.yml"
+	return []string{"config.yml"}
+}
+
+// syscallAccessW checks whether dir is writable by the current user.
+// Uses a portable create+remove probe instead of unix-only syscall.Access.
+func syscallAccessW(dir string) error {
+	probe := filepath.Join(dir, ".write-probe")
+	f, err := os.Create(probe)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	os.Remove(probe)
+	return nil
 }
 
 // writeConfigYAML writes the configuration to config.yml for persistence.
@@ -374,7 +410,8 @@ func writeConfigYAML(cfg config.Config) error {
 			JWTSecret string `yaml:"jwt_secret"`
 		} `yaml:"auth"`
 		Platform struct {
-			PublicBaseURL string `yaml:"public_base_url"`
+			PublicBaseURL    string `yaml:"public_base_url"`
+			BrokerHostPublic string `yaml:"broker_host_public"`
 		} `yaml:"platform"`
 		Email *struct {
 			SMTPHost string `yaml:"smtp_host"`
@@ -384,6 +421,8 @@ func writeConfigYAML(cfg config.Config) error {
 			SMTPFrom string `yaml:"smtp_from"`
 		} `yaml:"email,omitempty"`
 		MQTT *struct {
+			Addr    string `yaml:"addr"`
+			WSAddr  string `yaml:"ws_addr"`
 			TLSCert string `yaml:"tls_cert"`
 			TLSKey  string `yaml:"tls_key"`
 			TLSCA   string `yaml:"tls_ca,omitempty"`
@@ -395,6 +434,7 @@ func writeConfigYAML(cfg config.Config) error {
 	out.Database.DSN = cfg.Database.DSN
 	out.Auth.JWTSecret = cfg.Auth.JWTSecret
 	out.Platform.PublicBaseURL = cfg.Platform.PublicBaseURL
+	out.Platform.BrokerHostPublic = cfg.Platform.BrokerHostPublic
 
 	if cfg.Email.SMTPHost != "" {
 		out.Email = &struct {
@@ -411,12 +451,16 @@ func writeConfigYAML(cfg config.Config) error {
 			SMTPFrom: cfg.Email.SMTPFrom,
 		}
 	}
-	if cfg.MQTT.TLSCert != "" {
+	if cfg.MQTT.TLSCert != "" || cfg.MQTT.Addr != "" || cfg.MQTT.WSAddr != "" {
 		out.MQTT = &struct {
+			Addr    string `yaml:"addr"`
+			WSAddr  string `yaml:"ws_addr"`
 			TLSCert string `yaml:"tls_cert"`
 			TLSKey  string `yaml:"tls_key"`
 			TLSCA   string `yaml:"tls_ca,omitempty"`
 		}{
+			Addr:    cfg.MQTT.Addr,
+			WSAddr:  cfg.MQTT.WSAddr,
 			TLSCert: cfg.MQTT.TLSCert,
 			TLSKey:  cfg.MQTT.TLSKey,
 			TLSCA:   cfg.MQTT.TLSCA,
@@ -428,17 +472,23 @@ func writeConfigYAML(cfg config.Config) error {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
 
-	// Write to config.yml — ensure parent directory exists
-	path := configYAMLPath()
-	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("create config dir %s: %w", dir, err)
+	// Write to config.yml — try preferred paths in order
+	paths := configYAMLPaths()
+	var lastErr error
+	for _, path := range paths {
+		if dir := filepath.Dir(path); dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				lastErr = fmt.Errorf("create config dir %s: %w", dir, err)
+				continue
+			}
 		}
+		if err := os.WriteFile(path, yamlData, 0644); err != nil {
+			lastErr = fmt.Errorf("write %s: %w", path, err)
+			continue
+		}
+		return nil // success
 	}
-	if err := os.WriteFile(path, yamlData, 0644); err != nil {
-		return fmt.Errorf("write config.yml: %w", err)
-	}
-	return nil
+	return fmt.Errorf("all config paths failed: %w", lastErr)
 }
 
 // MQTTTLSResult holds the paths of generated TLS certificates.
