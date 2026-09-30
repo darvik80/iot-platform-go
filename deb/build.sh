@@ -28,18 +28,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform 
 
 # ── Prepare staging area ─────────────────────────────────────────────
 # Layout:
-#   /opt/iot-platform/{bin,etc,lib,certs} — application
-#   /var/log/iot-platform                 — logs
-#   /etc/logrotate.d/iot-platform         — log rotation
+#   /opt/iot-platform/{bin,etc,lib} — application (certs go under etc/)
+#   /var/log/iot-platform           — logs
+#   /etc/logrotate.d/iot-platform   — log rotation
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
 PKG="${STAGE}/iot-platform"
 mkdir -p "${PKG}/DEBIAN"
 mkdir -p "${PKG}/opt/iot-platform/bin"
-mkdir -p "${PKG}/opt/iot-platform/etc"
+mkdir -p "${PKG}/opt/iot-platform/etc/certs"
 mkdir -p "${PKG}/opt/iot-platform/lib"
-mkdir -p "${PKG}/opt/iot-platform/certs"
 mkdir -p "${PKG}/var/log/iot-platform"
 mkdir -p "${PKG}/etc/logrotate.d"
 mkdir -p "${PKG}/lib/systemd/system"
@@ -64,8 +63,8 @@ install -m 0644 "${SCRIPT_DIR}/iot-platform.service" "${PKG}/lib/systemd/system/
 # Directory ownership
 chmod 0755 "${PKG}/opt/iot-platform"
 chmod 0755 "${PKG}/opt/iot-platform/etc"
+chmod 0755 "${PKG}/opt/iot-platform/etc/certs"
 chmod 0755 "${PKG}/opt/iot-platform/lib"
-chmod 0755 "${PKG}/opt/iot-platform/certs"
 chmod 0755 "${PKG}/var/log/iot-platform"
 
 # ── DEBIAN control files ─────────────────────────────────────────────

@@ -660,6 +660,13 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 
 	s.log.Info("mqtt tls certificates generated", "host", host, "dir", dir)
 
+	// Update setup state with generated paths
+	s.state.mu.Lock()
+	s.state.MQTTTLSCert = certPath
+	s.state.MQTTTLSKey = keyPath
+	s.state.MQTTTLSCA = caPath
+	s.state.mu.Unlock()
+
 	return &MQTTTLSResult{
 		CertPath: certPath,
 		KeyPath:  keyPath,
@@ -669,18 +676,18 @@ func (s *SetupService) GenerateMQTTTLS(host string, dir string) (*MQTTTLSResult,
 
 // defaultCertDir returns where generated MQTT TLS certs are stored.
 func defaultCertDir() string {
-	return "/opt/iot-platform/certs/mqtt"
+	return "/opt/iot-platform/etc/certs/mqtt"
 }
 
 // validateCertDir only allows the default cert dir or a relative path inside
 // the working directory; the endpoint is unauthenticated.
 func validateCertDir(dir string) error {
 	clean := filepath.Clean(dir)
-	if clean == filepath.Clean("/opt/iot-platform/certs/mqtt") {
+	if clean == filepath.Clean("/opt/iot-platform/etc/certs/mqtt") {
 		return nil
 	}
 	if filepath.IsAbs(clean) || strings.HasPrefix(filepath.ToSlash(clean), "/") || !filepath.IsLocal(clean) {
-		return fmt.Errorf("cert dir must be /opt/iot-platform/certs/mqtt or a relative path without '..'")
+		return fmt.Errorf("cert dir must be /opt/iot-platform/etc/certs/mqtt or a relative path without '..'")
 	}
 	return nil
 }

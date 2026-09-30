@@ -17,9 +17,9 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 
 # --- ensure directories ---
-# /opt/iot-platform/{bin,etc,lib,certs} — application
-# /var/log/iot-platform                 — logs
-sudo mkdir -p "$DEPLOY_ROOT"/{bin,etc,lib,certs}
+# /opt/iot-platform/{bin,etc,lib} — application (certs under etc/)
+# /var/log/iot-platform           — logs
+sudo mkdir -p "$DEPLOY_ROOT"/{bin,etc/certs,lib}
 sudo mkdir -p /var/log/iot-platform
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$DEPLOY_ROOT"
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" /var/log/iot-platform

@@ -20,7 +20,7 @@ SyslogIdentifier=iot-platform
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /opt/iot-platform/certs /var/log/iot-platform
+ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /var/log/iot-platform
 ProtectHome=true
 PrivateTmp=true
 

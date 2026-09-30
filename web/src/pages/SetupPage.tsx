@@ -360,15 +360,15 @@ export function SetupPage() {
           >
             <div>
               <label className="form-label">TLS Certificate Path</label>
-              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="/opt/iot-platform/certs/mqtt/cert.pem" />
+              <input name="mqtt_tls_cert" className="form-control mono" defaultValue={state.mqtt_tls_cert} placeholder="/opt/iot-platform/etc/certs/mqtt/cert.pem" />
             </div>
             <div>
               <label className="form-label">TLS Key Path</label>
-              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/opt/iot-platform/certs/mqtt/key.pem" />
+              <input name="mqtt_tls_key" className="form-control mono" defaultValue={state.mqtt_tls_key} placeholder="/opt/iot-platform/etc/certs/mqtt/key.pem" />
             </div>
             <div>
               <label className="form-label">CA Certificate Path</label>
-              <input name="mqtt_tls_ca" className="form-control mono" defaultValue={state.mqtt_tls_ca} placeholder="/opt/iot-platform/certs/mqtt/ca.pem" />
+              <input name="mqtt_tls_ca" className="form-control mono" defaultValue={state.mqtt_tls_ca} placeholder="/opt/iot-platform/etc/certs/mqtt/ca.pem" />
               <div className="form-text">CA cert for mutual TLS (optional). Auto-filled when using Generate.</div>
             </div>
             <div className="d-flex gap-2 align-items-start">
