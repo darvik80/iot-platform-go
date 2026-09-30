@@ -33,7 +33,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.x"
+          go-version: "1.26.x"
 
       - name: Build platform binary
         run: |
@@ -57,10 +57,12 @@ jobs:
           USER: ${{ secrets.IOT_DEPLOY_USER }}
         run: |
           test -n "$HOST" && test -n "$USER" || { echo "missing IOT_DEPLOY_HOST / IOT_DEPLOY_USER"; exit 1; }
-          scp -o IdentitiesOnly=yes bin/platform "$USER@$HOST:/tmp/iot-platform.new"
-          scp -o IdentitiesOnly=yes deploy/iot-platform.service "$USER@$HOST:/tmp/iot-platform.service"
+          SSH="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          SCP="scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          $SCP bin/platform "$USER@$HOST:/tmp/iot-platform.new"
+          $SCP deploy/iot-platform.service "$USER@$HOST:/tmp/iot-platform.service"
           sed -e "s|__DEPLOY_PATH__|$DEPLOY_PATH|g" \
               -e "s|__SERVICE_NAME__|$SERVICE_NAME|g" \
               deploy/remote-deploy.sh | \
-            ssh -o IdentitiesOnly=yes "$USER@$HOST" "cat > /tmp/deploy.sh"
-          ssh -o IdentitiesOnly=yes "$USER@$HOST" bash /tmp/deploy.sh
+            $SSH "$USER@$HOST" "cat > /tmp/deploy.sh"
+          $SSH "$USER@$HOST" bash /tmp/deploy.sh
