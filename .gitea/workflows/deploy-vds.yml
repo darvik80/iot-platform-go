@@ -9,7 +9,6 @@ on:
   workflow_dispatch:
 
 env:
-  DEPLOY_PATH: /opt/iot-platform-go
   SERVICE_NAME: iot-platform
 
 jobs:
@@ -66,8 +65,7 @@ jobs:
           SCP="scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
           $SCP bin/platform "$USER@$HOST:/tmp/iot-platform.new"
           $SCP deploy/iot-platform.service "$USER@$HOST:/tmp/iot-platform.service"
-          sed -e "s|__DEPLOY_PATH__|$DEPLOY_PATH|g" \
-              -e "s|__SERVICE_NAME__|$SERVICE_NAME|g" \
+          sed -e "s|__SERVICE_NAME__|$SERVICE_NAME|g" \
               deploy/remote-deploy.sh | tr -d '\r' | \
             $SSH "$USER@$HOST" "cat > /tmp/deploy.sh"
           $SSH "$USER@$HOST" bash /tmp/deploy.sh

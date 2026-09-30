@@ -5,11 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=iot
-Group=iot
-WorkingDirectory=/opt/iot-platform-go
-EnvironmentFile=/opt/iot-platform-go/etc/.env
-ExecStart=/opt/iot-platform-go/bin/platform
+User=iot-platform
+Group=iot-platform
+EnvironmentFile=/etc/iot-platform/.env
+ExecStart=/usr/local/bin/iot-platform
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -19,7 +18,7 @@ SyslogIdentifier=iot-platform
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/iot-platform-go/data
+ReadWritePaths=/var/lib/iot-platform /var/log/iot-platform
 ProtectHome=true
 PrivateTmp=true
 
