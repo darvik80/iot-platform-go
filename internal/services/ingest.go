@@ -522,15 +522,18 @@ func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 
 func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) error {
 	var req struct {
-		ID             uint32 `json:"id"`
-		DeviceSendTime int64  `json:"deviceSendTime"`
+		ID             json.RawMessage `json:"id"`
+		DeviceSendTime int64           `json:"deviceSendTime"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return err
 	}
+	// Preserve whatever type the device sent for id (string, number, etc.).
+	var id any
+	_ = json.Unmarshal(req.ID, &id)
 	send := db.NowMS()
 	resp := map[string]any{
-		"id":             req.ID,
+		"id":             id,
 		"deviceSendTime": req.DeviceSendTime,
 		"serverRecvTime": recvMS,
 		"serverSendTime": send,
