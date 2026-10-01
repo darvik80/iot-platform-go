@@ -102,6 +102,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onUnauthorized(() => logout());
   }, [logout]);
 
+  // The token lives in localStorage shared by all tabs: follow sign-in, sign-out and
+  // account switches made in another tab instead of showing the old account's data.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'token' || e.newValue === e.oldValue) return;
+      if (!e.newValue) {
+        logout();
+        return;
+      }
+      setTok(e.newValue);
+      platformWS.connect(e.newValue);
+      void refreshMe().catch(() => logout());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [logout, refreshMe]);
+
   useEffect(() => {
     (async () => {
       try {

@@ -231,6 +231,7 @@ function UserWidget() {
 }
 
 export function AppShell() {
+  const { activeAccountId } = useAuth();
   return (
     <div className="app-shell d-flex">
       <aside className="sidebar d-none d-md-flex flex-column p-3">
@@ -273,7 +274,8 @@ export function AppShell() {
         <SuspendedBanner />
 
         <main className="main-pad flex-grow-1 p-3 p-md-4">
-          <Outlet />
+          {/* Pages load data on mount: remount them when the active account changes. */}
+          <Outlet key={activeAccountId} />
         </main>
       </div>
 

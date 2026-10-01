@@ -7,8 +7,8 @@ export class PlatformWS {
   private token = '';
 
   connect(token: string) {
-    this.token = token;
     this.close();
+    this.token = token;
     if (!token) return;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/api/v1/ws?token=${encodeURIComponent(token)}`);
