@@ -21,6 +21,12 @@ import (
 	"cogitor-iot-platform/internal/ws"
 )
 
+// Build-time injection via -ldflags.
+var (
+	Version = "dev"
+	Commit  = "unknown"
+)
+
 func main() {
 	cfg, log := initConfig()
 
@@ -47,6 +53,8 @@ func initConfig() (config.Config, *slog.Logger) {
 		"http_addr", cfg.HTTP.Addr,
 		"mqtt_addr", cfg.MQTT.Addr,
 		"data_dir", cfg.DataDir,
+		"version", Version,
+		"commit", Commit,
 	)
 	if cfg.GoogleEnabled() {
 		log.Info("google oauth enabled", "redirect", cfg.GoogleCallbackURL())
@@ -216,7 +224,7 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 	if u, err := url.Parse(cfg.Platform.PublicBaseURL); err == nil && u.Host != "" {
 		hub.AllowedHosts = append(hub.AllowedHosts, u.Host)
 	}
-	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService}
+	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService, Version: Version, Commit: Commit}
 	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
 
 	go func() {

@@ -18,6 +18,9 @@ export function getToken() {
   return localStorage.getItem('token') || '';
 }
 
+// Wi-Fi credentials remembered by the device provisioning dialog; wiped on sign-out.
+export const WIFI_STORAGE_KEY = 'cogitor.wifi';
+
 export function setToken(token: string) {
   if (token) localStorage.setItem('token', token);
   else localStorage.removeItem('token');

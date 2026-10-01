@@ -26,10 +26,12 @@ import (
 )
 
 type Server struct {
-	Plat  *services.Platform
-	Hub   *ws.Hub
-	SpaFS fs.FS                  // optional embedded SPA (dist contents)
-	Setup *services.SetupService // setup wizard service (nil if setup not needed)
+	Plat    *services.Platform
+	Hub     *ws.Hub
+	SpaFS   fs.FS                  // optional embedded SPA (dist contents)
+	Setup   *services.SetupService // setup wizard service (nil if setup not needed)
+	Version string                 // build version (injected via ldflags)
+	Commit  string                 // git commit hash (injected via ldflags)
 
 	limits *authLimits
 }
@@ -1071,5 +1073,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"google_enabled":           s.Plat.Cfg.GoogleEnabled(),
 		"public_base_url":          s.Plat.Cfg.Platform.PublicBaseURL,
 		"timezone":                 s.Plat.Cfg.TimezoneOrUTC(),
+		"version":                  s.Version,
+		"commit":                   s.Commit,
 	})
 }

@@ -24,7 +24,8 @@ cd "$PROJECT_ROOT"
 
 # ── Build Linux binary ───────────────────────────────────────────────
 echo "==> Building Linux binary"
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform ./cmd/platform
+COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -o bin/platform ./cmd/platform
 
 # ── Prepare staging area ─────────────────────────────────────────────
 # Layout:

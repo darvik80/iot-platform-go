@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, getToken, onUnauthorized, setToken } from '../api/client';
+import { api, getToken, onUnauthorized, setToken, WIFI_STORAGE_KEY } from '../api/client';
 import { platformWS } from '../api/ws';
 import type { AccountMembership, AuthConfig, MeResponse, Settings, User } from '../types';
 
@@ -43,8 +43,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     setToken('');
+    localStorage.removeItem(WIFI_STORAGE_KEY);
     setTok('');
     setUser(null);
+    setSettings(null);
     setMemberships([]);
     setActiveAccountId(0);
     platformWS.close();

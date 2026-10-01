@@ -35,8 +35,10 @@ jobs:
 
       - name: Build platform binary
         run: |
+          VERSION="$(tr -d '[:space:]' < version.txt)"
+          COMMIT="$(git rev-parse --short HEAD)"
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-            go build -ldflags="-s -w" -o bin/platform ./cmd/platform
+            go build -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT}" -o bin/platform ./cmd/platform
           chmod +x bin/platform
 
       - name: Install SSH key

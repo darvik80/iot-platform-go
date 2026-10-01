@@ -359,6 +359,8 @@ export interface Settings {
   register_enabled?: boolean;
   require_email_verify?: boolean;
   google_enabled?: boolean;
+  version?: string;
+  commit?: string;
 }
 
 export interface AuthConfig {

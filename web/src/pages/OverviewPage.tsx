@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
+import { useAuth } from '../auth/AuthContext';
 import { SeverityBadge } from '../components/StatusBadge';
 import { useT } from '../i18n/I18nContext';
 import type { Device, EventRow, MQTTStatus, Overview } from '../types';
 
 export function OverviewPage() {
   const t = useT();
+  const { settings } = useAuth();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [mqtt, setMqtt] = useState<MQTTStatus | null>(null);
@@ -164,6 +166,15 @@ export function OverviewPage() {
           🤖 {t('overview.automation')}
         </Link>
       </div>
+
+      {(settings?.version || settings?.commit) && (
+        <div className="mt-3 text-muted small">
+          {settings?.version && <span>v{settings.version}</span>}
+          {settings?.commit && settings?.commit !== 'unknown' && (
+            <span className="ms-2 mono">{settings.commit}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

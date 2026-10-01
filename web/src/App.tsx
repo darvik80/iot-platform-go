@@ -1,7 +1,31 @@
-import { lazy, Suspense } from 'react';
+import { lazy as reactLazy, Suspense, type ComponentType } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppShell } from './layout/AppShell';
+
+const RELOAD_KEY = 'chunk-reload-at';
+
+// After a deploy, an open tab still references chunk hashes that no longer exist.
+// Reload once to fetch the new index.html; the timestamp guard prevents a reload loop.
+function lazy<T extends ComponentType<object>>(load: () => Promise<{ default: T }>) {
+  return reactLazy(() =>
+    load().then(
+      (m) => {
+        sessionStorage.removeItem(RELOAD_KEY);
+        return m;
+      },
+      (err) => {
+        const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
+        if (Date.now() - last > 10_000) {
+          sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+          location.reload();
+          return new Promise<never>(() => {});
+        }
+        throw err;
+      },
+    ),
+  );
+}
 
 const OverviewPage = lazy(() => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
 const MqttPage = lazy(() => import('./pages/MqttPage').then((m) => ({ default: m.MqttPage })));

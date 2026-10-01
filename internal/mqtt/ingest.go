@@ -60,7 +60,9 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 	case protocol.KindRPCRequest:
 		_ = b.plat.HandleClientRPC(dev, payload)
 	case protocol.KindNTPRequest:
-		_ = b.plat.ReplyNTP(dev, payload, recv)
+		if err := b.plat.ReplyNTP(dev, payload, recv); err != nil {
+			b.note("warn", "ntp_reply", "", userID, "", topic, err.Error(), len(payload))
+		}
 	case protocol.KindOTAVersion:
 		_ = b.plat.HandleOTAVersion(dev, payload)
 	case protocol.KindOTAQuery:

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { WIFI_STORAGE_KEY as WIFI_KEY } from '../api/client';
 import type { DeviceCredentials } from '../types';
 import { useToast } from './Toast';
-
-const WIFI_KEY = 'cogitor.wifi';
 
 function loadWifi() {
   try {

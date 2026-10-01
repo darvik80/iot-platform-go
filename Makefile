@@ -1,14 +1,18 @@
 .PHONY: web build build-linux run gen-mqtt-tls deb
 
+VERSION  := $(shell cat version.txt 2>/dev/null || echo dev)
+COMMIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS  := -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
+
 web:
 	cd web && npm ci && npm run build
 
 build: web
-	go build -o bin/platform.exe ./cmd/platform
+	go build -ldflags="$(LDFLAGS)" -o bin/platform.exe ./cmd/platform
 
 # Static binary for Cogitor VPS systemd (iot.cogitor.dev)
 build-linux: web
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/platform ./cmd/platform
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o bin/platform ./cmd/platform
 
 run: build
 	./bin/platform.exe
