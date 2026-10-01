@@ -5,12 +5,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"cogitor-iot-platform/internal/db"
 	"cogitor-iot-platform/internal/models"
 	"cogitor-iot-platform/internal/protocol"
 )
+
+// parseUint32ID extracts a uint32 from raw JSON that may be a number or a string.
+func parseUint32ID(raw json.RawMessage) (uint32, error) {
+	var n uint32
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		v, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("id: cannot parse %q as uint32", s)
+		}
+		return uint32(v), nil
+	}
+	return 0, fmt.Errorf("id: unsupported JSON type")
+}
+
+// echoID decodes a raw JSON id into any for echo-back (preserves string/number type).
+func echoID(raw json.RawMessage) any {
+	var v any
+	_ = json.Unmarshal(raw, &v)
+	return v
+}
 
 func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 	if p.SeenRecently(d.AccountID, d.ID, protocol.BusTelemetry, payload, 2*time.Second) {
@@ -302,9 +327,9 @@ func (p *Platform) SetDesired(d *models.Device, attrs map[string]any, publish bo
 
 func (p *Platform) ReplyAttributeRequest(d *models.Device, payload []byte) error {
 	var req struct {
-		ID       uint32   `json:"id"`
-		Reported []string `json:"reported"`
-		Desired  []string `json:"desired"`
+		ID       json.RawMessage `json:"id"`
+		Reported []string        `json:"reported"`
+		Desired  []string        `json:"desired"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return err
@@ -313,7 +338,7 @@ func (p *Platform) ReplyAttributeRequest(d *models.Device, payload []byte) error
 	if err != nil {
 		return err
 	}
-	resp := map[string]any{"id": req.ID}
+	resp := map[string]any{"id": echoID(req.ID)}
 	if req.Reported != nil {
 		resp["reported"] = filterKeys(reported, req.Reported)
 	}
@@ -408,12 +433,16 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 
 func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 	var resp struct {
-		ID      uint32          `json:"id"`
+		ID      json.RawMessage `json:"id"`
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	reqID, err := parseUint32ID(resp.ID)
+	if err != nil {
 		return err
 	}
 	now := db.NowMS()
@@ -426,15 +455,15 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 		s := string(resp.Data)
 		dataStr = &s
 	}
-	_, err := p.DB.Exec(`UPDATE rpc_calls SET status=?, code=?, message=?, data_json=?, completed_at=? WHERE device_pk=? AND request_id=? AND status='pending'`,
-		status, resp.Code, resp.Message, dataStr, now, d.ID, resp.ID)
+	_, err = p.DB.Exec(`UPDATE rpc_calls SET status=?, code=?, message=?, data_json=?, completed_at=? WHERE device_pk=? AND request_id=? AND status='pending'`,
+		status, resp.Code, resp.Message, dataStr, now, d.ID, reqID)
 	if err != nil {
 		return err
 	}
-	call := models.RPCCall{DevicePK: d.ID, RequestID: resp.ID, Status: status, Code: &resp.Code, Message: resp.Message, DataJSON: dataStr, CompletedAt: &now}
+	call := models.RPCCall{DevicePK: d.ID, RequestID: reqID, Status: status, Code: &resp.Code, Message: resp.Message, DataJSON: dataStr, CompletedAt: &now}
 	_ = p.DB.QueryRow(`SELECT id, method, params_json, correlation_id, created_at FROM rpc_calls WHERE device_pk=? AND request_id=? ORDER BY id DESC LIMIT 1`,
-		d.ID, resp.ID).Scan(&call.ID, &call.Method, &call.ParamsJSON, &call.CorrelationID, &call.CreatedAt)
-	key := fmt.Sprintf("%d:%d", d.ID, resp.ID)
+		d.ID, reqID).Scan(&call.ID, &call.Method, &call.ParamsJSON, &call.CorrelationID, &call.CreatedAt)
+	key := fmt.Sprintf("%d:%d", d.ID, reqID)
 	p.mu.RLock()
 	ch := p.rpcWaiters[key]
 	p.mu.RUnlock()
@@ -448,7 +477,7 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 	MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, call.Method, status)
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID,
-		"request_id": resp.ID, "code": resp.Code, "message": resp.Message, "method": call.Method,
+		"request_id": reqID, "code": resp.Code, "message": resp.Message, "method": call.Method,
 		"correlation_id": call.CorrelationID, "data": json.RawMessage(ptrStr(dataStr)),
 	})
 	return nil
@@ -498,18 +527,19 @@ func (p *Platform) ListRPC(devicePK int64, limit int) ([]models.RPCCall, error) 
 
 func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 	var req struct {
-		ID     uint32         `json:"id"`
-		Method string         `json:"method"`
-		Params map[string]any `json:"params"`
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params map[string]any  `json:"params"`
 	}
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return err
 	}
-	resp := map[string]any{"id": req.ID, "code": 501, "message": "not implemented", "data": nil}
+	id := echoID(req.ID)
+	resp := map[string]any{"id": id, "code": 501, "message": "not implemented", "data": nil}
 	switch req.Method {
 	case "issueUploadUrl":
 		resp = map[string]any{
-			"id": req.ID, "code": 0, "message": "ok",
+			"id": id, "code": 0, "message": "ok",
 			"data": map[string]any{"url": fmt.Sprintf("https://%s/upload/%s/%s", p.Cfg.Platform.BrokerHostPublic, d.ProductID, d.DeviceID), "expires_in": 3600},
 		}
 	}
@@ -529,8 +559,7 @@ func (p *Platform) ReplyNTP(d *models.Device, payload []byte, recvMS int64) erro
 		return err
 	}
 	// Preserve whatever type the device sent for id (string, number, etc.).
-	var id any
-	_ = json.Unmarshal(req.ID, &id)
+	id := echoID(req.ID)
 	send := db.NowMS()
 	resp := map[string]any{
 		"id":             id,
