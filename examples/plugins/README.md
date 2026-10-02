@@ -3,24 +3,10 @@
 Примеры внешних плагинов с подпиской на MQTT rules bus. MQTT — единственный реализованный
 транспорт внешних плагинов (см. [docs/ru/08-external-plugins.md](../../docs/ru/08-external-plugins.md)).
 
-> **Важно: исходники примеров нужно поправить.** Все четыре примера подписываются на
-> `{rules_bus}/events/#`, а ACL брокера это запрещает: внешний плагин может читать только
-> события своего аккаунта, `{rules_bus}/events/{account_slug}/#`. С текущим кодом примеры
-> подключаются, но **не получают ни одного события** (подписка отклоняется с `acl_deny`,
-> хотя пример печатает «Subscribed to …»). Что изменить:
->
-> | Файл | Строка | Сейчас | Нужно |
-> |------|--------|--------|-------|
-> | `python/mqtt_telemetry_logger.py` | 102 | `f"{self.rules_bus}/events/#"` | `f"{self.rules_bus}/events/{account_slug}/#"` |
-> | `python/mqtt_telemetry_logger.py` | 119 | комментарий `events/{product}/{device}/{kind}` | `events/{account_slug}/{product}/{device}/{kind}` |
-> | `go/mqtt_telemetry_logger.go` | 151 | `p.rulesBus + "/events/#"` | `p.rulesBus + "/events/" + accountSlug + "/#"` |
-> | `java/MqttTelemetryLogger.java` | 136 | `config.rulesBus + "/events/#"` | `config.rulesBus + "/events/" + accountSlug + "/#"` |
-> | `cpp/mqtt_telemetry_logger.cpp` | 179 | `config_.rules_bus + "/events/#"` | `config_.rules_bus + "/events/" + account_slug + "/#"` |
->
-> `account_slug` в ответе регистрации нет — его берут из `mqtt_user`: это часть между `extplg_`
-> и следующим `_` (`extplg_acme_mqtt-telemetry-logger` → `acme`). Кроме того, разбор `kind` как
-> последнего сегмента топика даёт `result` / `reported` / `desired` для `rpc/result` и
-> `attributes/*`; поле `Token` в структуре ответа Go-примера (строка 61) всегда пустое.
+Внешний плагин может читать только события своего аккаунта —
+`{rules_bus}/events/{account_slug}/#`; подписку на `{rules_bus}/events/#` ACL брокера отклоняет.
+`account_slug` в ответе регистрации нет — примеры берут его из `mqtt_user`: это часть между
+`extplg_` и следующим `_` (`extplg_acme_mqtt-telemetry-logger` → `acme`).
 
 ## Примеры
 
@@ -132,7 +118,6 @@ MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> ./build/mqtt_te
    `mqtt_host`, `mqtt_port`, `mqtt_ws`, `rules_bus` — **без** API-токена
 3. Плагин подключается к MQTT брокеру с этими credentials
 4. Подписывается на `{rules_bus}/events/{account_slug}/#` — все события устройств своего аккаунта
-   (`{rules_bus}/events/#` ACL запрещает — см. предупреждение в начале)
 5. Логирует telemetry, status, events, OTA в консоль
 
 ```

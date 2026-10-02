@@ -9,10 +9,10 @@
  *   java -jar target/mqtt-telemetry-logger-1.0.0.jar --platform http://localhost:8080 --token <admin-jwt>
  *
  *   # With existing credentials
- *   java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_logger --mqtt-pass <password>
+ *   java -jar target/mqtt-telemetry-logger-1.0.0.jar --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
  *
  *   # With environment variables
- *   MQTT_USER=extplg_logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
+ *   MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> java -jar target/mqtt-telemetry-logger-1.0.0.jar
  *
  * Dependencies (Maven):
  *   - org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5
@@ -57,7 +57,6 @@ public class MqttTelemetryLogger {
     static class RegistrationResponse {
         boolean ok;
         String id;
-        String token;
         String mqtt_user;
         String mqtt_pass;
         String mqtt_host;
@@ -106,11 +105,24 @@ public class MqttTelemetryLogger {
 
     static class MQTTLoggerPlugin {
         private final PluginConfig config;
+        private final String eventsRoot; // {rules_bus}/events/{account_slug}/
         private MqttClient client;
         private final Gson gson = new Gson();
 
         MQTTLoggerPlugin(PluginConfig config) {
             this.config = config;
+            // The ACL only allows subscribing inside the plugin's own account.
+            this.eventsRoot = config.rulesBus + "/events/" + accountSlug(config.mqttUser) + "/";
+        }
+
+        /** extplg_acme_mqtt-telemetry-logger -> acme */
+        static String accountSlug(String mqttUser) {
+            String prefix = "extplg_";
+            int sep = mqttUser.indexOf('_', prefix.length());
+            if (!mqttUser.startsWith(prefix) || sep <= prefix.length()) {
+                throw new IllegalArgumentException("not an external plugin user: " + mqttUser);
+            }
+            return mqttUser.substring(prefix.length(), sep);
         }
 
         void connect() throws Exception {
@@ -133,7 +145,7 @@ public class MqttTelemetryLogger {
                     System.out.printf("[%s] MQTT connected%s%n",
                             LocalTime.now().format(TIME_FMT), reconnect ? " (reconnect)" : "");
 
-                    String topic = config.rulesBus + "/events/#";
+                    String topic = eventsRoot + "#";
                     try {
                         client.subscribe(topic, 0);
                         System.out.printf("[%s] Subscribed to %s%n",
@@ -166,9 +178,15 @@ public class MqttTelemetryLogger {
         }
 
         void handleMessage(String topic, String payload) {
-            String[] parts = topic.split("/");
-            String kind = parts.length > 3 ? parts[parts.length - 1] : "unknown";
-            String device = parts.length > 3 ? parts[parts.length - 2] : (parts.length > 0 ? parts[parts.length - 1] : "unknown");
+            // {product}/{device}/{kind}; kind may contain a slash (rpc/result, attributes/reported).
+            String rest = topic.startsWith(eventsRoot) ? topic.substring(eventsRoot.length()) : topic;
+            String[] parts = rest.split("/", 3);
+            if (parts.length < 3) {
+                System.err.printf("Unexpected topic: %s%n", topic);
+                return;
+            }
+            String device = parts[0] + "/" + parts[1];
+            String kind = parts[2];
 
             String ts = LocalTime.now().format(TIME_FMT);
 
@@ -184,8 +202,8 @@ public class MqttTelemetryLogger {
                     JsonElement metrics = payloadObj;
                     if (payloadObj.isJsonObject()) {
                         JsonObject obj = payloadObj.getAsJsonObject();
-                        if (obj.has("metrics")) {
-                            metrics = obj.get("metrics");
+                        if (obj.has("keys")) {
+                            metrics = obj.get("keys");
                         }
                     }
                     System.out.printf("📊 [%s] %s telemetry: %s%n", ts, device, metrics.toString());

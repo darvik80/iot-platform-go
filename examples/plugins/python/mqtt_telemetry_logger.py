@@ -11,10 +11,10 @@ Usage:
     python mqtt_telemetry_logger.py --platform http://localhost:8080 --token <admin-jwt>
 
     # With existing credentials
-    python mqtt_telemetry_logger.py --mqtt-user extplg_logger --mqtt-pass <password>
+    python mqtt_telemetry_logger.py --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 
     # With environment variables
-    export MQTT_USER=extplg_logger
+    export MQTT_USER=extplg_acme_mqtt-telemetry-logger
     export MQTT_PASS=<password>
     python mqtt_telemetry_logger.py
 """
@@ -66,6 +66,13 @@ def register(platform_url: str, jwt_token: str) -> dict:
     return data
 
 
+def account_slug(mqtt_user: str) -> str:
+    """extplg_acme_mqtt-telemetry-logger -> acme"""
+    if not mqtt_user.startswith("extplg_"):
+        raise ValueError(f"not an external plugin user: {mqtt_user}")
+    return mqtt_user.removeprefix("extplg_").split("_", 1)[0]
+
+
 # ─── MQTT Client ─────────────────────────────────────────────────────────────
 
 class MQTTLoggerPlugin:
@@ -76,6 +83,10 @@ class MQTTLoggerPlugin:
         self.mqtt_user = config["mqtt_user"]
         self.mqtt_pass = config["mqtt_pass"]
         self.rules_bus = config.get("rules_bus", "platform/v1")
+        # mqtt_user is extplg_{account_slug}_{plugin_id}; the ACL only allows
+        # subscribing inside the plugin's own account.
+        self.account_slug = account_slug(self.mqtt_user)
+        self.events_root = f"{self.rules_bus}/events/{self.account_slug}/"
         self.client: mqtt.Client | None = None
         self.running = False
 
@@ -99,9 +110,9 @@ class MQTTLoggerPlugin:
     def _on_connect(self, client, userdata, flags, rc, properties=None):
         if rc == 0 or (hasattr(rc, 'value') and rc.value == 0):
             log.info("MQTT connected")
-            topic = f"{self.rules_bus}/events/#"
+            topic = self.events_root + "#"
             client.subscribe(topic, qos=0)
-            log.info("Subscribed to %s", topic)
+            log.info("Subscribing to %s", topic)
         else:
             log.error("MQTT connect failed: rc=%s", rc)
 
@@ -116,16 +127,20 @@ class MQTTLoggerPlugin:
         except (json.JSONDecodeError, UnicodeDecodeError):
             payload = msg.payload.decode(errors="replace")
 
-        # Parse topic: platform/v1/events/{product}/{device}/{kind}
-        parts = topic.split("/")
-        kind = parts[-1] if len(parts) > 3 else "unknown"
-        device = parts[-2] if len(parts) > 3 else parts[-1]
+        # Topic: {rules_bus}/events/{account_slug}/{product}/{device}/{kind},
+        # where kind may itself contain a slash (rpc/result, attributes/reported).
+        parts = topic.removeprefix(self.events_root).split("/", 2)
+        if len(parts) < 3:
+            log.warning("Unexpected topic: %s", topic)
+            return
+        product, device_id, kind = parts
+        device = f"{product}/{device_id}"
 
         ts = datetime.now().strftime("%H:%M:%S")
 
         if kind == "telemetry":
             if isinstance(payload, dict):
-                metrics = payload.get("metrics", payload)
+                metrics = payload.get("keys", payload)
                 log.info("📊 [%s] %s telemetry: %s", ts, device, json.dumps(metrics, ensure_ascii=False))
             else:
                 log.info("📊 [%s] %s telemetry: %s", ts, device, payload)

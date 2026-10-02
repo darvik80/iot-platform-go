@@ -9,10 +9,10 @@
 //	go run mqtt_telemetry_logger.go --platform http://localhost:8080 --token <admin-jwt>
 //
 //	# With existing credentials
-//	go run mqtt_telemetry_logger.go --mqtt-user extplg_logger --mqtt-pass <password>
+//	go run mqtt_telemetry_logger.go --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
 //
 //	# With environment variables
-//	MQTT_USER=extplg_logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
+//	MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> go run mqtt_telemetry_logger.go
 //
 // Dependencies:
 //
@@ -58,7 +58,6 @@ type PluginConfig struct {
 type RegistrationResponse struct {
 	OK       bool   `json:"ok"`
 	ID       string `json:"id"`
-	Token    string `json:"token"`
 	MQTTUser string `json:"mqtt_user"`
 	MQTTPass string `json:"mqtt_pass"`
 	MQTTHost string `json:"mqtt_host"`
@@ -109,16 +108,31 @@ func register(platformURL, jwtToken string) (*PluginConfig, error) {
 // ─── MQTT Client ─────────────────────────────────────────────────────────────
 
 type MQTTLoggerPlugin struct {
-	config   *PluginConfig
-	client   mqtt.Client
-	rulesBus string
+	config     *PluginConfig
+	client     mqtt.Client
+	eventsRoot string // {rules_bus}/events/{account_slug}/
 }
 
-func NewMQTTLoggerPlugin(config *PluginConfig) *MQTTLoggerPlugin {
-	return &MQTTLoggerPlugin{
-		config:   config,
-		rulesBus: config.RulesBus,
+// accountSlug extracts the account from extplg_{account_slug}_{plugin_id}.
+func accountSlug(mqttUser string) (string, error) {
+	rest, ok := strings.CutPrefix(mqttUser, "extplg_")
+	slug, _, found := strings.Cut(rest, "_")
+	if !ok || !found || slug == "" {
+		return "", fmt.Errorf("not an external plugin user: %q", mqttUser)
 	}
+	return slug, nil
+}
+
+func NewMQTTLoggerPlugin(config *PluginConfig) (*MQTTLoggerPlugin, error) {
+	slug, err := accountSlug(config.MQTTUser)
+	if err != nil {
+		return nil, err
+	}
+	// The ACL only allows subscribing inside the plugin's own account.
+	return &MQTTLoggerPlugin{
+		config:     config,
+		eventsRoot: config.RulesBus + "/events/" + slug + "/",
+	}, nil
 }
 
 func (p *MQTTLoggerPlugin) Connect() error {
@@ -148,7 +162,7 @@ func (p *MQTTLoggerPlugin) Connect() error {
 func (p *MQTTLoggerPlugin) onConnect(client mqtt.Client) {
 	log.Println("MQTT connected")
 
-	topic := p.rulesBus + "/events/#"
+	topic := p.eventsRoot + "#"
 	if token := client.Subscribe(topic, 0, p.onMessage); token.Wait() && token.Error() != nil {
 		log.Printf("Subscribe failed: %v", token.Error())
 		return
@@ -164,15 +178,14 @@ func (p *MQTTLoggerPlugin) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	topic := msg.Topic()
 	payload := msg.Payload()
 
-	parts := strings.Split(topic, "/")
-	kind := "unknown"
-	device := "unknown"
-	if len(parts) > 3 {
-		kind = parts[len(parts)-1]
-		device = parts[len(parts)-2]
-	} else if len(parts) > 0 {
-		device = parts[len(parts)-1]
+	// {product}/{device}/{kind}; kind may contain a slash (rpc/result, attributes/reported).
+	parts := strings.SplitN(strings.TrimPrefix(topic, p.eventsRoot), "/", 3)
+	if len(parts) < 3 {
+		log.Printf("Unexpected topic: %s", topic)
+		return
 	}
+	device := parts[0] + "/" + parts[1]
+	kind := parts[2]
 
 	ts := time.Now().Format("15:04:05")
 
@@ -184,8 +197,8 @@ func (p *MQTTLoggerPlugin) onMessage(_ mqtt.Client, msg mqtt.Message) {
 	switch kind {
 	case "telemetry":
 		if m, ok := payloadObj.(map[string]any); ok {
-			if metrics, exists := m["metrics"]; exists {
-				payloadObj = metrics
+			if keys, exists := m["keys"]; exists {
+				payloadObj = keys
 			}
 		}
 		jsonBytes, _ := json.Marshal(payloadObj)
@@ -283,7 +296,10 @@ func main() {
 		log.Fatal("Either --token or --mqtt-user/--mqtt-pass (or env vars) required")
 	}
 
-	plugin := NewMQTTLoggerPlugin(config)
+	plugin, err := NewMQTTLoggerPlugin(config)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

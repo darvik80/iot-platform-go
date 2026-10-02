@@ -9,10 +9,10 @@
  *   ./mqtt_telemetry_logger --platform http://localhost:8080 --token <admin-jwt>
  *
  *   # With existing credentials
- *   ./mqtt_telemetry_logger --mqtt-user extplg_logger --mqtt-pass <password>
+ *   ./mqtt_telemetry_logger --mqtt-user extplg_acme_mqtt-telemetry-logger --mqtt-pass <password>
  *
  *   # With environment variables
- *   MQTT_USER=extplg_logger MQTT_PASS=<password> ./mqtt_telemetry_logger
+ *   MQTT_USER=extplg_acme_mqtt-telemetry-logger MQTT_PASS=<password> ./mqtt_telemetry_logger
  *
  * Dependencies:
  *   - Eclipse Paho MQTT C++ (https://github.com/eclipse/paho.mqtt.cpp)
@@ -33,6 +33,7 @@
 #include <sstream>
 #include <iomanip>
 #include <cstdlib>
+#include <stdexcept>
 
 #include <mqtt/client.h>
 #include <nlohmann/json.hpp>
@@ -142,10 +143,21 @@ PluginConfig register_plugin(const std::string& platform_url, const std::string&
 
 // ─── MQTT Client ─────────────────────────────────────────────────────────────
 
+// extplg_acme_mqtt-telemetry-logger -> acme
+std::string account_slug(const std::string& mqtt_user) {
+    const std::string prefix = "extplg_";
+    auto sep = mqtt_user.find('_', prefix.size());
+    if (mqtt_user.compare(0, prefix.size(), prefix) != 0 || sep == std::string::npos || sep == prefix.size()) {
+        throw std::invalid_argument("not an external plugin user: " + mqtt_user);
+    }
+    return mqtt_user.substr(prefix.size(), sep - prefix.size());
+}
+
 class MQTTLoggerPlugin : public virtual mqtt::callback {
 private:
     mqtt::async_client client_;
     PluginConfig config_;
+    std::string events_root_;  // {rules_bus}/events/{account_slug}/
 
 public:
     MQTTLoggerPlugin(const PluginConfig& config)
@@ -153,6 +165,8 @@ public:
                   "extplg_" + PLUGIN_ID,
                   mqtt::create_options_ptr(mqtt::CREATE_OPTIONS_VERSION))
         , config_(config)
+        // The ACL only allows subscribing inside the plugin's own account.
+        , events_root_(config.rules_bus + "/events/" + account_slug(config.mqtt_user) + "/")
     {
         client_.set_callback(*this);
     }
@@ -176,7 +190,7 @@ public:
     void connected(const std::string& cause) override {
         std::cout << "[" << get_timestamp() << "] MQTT connected" << std::endl;
 
-        std::string topic = config_.rules_bus + "/events/#";
+        std::string topic = events_root_ + "#";
         client_.subscribe(topic, 0)->wait();
         std::cout << "[" << get_timestamp() << "] Subscribed to " << topic << std::endl;
     }
@@ -189,21 +203,18 @@ public:
         std::string topic = msg->get_topic();
         std::string payload = msg->to_string();
 
-        std::vector<std::string> parts;
-        std::istringstream iss(topic);
-        std::string part;
-        while (std::getline(iss, part, '/')) {
-            parts.push_back(part);
+        // {product}/{device}/{kind}; kind may contain a slash (rpc/result, attributes/reported).
+        std::string rest = topic.compare(0, events_root_.size(), events_root_) == 0
+                               ? topic.substr(events_root_.size())
+                               : topic;
+        auto first = rest.find('/');
+        auto second = first == std::string::npos ? first : rest.find('/', first + 1);
+        if (second == std::string::npos) {
+            std::cerr << "[" << get_timestamp() << "] Unexpected topic: " << topic << std::endl;
+            return;
         }
-
-        std::string kind = "unknown";
-        std::string device = "unknown";
-        if (parts.size() > 3) {
-            kind = parts.back();
-            device = parts[parts.size() - 2];
-        } else if (!parts.empty()) {
-            device = parts.back();
-        }
+        std::string device = rest.substr(0, second);
+        std::string kind = rest.substr(second + 1);
 
         std::string ts = get_timestamp();
 
@@ -216,8 +227,8 @@ public:
 
         if (kind == "telemetry") {
             json metrics = payload_obj;
-            if (payload_obj.is_object() && payload_obj.contains("metrics")) {
-                metrics = payload_obj["metrics"];
+            if (payload_obj.is_object() && payload_obj.contains("keys")) {
+                metrics = payload_obj["keys"];
             }
             std::cout << "📊 [" << ts << "] " << device << " telemetry: " << metrics.dump() << std::endl;
         }
