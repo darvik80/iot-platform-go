@@ -67,6 +67,14 @@ export function SettingsPage() {
         <div>Registration: {String(s.register_enabled)}</div>
         <div>Email verify: {String(s.require_email_verify)}</div>
         <div>Google OAuth: {String(s.google_enabled)}</div>
+        {(s.version || s.commit) && (
+          <div className="mt-2 border-top border-secondary pt-2">
+            {s.version && <span>Version: v{s.version}</span>}
+            {s.commit && s.commit !== 'unknown' && (
+              <span className="ms-2">Commit: {s.commit}</span>
+            )}
+          </div>
+        )}
       </div>
 
       <h2 className="h5 mb-2">{t('settings.apiTokens')}</h2>
