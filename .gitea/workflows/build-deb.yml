@@ -1,7 +1,11 @@
-name: Build .deb
+name: Build & Deploy
 
-# Builds the .deb package on push to master or manual trigger.
-# The .deb is uploaded as a build artifact and (on version tags) as a Gitea Release.
+# Builds the .deb package, then runs independent downstream jobs:
+#   deploy-vds  — installs .deb on VDS via SSH (master only, re-runnable)
+#   publish     — uploads .deb to cogitor-products package registry
+#   release     — creates a Gitea Release (version tags only)
+#
+# Each job can be re-run independently from the Gitea Actions UI.
 
 on:
   push:
@@ -10,9 +14,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-deb:
-    name: Build .deb package
+  # ── 1. Build ────────────────────────────────────────────────────────
+  build:
+    name: Build .deb
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      deb: ${{ steps.version.outputs.deb }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,20 +52,90 @@ jobs:
           path: dist/${{ steps.version.outputs.deb }}
           retention-days: 30
 
-      # ── Create Gitea Release on version tags ─────────────────────
+  # ── 2. Deploy to VDS (master only) ─────────────────────────────────
+  deploy-vds:
+    name: Deploy to VDS
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.deb }}
+
+      - name: Install SSH key
+        env:
+          SSH_KEY: ${{ secrets.IOT_DEPLOY_SSH_KEY }}
+        run: |
+          test -n "$SSH_KEY" || { echo "missing secret IOT_DEPLOY_SSH_KEY"; exit 1; }
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -lf ~/.ssh/id_ed25519 || { echo "ERROR: invalid key format"; exit 1; }
+          ssh-keyscan -H "${{ secrets.IOT_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Upload .deb and install on VDS
+        env:
+          HOST: ${{ secrets.IOT_DEPLOY_HOST }}
+          USER: ${{ secrets.IOT_DEPLOY_USER }}
+          DEB: ${{ needs.build.outputs.deb }}
+        run: |
+          test -n "$HOST" && test -n "$USER" || { echo "missing IOT_DEPLOY_HOST / IOT_DEPLOY_USER"; exit 1; }
+          SSH="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          SCP="scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          $SCP "$DEB" "$USER@$HOST:/tmp/${DEB}"
+          $SSH "$USER@$HOST" "sudo dpkg -i /tmp/${DEB} && sudo apt-get install -f -y && rm -f /tmp/${DEB}"
+          echo "deploy ok"
+
+  # ── 3. Publish to cogitor-products ─────────────────────────────────
+  publish:
+    name: Publish to cogitor-products
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.deb }}
+
+      - name: Upload to cogitor-products
+        env:
+          GITEA_TOKEN: ${{ secrets.DEB_GITEA_TOKEN }}
+          DEB: ${{ needs.build.outputs.deb }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          API_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/${VERSION}"
+          LATEST_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/latest"
+
+          curl -k -sSf -u "gitea:${GITEA_TOKEN}" --upload-file "$DEB" "${API_URL}/$(basename "$DEB")"
+          curl -k -sSf -u "gitea:${GITEA_TOKEN}" --upload-file "$DEB" "${LATEST_URL}/$(basename "$DEB")"
+          echo "published to cogitor-products"
+
+  # ── 4. Gitea Release (version tags only) ───────────────────────────
+  release:
+    name: Create Gitea Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.deb }}
+
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: https://gitea.com/actions/release-action@main
         with:
-          files: dist/${{ steps.version.outputs.deb }}
+          files: ${{ needs.build.outputs.deb }}
           tag: ${{ github.ref_name }}
-          title: "v${{ steps.version.outputs.version }}"
+          title: "v${{ needs.build.outputs.version }}"
           body: |
-            IoT Platform Go v${{ steps.version.outputs.version }}
+            IoT Platform Go v${{ needs.build.outputs.version }}
 
             **Install:**
             ```
-            sudo dpkg -i ${{ steps.version.outputs.deb }}
+            sudo dpkg -i ${{ needs.build.outputs.deb }}
             sudo apt-get install -f
             ```
 
