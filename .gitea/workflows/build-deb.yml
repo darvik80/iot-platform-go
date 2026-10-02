@@ -102,12 +102,20 @@ jobs:
           DEB: ${{ needs.build.outputs.deb }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          API_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/${VERSION}"
-          LATEST_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/latest"
+          BASE="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products"
+          AUTH="Authorization: token ${GITEA_TOKEN}"
 
-          curl -k -sSf -H "Authorization: token ${GITEA_TOKEN}" --upload-file "$DEB" "${API_URL}/$(basename "$DEB")"
-          curl -k -sSf -H "Authorization: token ${GITEA_TOKEN}" --upload-file "$DEB" "${LATEST_URL}/$(basename "$DEB")"
-          echo "published to cogitor-products"
+          # Always update the rolling "latest" slot (delete old → upload new)
+          curl -k -sSf -X DELETE -H "$AUTH" "${BASE}/latest/$(basename "$DEB")" || true
+          curl -k -sSf -H "$AUTH" --upload-file "$DEB" "${BASE}/latest/$(basename "$DEB")"
+
+          # Versioned slot — only on version tags (immutable release)
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            curl -k -sSf -H "$AUTH" --upload-file "$DEB" "${BASE}/${VERSION}/$(basename "$DEB")"
+            echo "published ${VERSION} + latest to cogitor-products"
+          else
+            echo "published latest to cogitor-products"
+          fi
 
   # ── 4. Gitea Release (version tags only) ───────────────────────────
   release:
