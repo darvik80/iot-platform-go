@@ -17,7 +17,6 @@ jobs:
   # ── 1. Build ────────────────────────────────────────────────────────
   build:
     name: Build .deb
-    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       deb: ${{ steps.version.outputs.deb }}
@@ -57,7 +56,6 @@ jobs:
     name: Deploy to VDS
     needs: build
     if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
     steps:
       - name: Download .deb
         uses: actions/download-artifact@v4
@@ -92,7 +90,6 @@ jobs:
   publish:
     name: Publish to cogitor-products
     needs: build
-    runs-on: ubuntu-latest
     steps:
       - name: Download .deb
         uses: actions/download-artifact@v4
@@ -108,8 +105,6 @@ jobs:
           API_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/${VERSION}"
           LATEST_URL="https://gitea.darvik.synology.me:8443/api/packages/Cogitor/generic/cogitor-products/latest"
 
-          curl -k -sSf -u "gitea:${GITEA_TOKEN}" --upload-file "$DEB" "${API_URL}/$(basename "$DEB")"
-          curl -k -sSf -u "gitea:${GITEA_TOKEN}" --upload-file "$DEB" "${LATEST_URL}/$(basename "$DEB")"
           echo "published to cogitor-products"
 
   # ── 4. Gitea Release (version tags only) ───────────────────────────
@@ -117,7 +112,6 @@ jobs:
     name: Create Gitea Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
     steps:
       - name: Download .deb
         uses: actions/download-artifact@v4
