@@ -7,6 +7,18 @@ set -e
 chown -R iot-platform:iot-platform /opt/iot-platform
 chown -R iot-platform:iot-platform /var/log/iot-platform
 
+# Create config.yml placeholder ONLY on fresh install (not on upgrade).
+# On upgrade the existing config.yml written by the Setup wizard must survive.
+if [ ! -f /opt/iot-platform/etc/config.yml ]; then
+    cat > /opt/iot-platform/etc/config.yml <<'CONF'
+# IoT Platform Go — configuration file
+# Leave empty to run the web setup wizard on first boot.
+# The wizard is available at http://<host>:8080 after the service starts.
+CONF
+    chmod 0644 /opt/iot-platform/etc/config.yml
+    chown iot-platform:iot-platform /opt/iot-platform/etc/config.yml
+fi
+
 # Reload systemd units
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload

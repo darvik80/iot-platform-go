@@ -47,13 +47,8 @@ mkdir -p "${PKG}/lib/systemd/system"
 # Binary
 install -m 0755 bin/platform "${PKG}/opt/iot-platform/bin/platform"
 
-# Default config (empty → triggers setup wizard on first boot)
-cat > "${PKG}/opt/iot-platform/etc/config.yml" <<'EOF'
-# IoT Platform Go — configuration file
-# Leave empty to run the web setup wizard on first boot.
-# The wizard is available at http://<host>:8080 after the service starts.
-EOF
-chmod 0644 "${PKG}/opt/iot-platform/etc/config.yml"
+# NOTE: config.yml is NOT shipped — postinst creates a placeholder only on
+#       fresh install.  On upgrade the existing file is preserved by dpkg.
 
 # Log rotation
 install -m 0644 "${SCRIPT_DIR}/logrotate" "${PKG}/etc/logrotate.d/iot-platform"
