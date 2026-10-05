@@ -622,7 +622,7 @@ ALTER TABLE users ADD COLUMN is_platform_admin INTEGER NOT NULL DEFAULT 0;
 | Переменная | По умолчанию | Назначение |
 |-----------|-------------|------------|
 | `DATABASE_DRIVER` | авто (см. F-1301) | `sqlite` или `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | DSN: путь к файлу (sqlite) или URL (postgres) |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | DSN: путь к файлу (sqlite) или URL (postgres) |
 | `BOOTSTRAP_ACCOUNT_SLUG` | `default` | Slug аккаунта, который создаётся визардом (F-1404) или bootstrap-логикой (F-102) |
 | `BOOTSTRAP_ACCOUNT_NAME` | `Default` | Display name |
 | `INVITE_TTL_HOURS` | `72` | TTL приглашения |

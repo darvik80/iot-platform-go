@@ -1,243 +1,230 @@
-# Развёртывание Docker (Synology / compose)
+# Деплой в Docker (Synology / compose)
 
-Контейнерный запуск платформы — удобно для NAS (Synology, QNAP) или любого Docker-хоста. Multi-stage сборка: Node.js → Go → Alpine (итоговый образ ~30 МБ).
+Контейнерный деплой платформы — удобно для NAS (Synology, QNAP) или любого Docker-хоста. Многоэтапная сборка: Node.js → Go → Alpine (итоговый образ ~30 МБ).
 
-Контейнер платформы собирается из корневого `Dockerfile` и запускается через `docker run` (так делает и CI-workflow). `deploy/docker-compose.yml` содержит **только** опциональный сервис Node-RED — сервиса `platform` в compose нет.
+Один и тот же образ можно запустить тремя способами:
 
-Production на VPS использует systemd — см. [12-deploy-vds.md](12-deploy-vds.md).
+- **Docker Compose** — `deploy/docker-compose.yml` (сервис `platform`, опционально `nodered`), порты и папки хоста в `deploy/.env`;
+- **`docker run`** — на любом хосте;
+- **Gitea CI** — `.gitea/workflows/deploy-docker.yml` пересобирает образ и пересоздаёт контейнер при push в `master` (раннер на Synology).
+
+Продакшн на VPS работает через systemd — см. [12-deploy-vds.md](12-deploy-vds.md).
 
 ---
 
-## Как это работает
+## Устройство образа
 
-```mermaid
-graph TB
-    subgraph Build["Multi-stage build (Dockerfile)"]
-        direction TB
-        N["node:22<br/>npm ci && npm run build"] --> SPA["React SPA (dist/)"]
-        G["golang:1.25<br/>go build"] --> BIN["Go binary"]
-        SPA -. "embed.FS" .-> BIN
-    end
-
-    BIN --> ALP["alpine:3.20<br/>итоговый образ ~30 МБ"]
-
-    subgraph Runtime["Runtime container"]
-        direction TB
-        ALP --> P["/platform<br/>:8080 HTTP<br/>:1883 MQTT TCP<br/>:8083 MQTT-WS"]
-    end
-
-    P --> DATA[("data/<br/>SQLite + firmware")]
-    P --> ENV[("etc/.env<br/>конфиг (ro)")]
-
-    DEV["Device"] -->|"MQTT :1883"| P
-    UI["Браузер"] -->|"HTTP :9083"| P
+```
+docker build -t localhost/iot-platform-go:latest .
+         │
+         ├── node:22-bookworm     → npm ci && npm run build  (React SPA)
+         ├── golang:1.26-bookworm → go build                 (Go-бинарник + встроенный SPA)
+         └── alpine:3.20          → /opt/iot-platform/bin/platform
+                                    │
+                              ┌─────┴──────┐
+                              │  Контейнер │   пользователь "platform" (uid 1000)
+                              │  :8080 HTTP│   через docker-entrypoint.sh (su-exec)
+                              │  :1883 MQTT│
+                              │  :8083 WS  │
+                              │  :8883 TLS │
+                              └─────┬──────┘
+                                    │
+                 <папка хоста>/
+                 ├── data/ → /opt/iot-platform/lib   SQLite platform.db + firmware/
+                 └── etc/  → /opt/iot-platform/etc   config.yml (мастер установки) + certs/
 ```
 
-> **Уточнение к диаграмме**: сборка идёт на `node:22-bookworm` и `golang:1.26-bookworm`; образ также открывает порт `8883` (MQTT TLS); каталог `etc/` монтируется в `/etc/iot-platform` на чтение и запись и содержит `config.yml` (файл `.env` бинарник не читает).
+Что зашито в образ (`Dockerfile`, `docker-entrypoint.sh`):
 
-Факты об образе (`Dockerfile`, `docker-entrypoint.sh`):
+| | Значение |
+|---|---|
+| Порты контейнера | `8080` HTTP, `1883` MQTT, `8083` MQTT over WebSocket, `8883` MQTT over TLS (`EXPOSE`) |
+| Env слушателей | `HTTP_ADDR=:8080`, `MQTT_ADDR=:1883`, `MQTT_WS_ADDR=:8083`, `MQTT_TLS_ADDR=:8883` |
+| База | `SQLITE_PATH=/opt/iot-platform/lib/platform.db` (DSN по умолчанию; мастер установки подставляет тот же путь) |
+| Тома | `/opt/iot-platform/lib`, `/opt/iot-platform/etc` (`VOLUME`) |
+| Здоровье | `HEALTHCHECK` → `GET /healthz` (отвечает и в режиме мастера установки) |
+| Entrypoint | от root: `chown` каталогов `lib/` и `etc/` на uid 1000, затем `su-exec platform`; при `--user` запускает команду как есть, права на тома — ваша забота |
 
-- `EXPOSE 8080 1883 8083 8883`
-- `ENV SQLITE_PATH=/data/platform.db`, `HTTP_ADDR=:8080`, `MQTT_ADDR=:1883`
-- Entrypoint делает `chown` каталога `/data` на пользователя `platform` (uid 1000) и понижает привилегии через `su-exec platform`. `/etc/iot-platform` **не** chown-ится — чтобы мастер настройки мог сохранить туда `config.yml`, каталог на хосте должен быть доступен на запись uid 1000.
+**Порты:** меняйте только **хостовую** сторону (`-p ХОСТ:КОНТЕЙНЕР`). Порты контейнера зафиксированы образом. Если порт хоста отличается от порта контейнера, сообщите платформе, какой порт использовать клиентам: `PUBLIC_BASE_URL` для HTTP и `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` для MQTT (они показываются в credentials устройств, в Settings и в статусе MQTT). Compose и CI-воркфлоу выставляют MQTT-порты автоматически.
+
+**Папки:** оба bind-монтирования могут принадлежать root на хосте — entrypoint при каждом старте отдаёт их uid 1000. `config.yml` содержит секреты и пишется с правами `0600`.
 
 ---
 
-## Быстрый старт (локально)
+## Docker Compose
 
 ```bash
-# Платформа
-docker build -t iot-platform-go .
-mkdir -p ./run/data ./run/etc && sudo chown -R 1000:1000 ./run/etc
-docker run -d --name iot-platform-go \
-  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v "$PWD/run/data:/data" \
-  -v "$PWD/run/etc:/etc/iot-platform" \
-  iot-platform-go
-
-# Опционально: Node-RED
-cd deploy && docker compose up -d
+cd deploy
+cp .env.example .env                   # порты, папки хоста, имя образа
+cp platform.env.example platform.env   # опционально: закреплённые настройки платформы
+docker compose up -d --build           # только платформа
+docker compose --profile nodered up -d # + Node-RED
 ```
 
-- Мастер настройки (первый запуск): http://localhost:8080/setup
-- Дашборд: http://localhost:8080
-- MQTT: `mqtt://localhost:1883`
-- MQTT WS: `ws://localhost:8083/`
-- MQTT TLS: `mqtts://localhost:8883` (только если настроены сертификат и ключ TLS)
+`deploy/.env` (только для подстановки в compose):
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `IOT_IMAGE` | `localhost/iot-platform-go:latest` | Запускаемый образ; `--build` помечает локальную сборку этим именем. Готовый образ: `darvik80/iot-platform:latest` (amd64 + arm64) |
+| `IOT_CONTAINER_NAME` | `iot-platform-go` | Имя контейнера |
+| `IOT_HTTP_PORT` | `8080` | Порт хоста → 8080 |
+| `IOT_MQTT_PORT` | `1883` | Порт хоста → 1883, он же `MQTT_PUBLIC_PORT` |
+| `IOT_MQTT_WS_PORT` | `8083` | Порт хоста → 8083, он же `MQTT_WS_PUBLIC_PORT` |
+| `IOT_MQTT_TLS_PORT` | `8883` | Порт хоста → 8883, он же `MQTT_TLS_PUBLIC_PORT` |
+| `IOT_DATA_DIR` | `./iot/data` | Папка хоста → `/opt/iot-platform/lib` |
+| `IOT_ETC_DIR` | `./iot/etc` | Папка хоста → `/opt/iot-platform/etc` |
+| `NODERED_PORT` | `1880` | Порт Node-RED на хосте (профиль `nodered`) |
+
+`deploy/platform.env` передаётся через `env_file` и необязателен. Каждая переменная из него **перекрывает** `config.yml` мастера установки, поэтому оставляйте только то, что хотите закрепить (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `JWT_SECRET`, `DATABASE_*`, `MQTT_TLS_*`, …), и не оставляйте переменные с пустым значением: пустая переменная всё равно считается заданной и скрывает значение из `config.yml`.
+
+---
+
+## docker run
+
+```bash
+docker build -t iot-platform-go .
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v "$PWD/iot/data:/opt/iot-platform/lib" \
+  -v "$PWD/iot/etc:/opt/iot-platform/etc" \
+  iot-platform-go
+```
+
+Другие порты хоста, например HTTP на 9083 и MQTT на 11883:
+
+```bash
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 9083:8080 -p 11883:1883 -p 8083:8083 -p 8883:8883 \
+  -e MQTT_PUBLIC_PORT=11883 \
+  -e PUBLIC_BASE_URL=http://192.168.1.22:9083 \
+  -e BROKER_HOST_PUBLIC=192.168.1.22 \
+  -v /srv/iot/data:/opt/iot-platform/lib \
+  -v /srv/iot/etc:/opt/iot-platform/etc \
+  iot-platform-go
+```
+
+Бинарник не читает `.env`; используйте `-e VAR=…` или `--env-file <файл>`.
+
+- Мастер установки (первый запуск): `http://<host>:<HTTP-порт>/setup`
+- MQTT: `mqtt://<host>:<MQTT-порт>`, WS: `ws://<host>:<WS-порт>/`, TLS: `mqtts://<host>:<TLS-порт>` (только если заданы cert/key)
 
 ---
 
 ## Конфигурация
 
-Бинарник читает **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**. Файлы `.env` он не читает; переменные передаются через `docker run -e VAR=…` или `docker run --env-file <файл>`.
+Приоритет: **OS env → `./config.yml` (= `/opt/iot-platform/config.yml`, не на томе) → `/opt/iot-platform/etc/config.yml`**. Полный список переменных — [11-operations.md](11-operations.md#конфигурация).
 
-### Первый запуск — мастер настройки
+### Первый запуск — мастер установки
 
-При пустой `/data/platform.db` контейнер поднимает на порту 8080 **мастер настройки** (`/setup`, API `/api/v1/setup/*`) — логина по умолчанию нет, переменные `ADMIN_*` игнорируются. Подробности: [Эксплуатация → мастер настройки](11-operations.md#первый-запуск-мастер-настройки).
+При пустой базе контейнер отдаёт **мастер установки** на HTTP-порту (`/setup`, API `/api/v1/setup/*`) — логина администратора по умолчанию нет, переменные `ADMIN_*` игнорируются. Подробнее: [Эксплуатация → мастер установки](11-operations.md).
 
-- На шаге 1 укажите DSN SQLite **`/data/platform.db`** (мастер подставляет `/var/lib/iot-platform/platform.db`, а этот путь внутри контейнера не на volume).
-- Мастер пишет `config.yml` в `/etc/iot-platform/config.yml`, если каталог доступен на запись uid 1000; иначе в `./config.yml` (= `/config.yml`, тоже недоступен) и только пишет предупреждение в лог. Без сохранённого `config.yml` следующий запуск возьмёт env/значения по умолчанию (настройки БД теряются; JWT-секрет восстанавливается из таблицы `settings`, если БД доступна) — поэтому либо сделайте `etc/` доступным на запись, либо явно передайте `-e DATABASE_DSN=…` / `-e JWT_SECRET=…`.
-- Эндпоинты мастера без авторизации: проходите мастер из доверенной сети / localhost, затем перезапустите контейнер.
+- На шаге 1 оставьте предложенный SQLite DSN (`/opt/iot-platform/lib/platform.db`) — он лежит на томе данных.
+- Мастер пишет `config.yml` в `/opt/iot-platform/etc/config.yml` (том etc) и продолжает запуск платформы; следующий старт контейнера прочитает его оттуда.
+- На шаге 7 укажите публичный URL и хост брокера **со стороны хоста** (например, `http://192.168.1.22:9083`, `192.168.1.22`).
+- Эндпоинты мастера не требуют авторизации: проходите его из доверенной сети.
 
-### Опциональные переменные
+### MQTT TLS
 
-```bash
-docker run ... \
-  -e PUBLIC_BASE_URL=http://<host-ip>:9083 \
-  -e BROKER_HOST_PUBLIC=<host-ip> \
-  -e JWT_SECRET=<случайные-64-символа> \
-  -e TIMEZONE=Asia/Bangkok \
-  ...
-# PostgreSQL вместо SQLite:
-#  -e DATABASE_DRIVER=postgres -e DATABASE_DSN=postgres://user:pass@db:5432/iot_platform?sslmode=disable
-```
-
-Значения env перекрывают `config.yml`. Полный список переменных — в [11-operations.md](11-operations.md#конфигурация).
+Положите файлы в `<папка etc на хосте>/certs/mqtt/` (или сгенерируйте мастером в `/opt/iot-platform/etc/certs/mqtt`) и задайте `MQTT_TLS_CERT` / `MQTT_TLS_KEY` (пути внутри контейнера: `/opt/iot-platform/etc/certs/mqtt/…`). См. [05-mqtt-tls.md](05-mqtt-tls.md).
 
 ---
 
-## Synology NAS
+## Synology NAS + Gitea CI
 
-### 1. Первоначальная настройка
+`.gitea/workflows/deploy-docker.yml` запускается на **push в `master`** и вручную (**workflow_dispatch**), одним джобом на раннере NAS (образ собирается там же, где работает контейнер):
 
-```bash
-# SSH на Synology
-mkdir -p /volume1/docker/iot-platform-go/{data,etc}
-chown 1000:1000 /volume1/docker/iot-platform-go/etc   # чтобы мастер настройки мог записать config.yml
-```
+1. Собирает `localhost/<контейнер>:latest` с `VERSION` (из `version.txt`) и `COMMIT`.
+2. Пересоздаёт контейнер с `--restart unless-stopped`, публикует все четыре порта и монтирует `<IOT_HOST_DIR>/data` → `/opt/iot-platform/lib`, `<IOT_HOST_DIR>/etc` → `/opt/iot-platform/etc`. Отсутствующие папки Docker создаёт сам.
+3. Ждёт, пока healthcheck контейнера станет `healthy` (≈90 с); иначе печатает последние 100 строк лога и падает.
+4. Удаляет «висячие» образы.
 
-### Архитектура деплоя
+Всё переопределяется **переменными репозитория** (Settings → Actions → Variables), править файл не нужно:
 
-```mermaid
-graph LR
-    subgraph Host["Synology NAS (DSM)"]
-        subgraph FS["/volume1/docker/iot-platform-go/"]
-            DATADIR["data/"]
-            ETCDIR["etc/.env"]
-        end
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `IOT_CONTAINER_NAME` | `iot-platform-go` | Имя контейнера и образа |
+| `IOT_HTTP_PORT` | `9083` | Порт хоста → 8080 |
+| `IOT_MQTT_PORT` | `1883` | Порт хоста → 1883 (+ `MQTT_PUBLIC_PORT`) |
+| `IOT_MQTT_WS_PORT` | `8083` | Порт хоста → 8083 (+ `MQTT_WS_PUBLIC_PORT`) |
+| `IOT_MQTT_TLS_PORT` | `8883` | Порт хоста → 8883 (+ `MQTT_TLS_PUBLIC_PORT`) |
+| `IOT_HOST_DIR` | `/volume1/docker/iot-platform-go` | Содержит `data/` и `etc/` |
+| `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `TIMEZONE` | — | Передаются как `-e` только если заданы; иначе действует `config.yml` |
 
-        CONT["iot-platform-go<br/>(container)"]
+Дашборд: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.
 
-        DATADIR -. "bind mount<br/>:rw" .-> CONT
-        ETCDIR -. "bind mount<br/>:ro" .-> CONT
-    end
+`.gitea/workflows/deploy-docker-hub.yml` собирает тот же `Dockerfile` под `linux/amd64` + `linux/arm64` и публикует `darvik80/iot-platform` (`latest` из `master`, версионные теги из `v*`).
 
-    DEV["Device"] -->|"MQTT :1883"| CONT
-    UI["Браузер"] -->|"HTTP :9083"| CONT
+### Переход со старой раскладки `/data`
 
-    HOSTP1["Host :9083"] -->|"→ :8080"| CONT
-    HOSTP2["Host :1883"] -->|"→ :1883"| CONT
-    HOSTP3["Host :8083"] -->|"→ :8083"| CONT
-```
+Старые образы хранили базу в `/data`, а конфиг в `/etc/iot-platform`. Папки на хосте те же (`data/`, `etc/`), поменялась только сторона контейнера. Entrypoint создаёт ссылки `/data` → `/opt/iot-platform/lib` и `/etc/iot-platform` → `/opt/iot-platform/etc`, поэтому существующий `config.yml` с `dsn: /data/platform.db` или путями сертификатов в `/etc/iot-platform/certs` продолжает работать. Позже эти пути можно заменить на новые.
 
-> **Уточнение к диаграмме**: `etc/` монтируется в `/etc/iot-platform` без `:ro` и содержит `config.yml` (не `.env`).
-
-### 2. Gitea workflow (автоматический деплой)
-
-`.gitea/workflows/deploy-docker.yml` — запускается при **push в `master`** и через **workflow_dispatch** (ручной запуск), на NAS runner:
-
-1. Создаёт `/volume1/docker/iot-platform-go/{data,etc}`
-2. Собирает образ `localhost/iot-platform-go:latest` (`DOCKER_API_VERSION=1.43`)
-3. Пересоздаёт контейнер `iot-platform-go` (`--restart unless-stopped`) на портах:
-   - HTTP: **9083** → 8080 (`TARGET_PORT`)
-   - MQTT TCP: **1883** → 1883 (`TARGET_MQTT_PORT`)
-   - MQTT WS: **8083** → 8083 (`TARGET_MQTT_WS_PORT`)
-   - 8883 (MQTT TLS) workflow **не** публикует — добавьте `-p 8883:8883`, если включаете TLS
-4. Монтирование (оба на чтение и запись, без `:ro`):
-   - `/volume1/docker/iot-platform-go/data` → `/data` (SQLite + firmware)
-   - `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform` (config.yml, сертификаты)
-5. `-e` / `--env-file` не передаются — конфигурация берётся из `config.yml`, записанного мастером.
-
-### 3. Ручная пересборка
+### Ручная пересборка
 
 ```bash
 export DOCKER_API_VERSION=1.43
 docker build -t localhost/iot-platform-go:latest .
 docker rm -f iot-platform-go || true
-docker run -d \
-  -p 9083:8080 \
-  -p 1883:1883 \
-  -p 8083:8083 \
-  --restart unless-stopped \
-  --name iot-platform-go \
-  -v /volume1/docker/iot-platform-go/data:/data \
-  -v /volume1/docker/iot-platform-go/etc:/etc/iot-platform \
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 9083:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v /volume1/docker/iot-platform-go/data:/opt/iot-platform/lib \
+  -v /volume1/docker/iot-platform-go/etc:/opt/iot-platform/etc \
   localhost/iot-platform-go:latest
 ```
-
-Дашборд: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`
 
 ---
 
 ## Обновление
 
+Данные лежат в папках хоста, поэтому пересоздание контейнера безопасно:
+
 ```bash
-# Пересобрать образ и пересоздать контейнер (данные сохраняются в bind-монтированиях)
-docker build --no-cache -t localhost/iot-platform-go:latest .
-docker rm -f iot-platform-go
-docker run -d ...   # те же аргументы, что выше
+cd deploy && docker compose up -d --build        # compose
+# или: docker build … && docker rm -f iot-platform-go && docker run … (те же аргументы)
 ```
 
-Данные SQLite хранятся в смонтированном каталоге `data/` — не теряются при пересоздании контейнера.
+Перед крупными обновлениями сделайте копию `data/platform.db` (остановите контейнер или выполните на хосте `sqlite3 platform.db ".backup out.db"` — в образе `sqlite3` нет) и `etc/config.yml`.
 
 ---
 
 ## Проверка
 
 ```bash
-# Статус контейнера
-docker ps --filter name=iot-platform-go
-
-# Логи
+docker ps --filter name=iot-platform-go          # в STATUS видно (healthy)
 docker logs -f iot-platform-go
-
-# Health
-curl -fsS http://localhost:8080/healthz
-curl -fsS http://localhost:8080/readyz
+curl -fsS http://localhost:<HTTP-порт>/healthz
+curl -fsS http://localhost:<HTTP-порт>/readyz     # 503, пока не поднят MQTT; "setup" в режиме мастера
+docker exec iot-platform-go ls -l /opt/iot-platform/lib /opt/iot-platform/etc
 ```
 
 ---
 
 ## Конфликт порта 1883
 
-Если на хосте уже работает MQTT-брокер (Mosquitto, RabbitMQ), опубликуйте MQTT на другом порту хоста:
-
-```bash
-# docker run
--p 1884:1883
-
-# или в Gitea workflow: env TARGET_MQTT_PORT: 1884 в .gitea/workflows/deploy-docker.yml
-```
-
-`TARGET_MQTT_PORT` — переменная workflow, а не настройка платформы. Устройства подключать на `mqtt://<host>:1884`.
+Если на хосте 1883 занят другим брокером, опубликуйте MQTT на другом порту: `IOT_MQTT_PORT=1884` (compose / переменная Gitea) или `-p 1884:1883 -e MQTT_PUBLIC_PORT=1884` (`docker run`). Устройства подключаются к `mqtt://<host>:1884`, и именно этот порт платформа показывает в credentials устройств.
 
 ---
 
 ## Node-RED (опционально)
 
-`deploy/docker-compose.yml` уже описывает единственный сервис compose — `nodered`:
+Сервис `nodered` в `deploy/docker-compose.yml`, запускается с `--profile nodered`:
 
-- образ `nodered/node-red:4.0`, контейнер `cogitor-nodered`, порт `1880:1880`
+- образ `nodered/node-red:4.0`, контейнер `cogitor-nodered`, порт `${NODERED_PORT:-1880}:1880`
 - `extra_hosts: host.docker.internal:host-gateway`
-- env `NODERED_CREDENTIAL_SECRET` (по умолчанию `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (по умолчанию `host.docker.internal`; для Podman — `host.containers.internal`)
-- bind-монтирования `./nodered/data:/data`, `./nodered/settings.js`, `./nodered/flows.json`, `./nodered/entrypoint.sh` (пути относительно `deploy/`)
+- env `NODERED_CREDENTIAL_SECRET` (по умолчанию `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (по умолчанию `host.docker.internal`; для Podman `host.containers.internal`; `platform`, если оба сервиса из этого compose), `ACCOUNT_SLUG`
+- bind-монтирования `./nodered/data:/data`, `./nodered/settings.js`, `./nodered/flows.json`, `./nodered/entrypoint.sh` (относительно `deploy/`)
 
-```bash
-cd deploy && docker compose up -d
-```
-
-Node-RED подключается к MQTT-брокеру платформы через `host.docker.internal:1883`. Отдельных MQTT-кредов у него больше нет — зарегистрируйте его в дашборде как **внешний плагин** и используйте выданные MQTT-логин/пароль `extplg_…`. Настройка автоматизации — [06-automation.md](06-automation.md).
+Шаблон флоу подключается к порту 1883 хоста `MQTT_BROKER_HOST`; при `MQTT_BROKER_HOST=platform` это порт контейнера, независимо от `IOT_MQTT_PORT`. Отдельных MQTT-учёток у Node-RED нет — зарегистрируйте его как **внешний плагин** в дашборде и используйте выданные `extplg_…` логин/пароль. Настройка автоматизаций — [06-automation.md](06-automation.md).
 
 ---
 
 ## Сводка портов
 
-| Порт хоста | Порт контейнера | Протокол | Назначение |
-|-----------|----------------|----------|-----------|
-| 9083 | 8080 | HTTP | Дашборд + API (+ мастер настройки при первом запуске) |
-| 1883 | 1883 | MQTT TCP | Устройства |
-| 8083 | 8083 | MQTT WS | Устройства (WebSocket) |
-| 8883 | 8883 | MQTT TLS | Устройства (TLS; только при настроенных сертификате/ключе, CI-workflow не публикует) |
-| 1880 | 1880 | HTTP | Node-RED (опционально, compose) |
+| Порт хоста (по умолчанию) | Порт контейнера | Протокол | Назначение |
+|---|---|---|---|
+| `IOT_HTTP_PORT` (8080 compose / 9083 CI) | 8080 | HTTP | Дашборд + API (+ мастер установки при первом запуске) |
+| `IOT_MQTT_PORT` (1883) | 1883 | MQTT TCP | Устройства |
+| `IOT_MQTT_WS_PORT` (8083) | 8083 | MQTT WS | Устройства (WebSocket) |
+| `IOT_MQTT_TLS_PORT` (8883) | 8883 | MQTT TLS | Устройства (TLS; слушатель только при заданных cert/key) |
+| `NODERED_PORT` (1880) | 1880 | HTTP | Node-RED (опционально) |
 
 VPS (systemd): [12-deploy-vds.md](12-deploy-vds.md).

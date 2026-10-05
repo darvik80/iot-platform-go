@@ -160,11 +160,11 @@ export function LoginPage() {
             <form onSubmit={onLogin} className="d-grid gap-2">
               <div>
                 <label className="form-label">{t('auth.loginOrEmail')}</label>
-                <input name="email" className="form-control" defaultValue="admin" required />
+                <input name="email" className="form-control" autoComplete="username" required />
               </div>
               <div>
                 <label className="form-label">{t('common.password')}</label>
-                <input name="password" type="password" className="form-control" defaultValue="admin" required />
+                <input name="password" type="password" className="form-control" autoComplete="current-password" required />
               </div>
               <button className="btn btn-primary" type="submit">
                 {t('common.signIn')}

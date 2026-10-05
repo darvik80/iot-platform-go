@@ -6,7 +6,7 @@ Guide for running, configuring, and maintaining the platform.
 
 ## Configuration
 
-Priority (first non-empty wins): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**.
+Priority (first non-empty wins): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**.
 
 YAML keys are flattened to env names (`server.public_base_url` → `SERVER_PUBLIC_BASE_URL`, `mqtt.addr` → `MQTT_ADDR`). Environment variables override YAML.
 
@@ -21,9 +21,10 @@ Full examples: `config.yml.example`, `.env.example`.
 | `HTTP_ADDR` | `:8080` | HTTP listen address (dashboard + API) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP listener |
 | `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS listener (active only when `MQTT_TLS_CERT` + `MQTT_TLS_KEY` are set) |
+| `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | listen port | Port announced to clients (device credentials, Settings, MQTT status) when it differs from the listen port, e.g. Docker `-p 11883:1883`. Does not move the listener |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | SQLite file path or PostgreSQL URL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Legacy: SQLite file used when `DATABASE_DSN` is empty |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | SQLite file path or PostgreSQL URL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Legacy: SQLite file used when `DATABASE_DSN` is empty |
 | `DATA_DIR` | directory of the SQLite file (`./data` for Postgres) | Base directory for runtime data (firmware, etc.) |
 | `OTA_DIR` | `{DATA_DIR}/firmware` | Firmware storage directory |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL (OTA, email, OAuth) |
@@ -47,9 +48,9 @@ If the configured database is empty (no users and no accounts) — or no databas
 
 Steps: **database** (driver + DSN) → **admin** (login, email, password) → **account** (slug, name) → **SMTP** → **JWT secret** (random value pre-generated) → **MQTT TLS** (paths, or generate a self-signed CA + server cert) → **public URL** (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`) → **apply**.
 
-On apply the wizard creates the admin user, the default account and the admin membership, stores settings in the `settings` table and writes `config.yml` to `/etc/iot-platform/config.yml` if that directory exists and is writable, otherwise to `./config.yml`. The process then reloads the config (values from the written file override env) and continues starting the full platform — no restart needed.
+On apply the wizard creates the admin user, the default account and the admin membership, stores settings in the `settings` table and writes `config.yml` to `/opt/iot-platform/etc/config.yml` if that directory exists and is writable, otherwise to `./config.yml`. The process then reloads the config (values from the written file override env) and continues starting the full platform — no restart needed.
 
-At startup the configuration comes from env → `./config.yml` → `/etc/iot-platform/config.yml`; the only value read back from the `settings` table is `jwt_secret` (used when no real secret is configured). `config.yml` is written with mode `0600`. If the log shows `failed to write config.yml`, copy at least `database.*` into a config file or env manually. Also make sure the DSN chosen in step 1 is writable by the service user (the wizard pre-fills `/var/lib/iot-platform/platform.db`).
+At startup the configuration comes from env → `./config.yml` → `/opt/iot-platform/etc/config.yml`; the only value read back from the `settings` table is `jwt_secret` (used when no real secret is configured). `config.yml` is written with mode `0600`. If the log shows `failed to write config.yml`, copy at least `database.*` into a config file or env manually. Also make sure the DSN chosen in step 1 is writable by the service user (the wizard pre-fills `/opt/iot-platform/lib/platform.db`).
 
 There is **no default login** (`admin/admin` or `admin@cogitor.local` does not exist on a fresh install).
 
@@ -84,7 +85,7 @@ If ESP32 gets `transport_read(): EOF` / `mqtt_message_receive() returned -2` —
 
 Selected by `DATABASE_DRIVER`:
 
-- **SQLite** (default) — pure-Go driver, WAL mode, `busy_timeout=5000`, single connection. File: `DATABASE_DSN` (legacy `SQLITE_PATH`), default `/var/lib/iot-platform/platform.db`.
+- **SQLite** (default) — pure-Go driver, WAL mode, `busy_timeout=5000`, single connection. File: `DATABASE_DSN` (legacy `SQLITE_PATH`), default `/opt/iot-platform/lib/platform.db`.
 - **PostgreSQL** — `DATABASE_DRIVER=postgres`, `DATABASE_DSN=postgres://…` (if the DSN is empty the default is `postgres://localhost:5432/iot_platform?sslmode=disable`).
 
 Common to both:

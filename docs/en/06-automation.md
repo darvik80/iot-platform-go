@@ -167,11 +167,11 @@ Denied: `platform/v1/events/#`, `#`, `+`, other accounts' `platform/v1/events/{o
 
 After import, open the broker node and set the external-plugin `MQTT User` / `MQTT Password`. The shipped `mqtt in` topic `platform/v1/events/+/+/status` does not include the account slug and is rejected by the ACL — change it to `platform/v1/events/{account_slug}/+/+/status`.
 
-To access Node-RED, open it directly in your browser using the `NODERED_URL` configured in your platform settings. The URL must be reachable **from the browser**, not the Docker hostname `nodered`.
+The dashboard does not link to or embed Node-RED: open its editor directly in the browser (`http://<host>:1880` by default).
 
 ## Docker-compose
 
-`deploy/docker-compose.yml` runs **only** the `nodered` service (`nodered/node-red:4.0`, port `1880`). The platform itself runs outside this compose file (bare-metal/systemd, deb package, or its own container built from the root `Dockerfile`).
+In `deploy/docker-compose.yml` the `nodered` service (`nodered/node-red:4.0`, port `${NODERED_PORT:-1880}`) belongs to the `nodered` profile: `docker compose --profile nodered up -d`. The same file also has the `platform` service; the platform may equally run elsewhere (bare-metal/systemd, deb package, `docker run`) — see [13-deploy-docker.md](13-deploy-docker.md).
 
 ### Volume structure
 

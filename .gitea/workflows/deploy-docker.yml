@@ -1,7 +1,10 @@
 name: Deploy Docker
 
-# Synology / Docker host runner. Docs: docs/deploy-docker.md
+# Synology / Docker host runner. Docs: docs/en/13-deploy-docker.md
 # VPS production uses build-deb.yml (systemd) instead.
+#
+# Everything below can be overridden with repository variables
+# (Settings → Actions → Variables) without editing this file.
 
 on:
   push:
@@ -9,58 +12,68 @@ on:
   workflow_dispatch:
 
 env:
-  TARGET_PORT: 9083
-  TARGET_MQTT_PORT: 1883
-  TARGET_MQTT_WS_PORT: 8083
-  CONTAINER_NAME: iot-platform-go
+  CONTAINER_NAME: ${{ vars.IOT_CONTAINER_NAME || 'iot-platform-go' }}
+  # Host ports → container ports 8080 / 1883 / 8083 / 8883.
+  IOT_HTTP_PORT: ${{ vars.IOT_HTTP_PORT || '9083' }}
+  IOT_MQTT_PORT: ${{ vars.IOT_MQTT_PORT || '1883' }}
+  IOT_MQTT_WS_PORT: ${{ vars.IOT_MQTT_WS_PORT || '8083' }}
+  IOT_MQTT_TLS_PORT: ${{ vars.IOT_MQTT_TLS_PORT || '8883' }}
+  # Host directory with data/ (→ /opt/iot-platform/lib) and etc/ (→ /opt/iot-platform/etc).
+  IOT_HOST_DIR: ${{ vars.IOT_HOST_DIR || '/volume1/docker/iot-platform-go' }}
+  # Optional; empty values are not passed so config.yml from the setup wizard applies.
+  PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+  BROKER_HOST_PUBLIC: ${{ vars.BROKER_HOST_PUBLIC }}
+  TIMEZONE: ${{ vars.TIMEZONE }}
+  DOCKER_API_VERSION: "1.43"
 
 jobs:
-  # ── 1. Build (checkout + prepare) ──────────────────────────────────
-  build:
-    name: Build
+  deploy:
+    name: Build & deploy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare data directory
+      - name: Build image
         run: |
-          mkdir -p /volume1/docker/$CONTAINER_NAME/data
-          mkdir -p /volume1/docker/$CONTAINER_NAME/etc
-
-  # ── 2. Build Docker image ──────────────────────────────────────────
-  build-image:
-    name: Build Image
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build docker image
-        run: |
-          export DOCKER_API_VERSION=1.43
           VERSION="$(tr -d '[:space:]' < version.txt)"
           COMMIT="$(git rev-parse --short HEAD)"
-          docker build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" -t localhost/$CONTAINER_NAME:latest .
+          docker build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" -t "localhost/$CONTAINER_NAME:latest" .
 
-  # ── 3. Deploy (restart container) ─────────────────────────────────
-  deploy:
-    name: Deploy
-    needs: build-image
-    runs-on: ubuntu-latest
-    steps:
-      - name: Restart iot-platform
+      - name: Recreate container
         run: |
-          export DOCKER_API_VERSION=1.43
-          docker rm -f $CONTAINER_NAME || true
-          docker run \
+          set -- \
             -d \
-            -p $TARGET_PORT:8080 \
-            -p $TARGET_MQTT_PORT:1883 \
-            -p $TARGET_MQTT_WS_PORT:8083 \
+            --name "$CONTAINER_NAME" \
             --restart unless-stopped \
-            --name $CONTAINER_NAME \
-            -v /volume1/docker/$CONTAINER_NAME/data:/data \
-            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform \
-              localhost/$CONTAINER_NAME:latest
+            -p "$IOT_HTTP_PORT:8080" \
+            -p "$IOT_MQTT_PORT:1883" \
+            -p "$IOT_MQTT_WS_PORT:8083" \
+            -p "$IOT_MQTT_TLS_PORT:8883" \
+            -e "MQTT_PUBLIC_PORT=$IOT_MQTT_PORT" \
+            -e "MQTT_WS_PUBLIC_PORT=$IOT_MQTT_WS_PORT" \
+            -e "MQTT_TLS_PUBLIC_PORT=$IOT_MQTT_TLS_PORT" \
+            -v "$IOT_HOST_DIR/data:/opt/iot-platform/lib" \
+            -v "$IOT_HOST_DIR/etc:/opt/iot-platform/etc"
+          for v in PUBLIC_BASE_URL BROKER_HOST_PUBLIC TIMEZONE; do
+            eval "val=\${$v}"
+            [ -n "$val" ] && set -- "$@" -e "$v=$val"
+          done
+          docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+          docker run "$@" "localhost/$CONTAINER_NAME:latest"
+
+      - name: Wait for healthy
+        run: |
+          for i in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo missing)"
+            echo "health: $status"
+            [ "$status" = "healthy" ] && exit 0
+            [ "$status" = "missing" ] && break
+            sleep 3
+          done
+          docker logs --tail 100 "$CONTAINER_NAME" || true
+          exit 1
+
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f >/dev/null || true

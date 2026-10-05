@@ -1,0 +1,29 @@
+# Local state and secrets must never reach the build context.
+.git
+.env
+**/.env
+config.yml
+data/
+run/
+certs/
+.deploy_keys/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Rebuilt inside the image.
+web/node_modules/
+web/dist/
+internal/webui/dist/
+bin/
+dist/
+*.exe
+
+# Not needed for the build.
+deb/
+deploy/nodered/data/
+.idea/
+.vscode/
+.cursor/
+.DS_Store

@@ -53,9 +53,9 @@ mqtt:
   addr: ":1883"
   ws_addr: ":8083"
   tls_addr: ":8883"
-  tls_cert: "/etc/iot-platform/certs/mqtt/cert.pem"
-  tls_key: "/etc/iot-platform/certs/mqtt/key.pem"
-  # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"   # раскомментировать для взаимного TLS
+  tls_cert: "/opt/iot-platform/etc/certs/mqtt/cert.pem"
+  tls_key: "/opt/iot-platform/etc/certs/mqtt/key.pem"
+  # tls_ca: "/opt/iot-platform/etc/certs/mqtt/ca.pem"   # раскомментировать для взаимного TLS
   broker_host_public: "192.168.1.22"
 ```
 
@@ -77,7 +77,7 @@ make gen-mqtt-tls DIR=certs    # другой каталог
 
 ### Мастером настройки
 
-При первом запуске мастер настройки может сгенерировать сертификаты через `POST /api/v1/setup/generate-tls` (`{ "host"?, "dir"? }`). Каталог по умолчанию: `/etc/iot-platform/certs/mqtt`. Создаются только `ca.pem`, `cert.pem` (серверный, CN/SAN = `host`) и `key.pem`; клиентский сертификат **не** создаётся — для mTLS используйте `make gen-mqtt-tls` или openssl.
+При первом запуске мастер настройки может сгенерировать сертификаты через `POST /api/v1/setup/generate-tls` (`{ "host"?, "dir"? }`). Каталог по умолчанию: `/opt/iot-platform/etc/certs/mqtt`. Создаются только `ca.pem`, `cert.pem` (серверный, CN/SAN = `host`) и `key.pem`; клиентский сертификат **не** создаётся — для mTLS используйте `make gen-mqtt-tls` или openssl.
 
 ### Через openssl
 
@@ -184,15 +184,15 @@ docker build -t cogitor-iot-platform .
 docker run -d --name iot-platform \
   -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
   -v iot-platform-data:/data \
-  -v "$PWD/certs/mqtt:/etc/iot-platform/certs/mqtt:ro" \
-  -e MQTT_TLS_CERT=/etc/iot-platform/certs/mqtt/cert.pem \
-  -e MQTT_TLS_KEY=/etc/iot-platform/certs/mqtt/key.pem \
+  -v "$PWD/certs/mqtt:/opt/iot-platform/etc/certs/mqtt:ro" \
+  -e MQTT_TLS_CERT=/opt/iot-platform/etc/certs/mqtt/cert.pem \
+  -e MQTT_TLS_KEY=/opt/iot-platform/etc/certs/mqtt/key.pem \
   cogitor-iot-platform
 ```
 
 Процесс работает от пользователя `platform` (uid 1000), поэтому смонтированный `key.pem` должен быть доступен этому uid на чтение.
 
-Bare-metal / systemd: положите файлы в `/etc/iot-platform/certs/mqtt/` и задайте `mqtt.tls_cert` / `mqtt.tls_key` в `config.yml` (или переменные окружения `MQTT_TLS_*`).
+Bare-metal / systemd: положите файлы в `/opt/iot-platform/etc/certs/mqtt/` и задайте `mqtt.tls_cert` / `mqtt.tls_key` в `config.yml` (или переменные окружения `MQTT_TLS_*`).
 
 Не забудьте открыть порт 8883 наружу, если устройства подключаются через TLS.
 

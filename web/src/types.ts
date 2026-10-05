@@ -340,7 +340,6 @@ export interface Overview {
   mqtt_connected: boolean;
   mqtt_clients?: number;
   platform_name?: string;
-  nodered_url?: string;
 }
 
 export interface Settings {
@@ -353,7 +352,6 @@ export interface Settings {
   mqtt_ws_port?: number;
   rules_bus_enabled: boolean;
   rules_bus_prefix?: string;
-  nodered_url: string;
   public_base_url?: string;
   timezone?: string;
   register_enabled?: boolean;

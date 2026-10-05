@@ -125,7 +125,7 @@ sudo chmod 600 /opt/iot-platform-go/etc/.env
 There is no admin in env (`ADMIN_*` variables are ignored). On the first start the database is empty, so the platform serves the **setup wizard** on `:8080` (`/setup`, API `/api/v1/setup/*`) instead of the dashboard. It creates the admin user and the default account — see [Operations → setup wizard](11-operations.md#first-start-setup-wizard).
 
 - The setup endpoints are unauthenticated — open the wizard **before** enabling the public nginx site, e.g. via `ssh -L 8080:127.0.0.1:8080 user@HOST` and `http://localhost:8080/setup`.
-- In step 1 set the DSN to the same value as `DATABASE_DSN` in `.env` (`/opt/iot-platform-go/data/platform.db`); the wizard's default `/var/lib/iot-platform/platform.db` is not writable under this unit's `ProtectSystem=strict`.
+- In step 1 set the DSN to the same value as `DATABASE_DSN` in `.env` (`/opt/iot-platform-go/data/platform.db`); the wizard's default `/opt/iot-platform/lib/platform.db` is not writable under this unit's `ProtectSystem=strict`.
 - With this unit only `/opt/iot-platform-go/data` is writable, so the wizard cannot persist `config.yml` (a `failed to write config.yml` warning is expected); the values in `.env` remain the source of truth.
 - Restart the service after the wizard completes so the setup routes are unmounted.
 
@@ -280,14 +280,14 @@ sudo dpkg -i dist/iot-platform_<version>_amd64.deb
 
 | Item | Location |
 |------|----------|
-| Binary | `/usr/bin/iot-platform` |
-| System user / group | `iot-platform` (created by `preinst`, home `/var/lib/iot-platform`, no login shell) |
-| Config | `/etc/iot-platform/config.yml` (shipped empty; written by the setup wizard), certs in `/etc/iot-platform/certs/` |
-| Data | `/var/lib/iot-platform` (working directory; default SQLite file `/var/lib/iot-platform/platform.db`) |
+| Binary | `/opt/iot-platform/bin/platform` |
+| System user / group | `iot-platform` (created by `preinst`, home `/opt/iot-platform`, no login shell) |
+| Config | `/opt/iot-platform/etc/config.yml` (placeholder on fresh install; written by the setup wizard), optional `/opt/iot-platform/etc/.env`, certs in `/opt/iot-platform/etc/certs/` |
+| Data | `/opt/iot-platform/lib` (default SQLite file `/opt/iot-platform/lib/platform.db`, firmware in `lib/firmware`) |
 | Logs | `/var/log/iot-platform/platform.log` (rotated by `/etc/logrotate.d/iot-platform`) |
 | systemd unit | `/lib/systemd/system/iot-platform.service` (source: `deb/iot-platform.service`) |
 
-The unit runs as `iot-platform`, has `ProtectSystem=strict` with `ReadWritePaths=/var/lib/iot-platform /etc/iot-platform /var/log/iot-platform`, and no `EnvironmentFile`. `postinst` enables and (re)starts the service and prints the wizard URL `http://<host>:8080`. Because `/etc/iot-platform` is writable, the wizard persists its result to `/etc/iot-platform/config.yml`. The same setup-wizard security caveats apply — finish it before exposing port 8080.
+The unit runs as `iot-platform` with `WorkingDirectory=/opt/iot-platform`, `EnvironmentFile=/opt/iot-platform/etc/.env` (optional) and `ProtectSystem=strict` with `ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /var/log/iot-platform`. `postinst` enables and (re)starts the service and prints the wizard URL `http://<host>:8080`. Because `/opt/iot-platform/etc` is writable, the wizard persists its result to `/opt/iot-platform/etc/config.yml`; upgrades keep that file. The same setup-wizard security caveats apply — finish it before exposing port 8080.
 
 ---
 

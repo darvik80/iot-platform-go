@@ -1,9 +1,9 @@
-# Priority: OS env > ./config.yml > /etc/iot-platform/config.yml
+# Priority: OS env > ./config.yml > /opt/iot-platform/etc/config.yml
 # Flatten: nested YAML keys are joined with "_" and uppercased to env var names.
 # Example: server.http_addr → SERVER_HTTP_ADDR, mqtt.addr → MQTT_ADDR
 # A key only works if its flattened name is one the code reads (see the "env:" hints).
 # Env vars (PUBLIC_BASE_URL, HTTP_ADDR, …) win if set. The binary does not read .env files.
-# On a fresh install the setup wizard writes this file (/etc/iot-platform/config.yml if writable, else ./config.yml).
+# On a fresh install the setup wizard writes this file (/opt/iot-platform/etc/config.yml if writable, else ./config.yml).
 
 server:
   http_addr: ":8080"                                  # env: SERVER_HTTP_ADDR (or HTTP_ADDR)
@@ -14,7 +14,7 @@ log_level: info                                       # env: LOG_LEVEL  —  deb
 
 database:
   driver: "sqlite"                                    # env: DATABASE_DRIVER  —  sqlite | postgres
-  dsn: "/var/lib/iot-platform/platform.db"                 # env: DATABASE_DSN
+  dsn: "/opt/iot-platform/lib/platform.db"                 # env: DATABASE_DSN
   # dsn: "postgres://user:pass@localhost:5432/iot_platform?sslmode=disable"
   max_open_conns: 8                                   # env: DATABASE_MAX_OPEN_CONNS  —  parsed but currently NOT applied (sqlite 1, postgres 8 hardcoded)
 
@@ -22,9 +22,9 @@ mqtt:
   addr: ":1883"                                       # env: MQTT_ADDR
   ws_addr: ":8083"                                    # env: MQTT_WS_ADDR  —  MQTT over WebSocket (off to disable)
   # tls_addr: ":8883"                                 # env: MQTT_TLS_ADDR  —  MQTT over TLS
-  # tls_cert: "/etc/iot-platform/certs/mqtt/cert.pem"   # env: MQTT_TLS_CERT
-  # tls_key: "/etc/iot-platform/certs/mqtt/key.pem"     # env: MQTT_TLS_KEY
-  # tls_ca: "/etc/iot-platform/certs/mqtt/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
+  # tls_cert: "/opt/iot-platform/etc/certs/mqtt/cert.pem"   # env: MQTT_TLS_CERT
+  # tls_key: "/opt/iot-platform/etc/certs/mqtt/key.pem"     # env: MQTT_TLS_KEY
+  # tls_ca: "/opt/iot-platform/etc/certs/mqtt/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
 
 auth:
   jwt_secret: "dev-jwt-secret-change-me"              # env: AUTH_JWT_SECRET (or JWT_SECRET)  —  change in production (wizard generates one)
@@ -53,9 +53,6 @@ google:
   client_id: ""                                       # env: GOOGLE_CLIENT_ID
   client_secret: ""                                   # env: GOOGLE_CLIENT_SECRET
   # redirect_url: "http://192.168.1.22:8080/api/v1/auth/google/callback"  # env: GOOGLE_REDIRECT_URL
-
-nodered:
-  url: "http://192.168.1.22:1880"                     # env: NODERED_URL
 
 rules:
   bus_enabled: true                                   # env: RULES_BUS_ENABLED

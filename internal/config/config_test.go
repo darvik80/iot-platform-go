@@ -44,6 +44,28 @@ func TestMQTTPublicPort(t *testing.T) {
 	}
 }
 
+func TestMQTTPublicPortOverrides(t *testing.T) {
+	t.Setenv("MQTT_PUBLIC_PORT", "11883")
+	t.Setenv("MQTT_WS_PUBLIC_PORT", "18083")
+	t.Setenv("MQTT_TLS_PUBLIC_PORT", "18883")
+	t.Setenv("MQTT_TLS_CERT", "/c.pem")
+	t.Setenv("MQTT_TLS_KEY", "/k.pem")
+	t.Setenv("BROKER_HOST_PUBLIC", "nas.lan")
+	c := Load()
+	if c.MQTT.Addr != ":1883" {
+		t.Errorf("listen addr = %q, want :1883 (overrides must not move the listener)", c.MQTT.Addr)
+	}
+	if got := c.MQTT.PublicURL(c.Platform.BrokerHostPublic); got != "mqtt://nas.lan:11883" {
+		t.Errorf("tcp = %q", got)
+	}
+	if got := c.MQTT.WSPublicURL(c.Platform.BrokerHostPublic); got != "ws://nas.lan:18083/" {
+		t.Errorf("ws = %q", got)
+	}
+	if got := c.MQTT.TLSPublicURL(c.Platform.BrokerHostPublic); got != "mqtts://nas.lan:18883" {
+		t.Errorf("tls = %q", got)
+	}
+}
+
 func TestMQTTWSPublicURL(t *testing.T) {
 	c := Config{MQTT: MQTTConfig{WSAddr: ":8083"}, Platform: PlatformConfig{BrokerHostPublic: "192.168.1.22"}}
 	if !c.MQTT.WSEnabled() || c.MQTT.WSPublicPort() != 8083 {

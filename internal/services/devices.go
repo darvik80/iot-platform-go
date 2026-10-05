@@ -422,7 +422,6 @@ func (p *Platform) Overview(accountID int64) (models.Overview, error) {
 		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM events WHERE ts >= ?`, cutoff).Scan(&o.RecentEvents)
 	}
 	o.PlatformName = p.Cfg.Platform.Name
-	o.NodeRedURL = p.Cfg.Platform.NodeRedURL
 	if p.MQTT != nil {
 		st := p.MQTT.Status()
 		o.MQTTConnected = st.Listening

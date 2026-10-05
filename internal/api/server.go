@@ -1061,7 +1061,6 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"platform_name":            s.Plat.Cfg.Platform.Name,
 		"telemetry_retention_days": s.Plat.Cfg.Platform.TelemetryRetentionDays,
 		"rpc_default_timeout_ms":   int(s.Plat.Cfg.Platform.RPCDefaultTimeout / time.Millisecond),
-		"nodered_url":              s.Plat.Cfg.Platform.NodeRedURL,
 		"rules_bus_enabled":        s.Plat.Cfg.Rules.Enabled,
 		"rules_bus_prefix":         s.Plat.Cfg.Rules.Prefix,
 		"broker_host":              s.Plat.Cfg.Platform.BrokerHostPublic,

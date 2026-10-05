@@ -621,7 +621,7 @@ Full endpoint list and request/response shapes are in [02-api.md](02-api.md) (ad
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DATABASE_DRIVER` | auto (see F-1301) | `sqlite` or `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | DSN: file path (sqlite) or URL (postgres) |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | DSN: file path (sqlite) or URL (postgres) |
 | `BOOTSTRAP_ACCOUNT_SLUG` | `default` | Slug of the account created by the wizard (F-1404) or bootstrap logic (F-102) |
 | `BOOTSTRAP_ACCOUNT_NAME` | `Default` | Display name |
 | `INVITE_TTL_HOURS` | `72` | Invitation TTL |

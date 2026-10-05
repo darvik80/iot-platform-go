@@ -97,14 +97,14 @@ go build -o bin/platform.exe ./cmd/platform       # собрать Go-бинар
 ### 2. Запуск через Docker
 
 ```bash
-# Образ платформы (тома и переменные — docs/ru/13-deploy-docker.md)
+# Compose: порты и папки хоста задаются в deploy/.env (см. docs/ru/13-deploy-docker.md)
+cd deploy && cp .env.example .env && docker compose up -d --build
+# + Node-RED: docker compose --profile nodered up -d
+
+# Или просто docker run: -p ХОСТ:КОНТЕЙНЕР, данные → /opt/iot-platform/lib, конфиг → /opt/iot-platform/etc
 docker build -t cogitor-iot .
 docker run -d --name cogitor-iot -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v cogitor-data:/data -v cogitor-etc:/etc/iot-platform cogitor-iot
-# В мастере установки укажите SQLite DSN /data/platform.db, чтобы БД лежала на томе
-
-# Опционально: Node-RED (deploy/docker-compose.yml содержит только Node-RED)
-cd deploy && cp .env.example .env && docker compose up -d
+  -v "$PWD/iot/data:/opt/iot-platform/lib" -v "$PWD/iot/etc:/opt/iot-platform/etc" cogitor-iot
 ```
 
 ### 3. Первый запуск — мастер установки
@@ -429,7 +429,7 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 
 ## Конфигурация
 
-Приоритет конфигурации (первый непустой выигрывает): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**. Мастер установки записывает `config.yml` (в нём секреты — держите `chmod 600`). Бинарник **не читает** `.env`; `.env` используется только Docker Compose / systemd `EnvironmentFile`.
+Приоритет конфигурации (первый непустой выигрывает): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**. Мастер установки записывает `config.yml` (в нём секреты — держите `chmod 600`). Бинарник **не читает** `.env`; `.env` используется только Docker Compose / systemd `EnvironmentFile`.
 
 ### Основные переменные
 
@@ -442,7 +442,8 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 | `MQTT_TLS_CERT` | | Путь к TLS-сертификату (включает TLS при указании с ключом) |
 | `MQTT_TLS_KEY` | | Путь к приватному ключу TLS |
 | `MQTT_TLS_CA` | | Путь к CA-сертификату (включает mutual TLS) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Файл БД SQLite (legacy, используйте DATABASE_DSN) |
+| `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | порт слушателя | Порт для устройств, если хост пробрасывает другой (Docker `-p 11883:1883`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Файл БД SQLite (legacy, используйте DATABASE_DSN) |
 | `DATABASE_DRIVER` | `sqlite` | Драйвер БД: `sqlite` или `postgres` |
 | `DATABASE_DSN` | (auto) | DSN базы данных (напр. `postgres://user:pass@host/db?sslmode=disable`) |
 | `DB_MAX_OPEN_CONNS` | `8` | Читается, но пока не применяется (SQLite — 1, PostgreSQL — 8) |
@@ -461,7 +462,6 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 | `REQUIRE_EMAIL_VERIFY` | `false` | Требовать подтверждение email |
 | `RULES_BUS_ENABLED` | `true` | Шина событий/команд для внешних плагинов и Node-RED |
 | `RULES_BUS_PREFIX` | `platform/v1` | Префикс топиков шины правил |
-| `NODERED_URL` | `http://localhost:1880` | Ссылка на Node-RED в UI (без iframe) |
 | `LAB_ALLOW_UNKNOWN_DEVICES` | `false` | Зарезервировано, сейчас не используется |
 | `BOOTSTRAP_ACCOUNT_SLUG` / `BOOTSTRAP_ACCOUNT_NAME` | `default` / `Default` | Первый аккаунт, создаваемый мастером установки |
 
@@ -471,15 +471,17 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 
 ### Docker
 
-Образ платформы собирается из корневого `Dockerfile` (см. [Запуск через Docker](#2-запуск-через-docker)). Пути в образе: том данных `/data` (используйте `DATABASE_DSN=/data/platform.db`), конфиг `/etc/iot-platform/config.yml`, порты `8080 1883 8083 8883`.
+Образ платформы собирается из корневого `Dockerfile` (см. [Запуск через Docker](#2-запуск-через-docker)). Тома образа: `/opt/iot-platform/lib` (SQLite `platform.db` + прошивки) и `/opt/iot-platform/etc` (`config.yml` от мастера установки + сертификаты); порты контейнера `8080 1883 8083 8883`.
 
-`deploy/docker-compose.yml` сейчас содержит **только Node-RED** (`:1880`, том `nodered_data`):
+`deploy/docker-compose.yml` запускает платформу (порты и папки хоста — из `deploy/.env`, необязательные настройки — из `deploy/platform.env`) и, с `--profile nodered`, Node-RED на `:1880`:
 
 ```bash
 cd deploy
 cp .env.example .env
-docker compose up -d
+docker compose up -d --build
 ```
+
+Подробности, деплой через Gitea CI и переход со старой раскладки `/data` — [docs/ru/13-deploy-docker.md](docs/ru/13-deploy-docker.md).
 
 ### Bare Metal (разработка)
 

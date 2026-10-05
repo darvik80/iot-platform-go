@@ -145,7 +145,7 @@ sudo chmod 600 /opt/iot-platform-go/etc/.env
 Администратора в env нет (переменные `ADMIN_*` игнорируются). При первом запуске БД пуста, поэтому платформа вместо дашборда поднимает на `:8080` **мастер настройки** (`/setup`, API `/api/v1/setup/*`). Он создаёт администратора и аккаунт по умолчанию — см. [Эксплуатация → мастер настройки](11-operations.md#первый-запуск-мастер-настройки).
 
 - Эндпоинты мастера без авторизации — откройте мастер **до** включения публичного сайта в nginx, например через `ssh -L 8080:127.0.0.1:8080 user@HOST` и `http://localhost:8080/setup`.
-- На шаге 1 укажите DSN, совпадающий с `DATABASE_DSN` из `.env` (`/opt/iot-platform-go/data/platform.db`); значение мастера по умолчанию `/var/lib/iot-platform/platform.db` недоступно на запись при `ProtectSystem=strict` в этом юните.
+- На шаге 1 укажите DSN, совпадающий с `DATABASE_DSN` из `.env` (`/opt/iot-platform-go/data/platform.db`); значение мастера по умолчанию `/opt/iot-platform/lib/platform.db` недоступно на запись при `ProtectSystem=strict` в этом юните.
 - В этом юните на запись открыт только `/opt/iot-platform-go/data`, поэтому мастер не сможет сохранить `config.yml` (предупреждение `failed to write config.yml` ожидаемо); источником истины остаются значения в `.env`.
 - После завершения мастера перезапустите сервис, чтобы маршруты мастера отключились.
 
@@ -300,14 +300,14 @@ sudo dpkg -i dist/iot-platform_<version>_amd64.deb
 
 | Что | Где |
 |-----|-----|
-| Бинарник | `/usr/bin/iot-platform` |
-| Системный пользователь / группа | `iot-platform` (создаётся в `preinst`, home `/var/lib/iot-platform`, без login shell) |
-| Конфиг | `/etc/iot-platform/config.yml` (поставляется пустым; записывается мастером настройки), сертификаты в `/etc/iot-platform/certs/` |
-| Данные | `/var/lib/iot-platform` (рабочий каталог; файл SQLite по умолчанию `/var/lib/iot-platform/platform.db`) |
+| Бинарник | `/opt/iot-platform/bin/platform` |
+| Системный пользователь / группа | `iot-platform` (создаётся в `preinst`, home `/opt/iot-platform`, без login shell) |
+| Конфиг | `/opt/iot-platform/etc/config.yml` (заготовка при первой установке; записывается мастером настройки), необязательный `/opt/iot-platform/etc/.env`, сертификаты в `/opt/iot-platform/etc/certs/` |
+| Данные | `/opt/iot-platform/lib` (файл SQLite по умолчанию `/opt/iot-platform/lib/platform.db`, прошивки в `lib/firmware`) |
 | Логи | `/var/log/iot-platform/platform.log` (ротация через `/etc/logrotate.d/iot-platform`) |
 | systemd-юнит | `/lib/systemd/system/iot-platform.service` (исходник: `deb/iot-platform.service`) |
 
-Юнит запускается от `iot-platform`, имеет `ProtectSystem=strict` с `ReadWritePaths=/var/lib/iot-platform /etc/iot-platform /var/log/iot-platform` и без `EnvironmentFile`. `postinst` включает и (пере)запускает сервис и печатает адрес мастера `http://<host>:8080`. Так как `/etc/iot-platform` доступен на запись, мастер сохраняет результат в `/etc/iot-platform/config.yml`. Предупреждения безопасности мастера действуют и здесь — завершите его до открытия порта 8080 наружу.
+Юнит запускается от `iot-platform` с `WorkingDirectory=/opt/iot-platform`, `EnvironmentFile=/opt/iot-platform/etc/.env` (необязательный) и `ProtectSystem=strict` с `ReadWritePaths=/opt/iot-platform/etc /opt/iot-platform/lib /var/log/iot-platform`. `postinst` включает и (пере)запускает сервис и печатает адрес мастера `http://<host>:8080`. Так как `/opt/iot-platform/etc` доступен на запись, мастер сохраняет результат в `/opt/iot-platform/etc/config.yml`; при обновлении файл сохраняется. Предупреждения безопасности мастера действуют и здесь — завершите его до открытия порта 8080 наружу.
 
 ---
 

@@ -167,11 +167,11 @@ RPC-команда (платформа выделяет device-facing `id`):
 
 После импорта откройте broker-ноду и укажите `MQTT User` / `MQTT Password` внешнего плагина. Поставляемый топик `mqtt in` `platform/v1/events/+/+/status` не содержит slug аккаунта и отклоняется ACL — замените его на `platform/v1/events/{account_slug}/+/+/status`.
 
-Чтобы получить доступ к Node-RED, откройте его напрямую в браузере, используя `NODERED_URL`, настроенный в настройках вашей платформы. URL должен быть доступен **из браузера**, не из Docker-хоста `nodered`.
+Дашборд не ссылается на Node-RED и не встраивает его: открывайте редактор напрямую в браузере (по умолчанию `http://<host>:1880`).
 
 ## Docker-compose
 
-`deploy/docker-compose.yml` запускает **только** сервис `nodered` (`nodered/node-red:4.0`, порт `1880`). Сама платформа работает вне этого compose-файла (bare-metal/systemd, deb-пакет или собственный контейнер из корневого `Dockerfile`).
+В `deploy/docker-compose.yml` сервис `nodered` (`nodered/node-red:4.0`, порт `${NODERED_PORT:-1880}`) входит в профиль `nodered`: `docker compose --profile nodered up -d`. В том же файле есть сервис `platform`; платформа может работать и отдельно (bare-metal/systemd, deb-пакет, `docker run`) — см. [13-deploy-docker.md](13-deploy-docker.md).
 
 ### Структура томов
 
@@ -337,7 +337,6 @@ RPC-команда (платформа выделяет device-facing `id`):
 В `docker-compose.yml` для cluster mode сервис `nodered` должен:
 - иметь сетевой доступ к RabbitMQ (link на `rabbitmq` или `networks: [cluster_net]`)
 - **НЕ** зависеть от `platform:1883` для MQTT (в cluster mode этот порт не работает для external plugins)
-- `NODERED_URL` остаётся как раньше — это URL для iframe в дашборде (UI)
 
 ```yaml
 services:
@@ -345,8 +344,6 @@ services:
     image: nodered/node-red:latest
     networks:
       - cluster_net   # общая сеть с rabbitmq
-    environment:
-      - NODERED_URL=http://nodered:1880
     # ... volumes, entrypoint — те же
 
   rabbitmq:

@@ -176,7 +176,6 @@ type Overview struct {
 	PlatformName   string `json:"platform_name"`
 	MQTTConnected  bool   `json:"mqtt_connected"`
 	MQTTClients    int    `json:"mqtt_clients"`
-	NodeRedURL     string `json:"nodered_url"`
 }
 
 type MQTTClient struct {

@@ -31,6 +31,12 @@ type MQTTConfig struct {
 	TLSCert string
 	TLSKey  string
 	TLSCA   string
+
+	// Ports announced to clients when they differ from the listen ports
+	// (e.g. Docker -p 11883:1883). 0 = use the listen port.
+	PublicTCPPort int
+	PublicWSPort  int
+	PublicTLSPort int
 }
 
 type AuthConfig struct {
@@ -70,7 +76,6 @@ type OTAConfig struct {
 type PlatformConfig struct {
 	Name                   string
 	PublicBaseURL          string
-	NodeRedURL             string
 	BrokerHostPublic       string
 	TelemetryRetentionDays int
 	RPCDefaultTimeout      time.Duration
@@ -167,6 +172,10 @@ func Load() Config {
 			TLSCert: getenv("MQTT_TLS_CERT", ""),
 			TLSKey:  getenv("MQTT_TLS_KEY", ""),
 			TLSCA:   getenv("MQTT_TLS_CA", ""),
+
+			PublicTCPPort: getenvInt("MQTT_PUBLIC_PORT", 0),
+			PublicWSPort:  getenvInt("MQTT_WS_PUBLIC_PORT", 0),
+			PublicTLSPort: getenvInt("MQTT_TLS_PUBLIC_PORT", 0),
 		},
 		Auth: AuthConfig{
 			JWTSecret: getenv("JWT_SECRET", DevJWTSecret, "AUTH_JWT_SECRET"),
@@ -199,7 +208,6 @@ func Load() Config {
 		Platform: PlatformConfig{
 			Name:                   getenv("PLATFORM_NAME", "Cogitor IoT", "SERVER_PLATFORM_NAME"),
 			PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL", "PLATFORM_PUBLIC_BASE_URL"), "/"),
-			NodeRedURL:             getenv("NODERED_URL", "http://localhost:1880"),
 			BrokerHostPublic:       firstNonEmpty(os.Getenv("PLATFORM_BROKER_HOST_PUBLIC"), os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
 			TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30, "PLATFORM_TELEMETRY_RETENTION_DAYS"),
 			RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000, "PLATFORM_RPC_DEFAULT_TIMEOUT_MS")) * time.Millisecond,
@@ -261,6 +269,9 @@ func (c Config) GoogleCallbackURL() string {
 // ── MQTT helpers ─────────────────────────────────────────────────────
 
 func (m MQTTConfig) PublicPort() int {
+	if m.PublicTCPPort > 0 {
+		return m.PublicTCPPort
+	}
 	return parseListenPort(m.Addr, 1883)
 }
 
@@ -284,6 +295,9 @@ func (m MQTTConfig) TLSPublicPort() int {
 	if !m.TLSEnabled() {
 		return 0
 	}
+	if m.PublicTLSPort > 0 {
+		return m.PublicTLSPort
+	}
 	return parseListenPort(m.TLSAddr, 8883)
 }
 
@@ -306,6 +320,9 @@ func (m MQTTConfig) WSEnabled() bool {
 func (m MQTTConfig) WSPublicPort() int {
 	if !m.WSEnabled() {
 		return 0
+	}
+	if m.PublicWSPort > 0 {
+		return m.PublicWSPort
 	}
 	return parseListenPort(m.WSAddr, 8083)
 }

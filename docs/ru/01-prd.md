@@ -191,7 +191,7 @@ Cogitor IoT Platform — **self-hosted, одно-бинарный IoT-бэкен
 | NF-07 | Производительность | SQLite WAL (параллельное чтение при записи); PostgreSQL для крупных инсталляций |
 | NF-08 | Производительность | WebSocket fan-out (без polling) |
 | NF-09 | Надёжность | LWT; pending OTA на переподключение |
-| NF-10 | Конфигурация | Каскад: env → `./config.yml` → `/etc/iot-platform/config.yml` (`.env` бинарник не читает) |
+| NF-10 | Конфигурация | Каскад: env → `./config.yml` → `/opt/iot-platform/etc/config.yml` (`.env` бинарник не читает) |
 | NF-11 | Обслуживание | Миграции в `internal/db/migrations/`; автоприменение |
 | NF-12 | Расширяемость | Каталог плагинов с `init()`; form-driven UI |
 
@@ -329,8 +329,8 @@ graph TB
 | `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
 | `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS (активен только при заданных `MQTT_TLS_CERT` + `MQTT_TLS_KEY`) |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | Путь к файлу SQLite или URL PostgreSQL (`postgres://…`) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Устаревший алиас файла SQLite (используется, если `DATABASE_DSN` пуст) |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | Путь к файлу SQLite или URL PostgreSQL (`postgres://…`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Устаревший алиас файла SQLite (используется, если `DATABASE_DSN` пуст) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL (OTA, email, OAuth) |
 | `JWT_SECRET` | dev-значение | Ключ подписи JWT — **сменить в production** (мастер настройки генерирует его сам) |
 | `TIMEZONE` | `UTC` | Часовая зона для расписаний и тихих часов |
@@ -344,7 +344,7 @@ graph TB
 
 1. Переменные окружения (OS env)
 2. `./config.yml`
-3. `/etc/iot-platform/config.yml`
+3. `/opt/iot-platform/etc/config.yml`
 
 Бинарник не читает файлы `.env`; `.env` полезен, только если Docker Compose или systemd `EnvironmentFile=` передаёт его в окружение процесса.
 
@@ -354,22 +354,22 @@ graph TB
 
 ### Docker
 
-Образ платформы собирается из корневого `Dockerfile` и запускается через `docker run` (см. [13-deploy-docker.md](13-deploy-docker.md)):
+Образ платформы собирается из корневого `Dockerfile` и запускается через `docker run` или `deploy/docker-compose.yml` (см. [13-deploy-docker.md](13-deploy-docker.md)):
 
 ```bash
 docker build -t iot-platform-go .
 docker run -d --name iot-platform-go \
   -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v /srv/iot-platform/data:/data \
-  -v /srv/iot-platform/etc:/etc/iot-platform \
+  -v /srv/iot-platform/data:/opt/iot-platform/lib \
+  -v /srv/iot-platform/etc:/opt/iot-platform/etc \
   iot-platform-go
 ```
 
-`deploy/docker-compose.yml` содержит **только** опциональный сервис Node-RED (`nodered/node-red:4.0`, порт 1880, bind-монтирование `./nodered/data`).
+`deploy/docker-compose.yml` запускает сервис `platform` (порты и папки хоста — из `deploy/.env`) и опциональный Node-RED (`--profile nodered`, порт 1880).
 
 ### Debian-пакет
 
-`make deb` собирает `dist/iot-platform_<version>_amd64.deb` (systemd-юнит, `/usr/bin/iot-platform`, конфиг в `/etc/iot-platform`, данные в `/var/lib/iot-platform`). См. [12-deploy-vds.md](12-deploy-vds.md).
+`make deb` собирает `dist/iot-platform_<version>_amd64.deb` (systemd-юнит, всё в `/opt/iot-platform/{bin,etc,lib}`). См. [12-deploy-vds.md](12-deploy-vds.md).
 
 ### Bare Metal (разработка)
 
@@ -381,8 +381,9 @@ make build        # web UI + Go binary → bin/platform.exe
 ### Synology NAS
 
 - Gitea CI собирает образ на push в `master`
-- Монтирование `/volume1/docker/iot-platform-go/data` → `/data` для SQLite
-- Монтирование `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform` (там `config.yml`, записанный мастером настройки; `.env` оттуда не читается)
+- Монтирование `/volume1/docker/iot-platform-go/data` → `/opt/iot-platform/lib` для SQLite
+- Монтирование `/volume1/docker/iot-platform-go/etc` → `/opt/iot-platform/etc` (там `config.yml`, записанный мастером настройки; `.env` оттуда не читается)
+- Порты и папки хоста — переменные репозитория Gitea (`IOT_HTTP_PORT`, `IOT_HOST_DIR`, …)
 
 ---
 

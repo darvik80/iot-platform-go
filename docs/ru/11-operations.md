@@ -6,7 +6,7 @@
 
 ## Конфигурация
 
-Приоритет (первый непустой выигрывает): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**.
+Приоритет (первый непустой выигрывает): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**.
 
 YAML-ключи разворачиваются в имена переменных (`server.public_base_url` → `SERVER_PUBLIC_BASE_URL`, `mqtt.addr` → `MQTT_ADDR`). Переменные окружения переопределяют YAML.
 
@@ -21,9 +21,10 @@ YAML-ключи разворачиваются в имена переменны�
 | `HTTP_ADDR` | `:8080` | HTTP-адрес (дашборд + API) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
 | `MQTT_TLS_ADDR` | `:8883` | Слушатель MQTT over TLS (активен только при заданных `MQTT_TLS_CERT` + `MQTT_TLS_KEY`) |
+| `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | порт слушателя | Порт, который сообщается клиентам (credentials устройств, Settings, статус MQTT), если он отличается от порта слушателя, например Docker `-p 11883:1883`. Слушатель не переносит |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | Путь к файлу SQLite или URL PostgreSQL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Устаревшая: файл SQLite, если `DATABASE_DSN` пуст |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | Путь к файлу SQLite или URL PostgreSQL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Устаревшая: файл SQLite, если `DATABASE_DSN` пуст |
 | `DATA_DIR` | каталог файла SQLite (`./data` для Postgres) | Базовый каталог данных (прошивки и т. п.) |
 | `OTA_DIR` | `{DATA_DIR}/firmware` | Каталог хранения прошивок |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Публичный URL (OTA, email, OAuth) |
@@ -47,9 +48,9 @@ YAML-ключи разворачиваются в имена переменны�
 
 Шаги: **база данных** (драйвер + DSN) → **администратор** (логин, email, пароль) → **аккаунт** (slug, имя) → **SMTP** → **JWT secret** (случайное значение сгенерировано заранее) → **MQTT TLS** (пути или генерация самоподписанного CA + серверного сертификата) → **публичный URL** (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`) → **применение**.
 
-При применении мастер создаёт администратора, аккаунт по умолчанию и membership администратора, сохраняет настройки в таблицу `settings` и пишет `config.yml` в `/etc/iot-platform/config.yml`, если каталог существует и доступен на запись, иначе в `./config.yml`. Затем процесс перечитывает конфиг (значения из записанного файла перекрывают env) и продолжает запуск полной платформы — перезапуск не нужен.
+При применении мастер создаёт администратора, аккаунт по умолчанию и membership администратора, сохраняет настройки в таблицу `settings` и пишет `config.yml` в `/opt/iot-platform/etc/config.yml`, если каталог существует и доступен на запись, иначе в `./config.yml`. Затем процесс перечитывает конфиг (значения из записанного файла перекрывают env) и продолжает запуск полной платформы — перезапуск не нужен.
 
-При старте конфигурация берётся из env → `./config.yml` → `/etc/iot-platform/config.yml`; из таблицы `settings` читается только `jwt_secret` (если настоящий секрет не задан). `config.yml` пишется с правами `0600`. Если в логе есть `failed to write config.yml`, перенесите как минимум `database.*` в файл конфига или env вручную. Также проверьте, что DSN, выбранный на шаге 1, доступен на запись пользователю сервиса (мастер подставляет `/var/lib/iot-platform/platform.db`).
+При старте конфигурация берётся из env → `./config.yml` → `/opt/iot-platform/etc/config.yml`; из таблицы `settings` читается только `jwt_secret` (если настоящий секрет не задан). `config.yml` пишется с правами `0600`. Если в логе есть `failed to write config.yml`, перенесите как минимум `database.*` в файл конфига или env вручную. Также проверьте, что DSN, выбранный на шаге 1, доступен на запись пользователю сервиса (мастер подставляет `/opt/iot-platform/lib/platform.db`).
 
 **Логина по умолчанию нет** (`admin/admin` или `admin@cogitor.local` на свежей установке не существует).
 
@@ -84,7 +85,7 @@ cd deploy && docker compose up -d nodered
 
 Выбирается через `DATABASE_DRIVER`:
 
-- **SQLite** (по умолчанию) — pure-Go драйвер, режим WAL, `busy_timeout=5000`, одно соединение. Файл: `DATABASE_DSN` (устаревшая `SQLITE_PATH`), по умолчанию `/var/lib/iot-platform/platform.db`.
+- **SQLite** (по умолчанию) — pure-Go драйвер, режим WAL, `busy_timeout=5000`, одно соединение. Файл: `DATABASE_DSN` (устаревшая `SQLITE_PATH`), по умолчанию `/opt/iot-platform/lib/platform.db`.
 - **PostgreSQL** — `DATABASE_DRIVER=postgres`, `DATABASE_DSN=postgres://…` (если DSN пуст, используется `postgres://localhost:5432/iot_platform?sslmode=disable`).
 
 Общее для обоих:

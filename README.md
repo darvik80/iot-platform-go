@@ -102,14 +102,14 @@ go build -o bin/platform.exe ./cmd/platform
 ### 2. Run with Docker
 
 ```bash
-# Platform image (see docs/en/13-deploy-docker.md for volumes and env)
+# Compose: ports and host folders come from deploy/.env (see docs/en/13-deploy-docker.md)
+cd deploy && cp .env.example .env && docker compose up -d --build
+# + Node-RED: docker compose --profile nodered up -d
+
+# Or plain docker run: -p HOST:CONTAINER, data → /opt/iot-platform/lib, config → /opt/iot-platform/etc
 docker build -t cogitor-iot .
 docker run -d --name cogitor-iot -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v cogitor-data:/data -v cogitor-etc:/etc/iot-platform cogitor-iot
-# In the setup wizard set the SQLite DSN to /data/platform.db so the DB lives on the volume
-
-# Optional: Node-RED (deploy/docker-compose.yml contains only Node-RED)
-cd deploy && docker compose up -d
+  -v "$PWD/iot/data:/opt/iot-platform/lib" -v "$PWD/iot/etc:/opt/iot-platform/etc" cogitor-iot
 ```
 
 ### 3. First Start — Setup Wizard
@@ -496,7 +496,7 @@ PUBLIC_BASE_URL=http://192.168.1.22:8080
 
 ## Configuration Reference
 
-Configuration priority (first non-empty wins): **OS env → `./config.yml` → `/etc/iot-platform/config.yml`**. The setup wizard writes `config.yml` (secrets included — keep it `chmod 600`). The binary does **not** read `.env` files; `.env` is only used by Docker Compose / systemd `EnvironmentFile`.
+Configuration priority (first non-empty wins): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**. The setup wizard writes `config.yml` (secrets included — keep it `chmod 600`). The binary does **not** read `.env` files; `.env` is only used by Docker Compose / systemd `EnvironmentFile`.
 
 ### Key Variables
 
@@ -509,7 +509,8 @@ Configuration priority (first non-empty wins): **OS env → `./config.yml` → `
 | `MQTT_TLS_CERT` | | Path to TLS certificate (enables TLS when set with key) |
 | `MQTT_TLS_KEY` | | Path to TLS private key |
 | `MQTT_TLS_CA` | | Path to CA cert (enables mutual TLS when set) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | SQLite database file (legacy, use DATABASE_DSN) |
+| `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | listen port | Port announced to devices when the host maps a different one (Docker `-p 11883:1883`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | SQLite database file (legacy, use DATABASE_DSN) |
 | `DATABASE_DRIVER` | `sqlite` | Database driver: `sqlite` or `postgres` |
 | `DATABASE_DSN` | (auto) | Database DSN (e.g. `postgres://user:pass@host/db?sslmode=disable`) |
 | `DB_MAX_OPEN_CONNS` | `8` | Parsed but currently not applied (SQLite uses 1, PostgreSQL 8) |
@@ -528,7 +529,6 @@ Configuration priority (first non-empty wins): **OS env → `./config.yml` → `
 | `REQUIRE_EMAIL_VERIFY` | `false` | Require email verification before login |
 | `RULES_BUS_ENABLED` | `true` | Enable the event/command bus for external plugins and Node-RED |
 | `RULES_BUS_PREFIX` | `platform/v1` | Rules bus MQTT topic prefix |
-| `NODERED_URL` | `http://localhost:1880` | Link to Node-RED shown in the UI (no iframe) |
 | `LAB_ALLOW_UNKNOWN_DEVICES` | `false` | Reserved, currently not used |
 | `BOOTSTRAP_ACCOUNT_SLUG` / `BOOTSTRAP_ACCOUNT_NAME` | `default` / `Default` | First account created by the setup wizard |
 
@@ -553,7 +553,7 @@ MQTT_WS_ADDR=:8083
 BROKER_HOST_PUBLIC=192.168.1.22
 TIMEZONE=Asia/Bangkok
 DATABASE_DRIVER=sqlite
-DATABASE_DSN=/var/lib/iot-platform/platform.db
+DATABASE_DSN=/opt/iot-platform/lib/platform.db
 JWT_SECRET=<openssl rand -hex 32>
 REGISTER_ENABLED=false
 ```
@@ -566,15 +566,17 @@ If `DATABASE_DSN` is empty and no `config.yml` exists, the platform starts the s
 
 ### Docker
 
-The platform image is built from the root `Dockerfile` (see [Run with Docker](#2-run-with-docker)). Image paths: data volume `/data` (use `DATABASE_DSN=/data/platform.db`), config `/etc/iot-platform/config.yml`, ports `8080 1883 8083 8883`.
+The platform image is built from the root `Dockerfile` (see [Run with Docker](#2-run-with-docker)). Image volumes: `/opt/iot-platform/lib` (SQLite `platform.db` + firmware) and `/opt/iot-platform/etc` (`config.yml` from the setup wizard + certs); container ports `8080 1883 8083 8883`.
 
-`deploy/docker-compose.yml` currently contains **only Node-RED** (`:1880`, volume `nodered_data`):
+`deploy/docker-compose.yml` runs the platform (host ports and folders from `deploy/.env`, optional settings from `deploy/platform.env`) and, with `--profile nodered`, Node-RED on `:1880`:
 
 ```bash
 cd deploy
 cp .env.example .env
-docker compose up -d
+docker compose up -d --build
 ```
+
+Details, Gitea CI deploy and migration from the old `/data` layout — [docs/en/13-deploy-docker.md](docs/en/13-deploy-docker.md).
 
 ### Bare Metal (development)
 

@@ -191,7 +191,7 @@ The guiding principle: **one process, one binary, zero external SaaS**.
 | NF-07 | **Performance** | SQLite WAL mode for concurrent reads during ingest (PostgreSQL for larger deployments) |
 | NF-08 | **Performance** | WebSocket fan-out for real-time dashboard updates (no polling) |
 | NF-09 | **Reliability** | MQTT session state; LWT for disconnect detection; pending OTA jobs delivered on reconnect |
-| NF-10 | **Configuration** | Priority cascade: OS env → `./config.yml` → `/etc/iot-platform/config.yml` (`.env` is not read by the binary) |
+| NF-10 | **Configuration** | Priority cascade: OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml` (`.env` is not read by the binary) |
 | NF-11 | **Maintainability** | Database migrations in `internal/db/migrations/`; auto-applied at startup |
 | NF-12 | **Extensibility** | Plugin catalog with Go `init()` registration; form-driven UI generation |
 
@@ -329,8 +329,8 @@ Downlink topics in short style always carry the `v1/me/` prefix; the platform ne
 | `MQTT_ADDR` | `:1883` | Embedded MQTT TCP listen |
 | `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS listen (active only when `MQTT_TLS_CERT` + `MQTT_TLS_KEY` are set) |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
-| `DATABASE_DSN` | `/var/lib/iot-platform/platform.db` | SQLite file path or PostgreSQL URL (`postgres://…`) |
-| `SQLITE_PATH` | `/var/lib/iot-platform/platform.db` | Legacy alias for the SQLite file (used when `DATABASE_DSN` is empty) |
+| `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | SQLite file path or PostgreSQL URL (`postgres://…`) |
+| `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Legacy alias for the SQLite file (used when `DATABASE_DSN` is empty) |
 | `PUBLIC_BASE_URL` | `http://localhost:8080` | Public URL for OTA downloads, email links, OAuth callbacks |
 | `JWT_SECRET` | (dev default) | JWT signing key — **must change in production** (the setup wizard generates one) |
 | `TIMEZONE` | `UTC` | IANA timezone for schedules and quiet hours |
@@ -344,7 +344,7 @@ There is no default admin login: on first start with an empty database the platf
 
 1. OS environment variables
 2. `./config.yml`
-3. `/etc/iot-platform/config.yml`
+3. `/opt/iot-platform/etc/config.yml`
 
 The binary does not read `.env` files; `.env` is only useful if Docker Compose or a systemd `EnvironmentFile=` injects it into the process environment.
 
@@ -354,22 +354,22 @@ The binary does not read `.env` files; `.env` is only useful if Docker Compose o
 
 ### Docker
 
-The platform image is built from the root `Dockerfile` and run with `docker run` (see [13-deploy-docker.md](13-deploy-docker.md)):
+The platform image is built from the root `Dockerfile` and run with `docker run` or `deploy/docker-compose.yml` (see [13-deploy-docker.md](13-deploy-docker.md)):
 
 ```bash
 docker build -t iot-platform-go .
 docker run -d --name iot-platform-go \
   -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v /srv/iot-platform/data:/data \
-  -v /srv/iot-platform/etc:/etc/iot-platform \
+  -v /srv/iot-platform/data:/opt/iot-platform/lib \
+  -v /srv/iot-platform/etc:/opt/iot-platform/etc \
   iot-platform-go
 ```
 
-`deploy/docker-compose.yml` contains **only** the optional Node-RED service (`nodered/node-red:4.0`, port 1880, bind mount `./nodered/data`).
+`deploy/docker-compose.yml` runs the `platform` service (host ports / folders from `deploy/.env`) and the optional Node-RED service (`--profile nodered`, port 1880).
 
 ### Debian package
 
-`make deb` builds `dist/iot-platform_<version>_amd64.deb` (systemd unit, `/usr/bin/iot-platform`, config in `/etc/iot-platform`, data in `/var/lib/iot-platform`). See [12-deploy-vds.md](12-deploy-vds.md).
+`make deb` builds `dist/iot-platform_<version>_amd64.deb` (systemd unit, everything under `/opt/iot-platform/{bin,etc,lib}`). See [12-deploy-vds.md](12-deploy-vds.md).
 
 ### Bare Metal (development)
 
@@ -381,8 +381,9 @@ make build        # builds web UI + Go binary → bin/platform.exe
 ### Synology NAS
 
 - Gitea CI builds image on push to `master`
-- Mounts `/volume1/docker/iot-platform-go/data` → `/data` for SQLite persistence
-- Mounts `/volume1/docker/iot-platform-go/etc` → `/etc/iot-platform` (holds `config.yml` written by the setup wizard; `.env` there is not read)
+- Mounts `/volume1/docker/iot-platform-go/data` → `/opt/iot-platform/lib` for SQLite persistence
+- Mounts `/volume1/docker/iot-platform-go/etc` → `/opt/iot-platform/etc` (holds `config.yml` written by the setup wizard; `.env` there is not read)
+- Host ports and folders are Gitea repository variables (`IOT_HTTP_PORT`, `IOT_HOST_DIR`, …)
 
 ---
 
