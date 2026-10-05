@@ -1,7 +1,7 @@
 name: Deploy Docker
 
 # Synology / Docker host runner. Docs: docs/deploy-docker.md
-# VPS production uses deploy-vds.yml (systemd) instead.
+# VPS production uses build-deb.yml (systemd) instead.
 
 on:
   push:
@@ -15,7 +15,9 @@ env:
   CONTAINER_NAME: iot-platform-go
 
 jobs:
-  build-and-deploy:
+  # ── 1. Build (checkout + prepare) ──────────────────────────────────
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,6 +28,15 @@ jobs:
           mkdir -p /volume1/docker/$CONTAINER_NAME/data
           mkdir -p /volume1/docker/$CONTAINER_NAME/etc
 
+  # ── 2. Build Docker image ──────────────────────────────────────────
+  build-image:
+    name: Build Image
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Build docker image
         run: |
           export DOCKER_API_VERSION=1.43
@@ -33,6 +44,12 @@ jobs:
           COMMIT="$(git rev-parse --short HEAD)"
           docker build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" -t localhost/$CONTAINER_NAME:latest .
 
+  # ── 3. Deploy (restart container) ─────────────────────────────────
+  deploy:
+    name: Deploy
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
       - name: Restart iot-platform
         run: |
           export DOCKER_API_VERSION=1.43
