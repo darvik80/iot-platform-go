@@ -74,7 +74,11 @@ jobs:
         run: |
           export DOCKER_API_VERSION=1.43
           docker load -i /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          
+          # Remove old container and anything else using our ports
           docker rm -f ${{ env.CONTAINER_NAME }} || true
+          docker ps --format '{{.ID}} {{.Ports}}' | grep -E '0.0.0.0:(1883|8083|9083)->' | awk '{print $1}' | xargs -r docker rm -f || true
+          
           docker run \
             -d \
             -p 9083:8080 \
