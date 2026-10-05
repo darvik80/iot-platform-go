@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  CONTAINER_NAME: iot-platform
+  CONTAINER_NAME: iot-platform-go
   REGISTRY: gitea.darvik.synology.me:8443
   REGISTRY_USER: darvik
 

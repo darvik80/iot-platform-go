@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: darvik/iot-platform
+  DOCKER_IMAGE: darvik80/iot-platform
 
 jobs:
   build-and-push:
