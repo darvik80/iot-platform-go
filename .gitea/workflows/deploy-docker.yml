@@ -16,6 +16,8 @@ env:
   REGISTRY_USER: darvik
 
 jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
   # ── 1. Build image ──────────────────────────────────────────────────
   build:
     name: Build Docker image
