@@ -1,49 +1,138 @@
-name: Deploy Docker
+name: Build & Deploy Docker
 
-# Synology / Docker host runner. Docs: docs/deploy-docker.md
-# VPS production uses deploy-vds.yml (systemd) instead.
+# Builds Docker image, deploys to Synology (master),
+# pushes to Gitea container registry, tags on v*.
+# Each job can be re-run independently.
 
 on:
   push:
     branches: ["master"]
+    tags: ["v*"]
   workflow_dispatch:
 
 env:
-  TARGET_PORT: 9083
-  TARGET_MQTT_PORT: 1883
-  TARGET_MQTT_WS_PORT: 8083
-  CONTAINER_NAME: iot-platform-go
+  CONTAINER_NAME: iot-platform
+  REGISTRY: gitea.darvik.synology.me:8443
+  REGISTRY_USER: darvik
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  # ── 1. Build image ──────────────────────────────────────────────────
+  build:
+    name: Build Docker image
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image: ${{ steps.version.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare data directory
+      - name: Read version
+        id: version
         run: |
-          mkdir -p /volume1/docker/$CONTAINER_NAME/data
-          mkdir -p /volume1/docker/$CONTAINER_NAME/etc
-
-      - name: Build docker image
-        run: |
-          export DOCKER_API_VERSION=1.43
           VERSION="$(tr -d '[:space:]' < version.txt)"
-          COMMIT="$(git rev-parse --short HEAD)"
-          docker build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" -t localhost/$CONTAINER_NAME:latest .
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/iot-platform:${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Restart iot-platform
+      - name: Build image
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          docker build \
+            --build-arg VERSION="$VERSION" \
+            --build-arg COMMIT="$COMMIT" \
+            -t localhost/${{ env.CONTAINER_NAME }}:latest \
+            -t "${{ steps.version.outputs.image }}" \
+            .
+
+      - name: Save image as artifact
+        run: |
+          docker save localhost/${{ env.CONTAINER_NAME }}:latest | gzip > /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          echo "saved $(du -h /tmp/${{ env.CONTAINER_NAME }}.tar.gz | cut -f1)"
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.CONTAINER_NAME }}-image
+          path: /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          retention-days: 7
+
+  # ─ 2. Deploy to Synology (master only) ─────────────────────────────
+  deploy-synology:
+    name: Deploy to Synology
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Download image
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.CONTAINER_NAME }}-image
+          path: /tmp
+
+      - name: Load and restart container
         run: |
           export DOCKER_API_VERSION=1.43
-          docker rm -f $CONTAINER_NAME || true
+          docker load -i /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          docker rm -f ${{ env.CONTAINER_NAME }} || true
           docker run \
             -d \
-            -p $TARGET_PORT:8080 \
-            -p $TARGET_MQTT_PORT:1883 \
-            -p $TARGET_MQTT_WS_PORT:8083 \
+            -p 9083:8080 \
+            -p 1883:1883 \
+            -p 8083:8083 \
             --restart unless-stopped \
-            --name $CONTAINER_NAME \
-            -v /volume1/docker/$CONTAINER_NAME/data:/data \
-            -v /volume1/docker/$CONTAINER_NAME/etc:/etc/iot-platform \
-              localhost/$CONTAINER_NAME:latest
+            --name ${{ env.CONTAINER_NAME }} \
+            -v /volume1/docker/${{ env.CONTAINER_NAME }}/data:/opt/iot-platform/lib \
+            -v /volume1/docker/${{ env.CONTAINER_NAME }}/etc:/opt/iot-platform/etc \
+            localhost/${{ env.CONTAINER_NAME }}:latest
+          echo "deploy ok"
+
+  # ── 3. Push to Gitea registry (all pushes) ──────────────────────────
+  publish-registry:
+    name: Push to Gitea registry
+    needs: build
+    steps:
+      - name: Download image
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.CONTAINER_NAME }}-image
+          path: /tmp
+
+      - name: Login and push
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          echo "${GITEA_TOKEN}" | docker login ${{ env.REGISTRY }} -u "${{ env.REGISTRY_USER }}" --password-stdin
+          docker load -i /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          docker tag localhost/${{ env.CONTAINER_NAME }}:latest "${{ needs.build.outputs.image }}"
+          docker push "${{ needs.build.outputs.image }}"
+
+          # Also push latest tag
+          docker tag localhost/${{ env.CONTAINER_NAME }}:latest "${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/iot-platform:latest"
+          docker push "${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/iot-platform:latest"
+          echo "pushed to Gitea registry"
+
+  # ─ 4. Gitea Release (version tags only) ───────────────────────────
+  release:
+    name: Create Gitea Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download image
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.CONTAINER_NAME }}-image
+          path: /tmp
+
+      - name: Create Release
+        uses: https://gitea.com/actions/release-action@main
+        with:
+          files: /tmp/${{ env.CONTAINER_NAME }}.tar.gz
+          tag: ${{ github.ref_name }}
+          title: "v${{ needs.build.outputs.version }}"
+          body: |
+            IoT Platform Go v${{ needs.build.outputs.version }}
+
+            **Docker:**
+            ```
+            docker pull ${{ env.REGISTRY }}/${{ env.REGISTRY_USER }}/iot-platform:${{ needs.build.outputs.version }}
+            ```
+          api_key: ${{ secrets.GITEA_TOKEN }}
