@@ -13,7 +13,6 @@ env:
   DOCKER_IMAGE: darvik80/iot-platform
 
 jobs:
-  runs-on: devops.local
   build-and-push:
     name: Build & push
     runs-on: ubuntu-latest

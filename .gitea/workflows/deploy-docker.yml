@@ -100,9 +100,10 @@ jobs:
 
       - name: Login and push
         env:
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          REGISTRY_TOKEN: ${{ secrets.DEB_GITEA_TOKEN }}
         run: |
-          echo "${GITEA_TOKEN}" | docker login ${{ env.REGISTRY }} -u "${{ env.REGISTRY_USER }}" --password-stdin
+          test -n "$REGISTRY_TOKEN" || { echo "missing secret DEB_GITEA_TOKEN"; exit 1; }
+          echo "${REGISTRY_TOKEN}" | docker login ${{ env.REGISTRY }} -u "${{ env.REGISTRY_USER }}" --password-stdin
           docker load -i /tmp/${{ env.CONTAINER_NAME }}.tar.gz
           docker tag localhost/${{ env.CONTAINER_NAME }}:latest "${{ needs.build.outputs.image }}"
           docker push "${{ needs.build.outputs.image }}"
