@@ -38,6 +38,11 @@ jobs:
   deploy:
     name: Build & deploy
     # Must be the runner on the Docker host itself: the image is built and run there.
+    # Gitea runner routes job containers' Docker access through a proxy that
+    # removes every container the job created once it finishes ("removing
+    # container ... the job left behind"). The runner config must mount the real
+    # socket instead — container.options: -v /var/run/docker.sock:/var/run/docker.sock
+    # and container.valid_volumes: [/var/run/docker.sock] — see docs/en/13-deploy-docker.md.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -106,6 +111,6 @@ jobs:
             exit 1
           fi
 
-#      - name: Prune dangling images
-#        if: always()
-#        run: docker image prune -f >/dev/null || true
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f >/dev/null || true

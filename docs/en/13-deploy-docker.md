@@ -148,6 +148,17 @@ Put the files into `<host etc dir>/certs/mqtt/` (or let the wizard generate them
 
 Runs are serialized (`concurrency`), so two quick pushes never race on `docker rm` / `docker run`. The job uses `runs-on: ubuntu-latest` — that label must point to the runner on the Docker host itself.
 
+**Runner requirement.** Recent Gitea runner versions give container jobs a Docker *proxy* instead of the daemon socket and remove everything created through it when the job ends. The job then succeeds, but the log ends with `removing container iot-platform-go the job left behind` and the container is gone (the image stays). Mount the real socket in the runner's `config.yaml` and restart the runner:
+
+```yaml
+container:
+  options: -v /var/run/docker.sock:/var/run/docker.sock
+  valid_volumes:
+    - /var/run/docker.sock
+```
+
+This applies to every job on that runner: containers they start are no longer removed automatically, as with older runner versions.
+
 Override anything with **repository variables** (Settings → Actions → Variables), no file edits needed. Variables are read when a run starts: after changing one, re-run the workflow (**Run workflow** / workflow_dispatch) to apply it. When you change `IOT_CONTAINER_NAME`, remove the old container by hand (`docker rm -f <old name>`) — otherwise it keeps the host ports and the new one fails to start.
 
 | Variable | Default | Meaning |
