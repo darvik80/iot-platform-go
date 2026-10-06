@@ -106,6 +106,6 @@ jobs:
             exit 1
           fi
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f >/dev/null || true
+#      - name: Prune dangling images
+#        if: always()
+#        run: docker image prune -f >/dev/null || true
