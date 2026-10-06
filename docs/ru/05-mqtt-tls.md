@@ -176,18 +176,16 @@ export MQTT_TLS_CA=./certs/mqtt/ca.pem    # включает взаимный TL
 
 ## Docker-развёртывание
 
-`deploy/docker-compose.yml` содержит только Node-RED; контейнер платформы собирается из корневого `Dockerfile` и запускается отдельно. Смонтируйте сертификаты и передайте пути через окружение:
+Папка etc контейнера (`/opt/iot-platform/etc`) — bind-монтирование с хоста. Положите файлы в `<папка etc на хосте>/certs/mqtt/` (`./iot/etc/certs/mqtt/` при настройках по умолчанию корневого `docker-compose.yml`) и передайте пути — в `platform.env` для Compose или через `-e`:
 
 ```bash
-docker build -t cogitor-iot-platform .
-
-docker run -d --name iot-platform \
+docker run -d --name iot-platform-go \
   -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v iot-platform-data:/data \
-  -v "$PWD/certs/mqtt:/opt/iot-platform/etc/certs/mqtt:ro" \
+  -v "$PWD/iot/data:/opt/iot-platform/lib" \
+  -v "$PWD/iot/etc:/opt/iot-platform/etc" \
   -e MQTT_TLS_CERT=/opt/iot-platform/etc/certs/mqtt/cert.pem \
   -e MQTT_TLS_KEY=/opt/iot-platform/etc/certs/mqtt/key.pem \
-  cogitor-iot-platform
+  darvik80/iot-platform:latest
 ```
 
 Процесс работает от пользователя `platform` (uid 1000), поэтому смонтированный `key.pem` должен быть доступен этому uid на чтение.

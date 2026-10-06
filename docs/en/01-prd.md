@@ -354,7 +354,7 @@ The binary does not read `.env` files; `.env` is only useful if Docker Compose o
 
 ### Docker
 
-The platform image is built from the root `Dockerfile` and run with `docker run` or `deploy/docker-compose.yml` (see [13-deploy-docker.md](13-deploy-docker.md)):
+The platform image is built from the root `Dockerfile` and run with `docker run` or the root `docker-compose.yml` (see [13-deploy-docker.md](13-deploy-docker.md)):
 
 ```bash
 docker build -t iot-platform-go .
@@ -365,7 +365,7 @@ docker run -d --name iot-platform-go \
   iot-platform-go
 ```
 
-`deploy/docker-compose.yml` runs the `platform` service (host ports / folders from `deploy/.env`) and the optional Node-RED service (`--profile nodered`, port 1880).
+`docker-compose.yml` runs the `platform` service (Docker Hub image or local build, host ports / folders from `.env`) and the optional Node-RED service (`--profile nodered`, port 1880).
 
 ### Debian package
 

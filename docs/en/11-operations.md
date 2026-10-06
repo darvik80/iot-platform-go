@@ -69,7 +69,7 @@ export DATABASE_DSN=./data/platform.db
 go run ./cmd/platform
 
 # Terminal 2 (optional) — Node-RED
-cd deploy && docker compose up -d nodered
+MQTT_BROKER_HOST=host.docker.internal docker compose up -d nodered
 ```
 
 - Dashboard: http://localhost:8080

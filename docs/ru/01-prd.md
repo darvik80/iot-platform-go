@@ -354,7 +354,7 @@ graph TB
 
 ### Docker
 
-Образ платформы собирается из корневого `Dockerfile` и запускается через `docker run` или `deploy/docker-compose.yml` (см. [13-deploy-docker.md](13-deploy-docker.md)):
+Образ платформы собирается из корневого `Dockerfile` и запускается через `docker run` или корневой `docker-compose.yml` (см. [13-deploy-docker.md](13-deploy-docker.md)):
 
 ```bash
 docker build -t iot-platform-go .
@@ -365,7 +365,7 @@ docker run -d --name iot-platform-go \
   iot-platform-go
 ```
 
-`deploy/docker-compose.yml` запускает сервис `platform` (порты и папки хоста — из `deploy/.env`) и опциональный Node-RED (`--profile nodered`, порт 1880).
+`docker-compose.yml` запускает сервис `platform` (образ с Docker Hub или локальная сборка, порты и папки хоста — из `.env`) и опциональный Node-RED (`--profile nodered`, порт 1880).
 
 ### Debian-пакет
 

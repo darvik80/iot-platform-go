@@ -1,6 +1,6 @@
 # Automation (Node-RED)
 
-Node-RED is a separate process (`deploy/docker-compose.yml` / Synology). The platform provides a rules bus for MQTT-based automation and integrations with external systems like Node-RED. Node-RED has no dedicated MQTT credentials: it connects to the embedded broker as an **external plugin** (see [Node-RED MQTT credentials](#node-red-mqtt-credentials)).
+Node-RED is a separate process (`docker-compose.yml`, profile `nodered` / Synology). The platform provides a rules bus for MQTT-based automation and integrations with external systems like Node-RED. Node-RED has no dedicated MQTT credentials: it connects to the embedded broker as an **external plugin** (see [Node-RED MQTT credentials](#node-red-mqtt-credentials)).
 
 ## Integration guide
 
@@ -120,7 +120,7 @@ Click **Copy all** and save the credentials — the password won't be shown agai
 
 1. Double-click **MQTT Connection** → **Edit connection node**.
 2. Tabs `Server` / `Security`:
-   - **Server**: IP or hostname of the platform host (with `deploy/docker-compose.yml` the platform runs on the host, so use `host.docker.internal` / the LAN IP — the shipped flow uses `MQTT_BROKER_HOST`), **Port**: `1883`
+   - **Server**: `platform` when both services run from `docker-compose.yml`, otherwise the platform host (`host.docker.internal` / LAN IP) — the shipped flow uses `MQTT_BROKER_HOST`, **Port**: `1883`
    - TLS (optional): **Port**: `8883`, enable *Enable TLS* — see [05-mqtt-tls.md](05-mqtt-tls.md)
 3. Tab **Security**:
    - **User ID**: `MQTT User` from the creation step (`extplg_…`)
@@ -171,7 +171,7 @@ The dashboard does not link to or embed Node-RED: open its editor directly in th
 
 ## Docker-compose
 
-In `deploy/docker-compose.yml` the `nodered` service (`nodered/node-red:4.0`, port `${NODERED_PORT:-1880}`) belongs to the `nodered` profile: `docker compose --profile nodered up -d`. The same file also has the `platform` service; the platform may equally run elsewhere (bare-metal/systemd, deb package, `docker run`) — see [13-deploy-docker.md](13-deploy-docker.md).
+In the root `docker-compose.yml` the `nodered` service (`nodered/node-red:4.0`, port `${NODERED_PORT:-1880}`) belongs to the `nodered` profile: `docker compose --profile nodered up -d`. The same file also has the `platform` service; the platform may equally run elsewhere (bare-metal/systemd, deb package, `docker run`) — see [13-deploy-docker.md](13-deploy-docker.md).
 
 ### Volume structure
 

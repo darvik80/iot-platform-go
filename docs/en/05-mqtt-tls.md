@@ -180,19 +180,18 @@ Devices must be provisioned with `client.pem` + `client-key.pem` embedded in fir
 
 ## Docker deployment
 
-`deploy/docker-compose.yml` contains only Node-RED; the platform container is built from the root
-`Dockerfile` and run separately. Mount the certificates and pass the paths via environment:
+The container's etc folder (`/opt/iot-platform/etc`) is a host bind mount. Put the files into
+`<host etc dir>/certs/mqtt/` (`./iot/etc/certs/mqtt/` with the root `docker-compose.yml` defaults) and pass the paths —
+in `platform.env` for Compose, or with `-e`:
 
 ```bash
-docker build -t cogitor-iot-platform .
-
-docker run -d --name iot-platform \
+docker run -d --name iot-platform-go \
   -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
-  -v iot-platform-data:/data \
-  -v "$PWD/certs/mqtt:/opt/iot-platform/etc/certs/mqtt:ro" \
+  -v "$PWD/iot/data:/opt/iot-platform/lib" \
+  -v "$PWD/iot/etc:/opt/iot-platform/etc" \
   -e MQTT_TLS_CERT=/opt/iot-platform/etc/certs/mqtt/cert.pem \
   -e MQTT_TLS_KEY=/opt/iot-platform/etc/certs/mqtt/key.pem \
-  cogitor-iot-platform
+  darvik80/iot-platform:latest
 ```
 
 The process runs as user `platform` (uid 1000), so the mounted `key.pem` must be readable by that uid.

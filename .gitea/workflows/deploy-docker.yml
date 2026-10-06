@@ -45,6 +45,8 @@ jobs:
 
       - name: Show effective settings
         run: |
+          echo "runner    : $(hostname)"
+          docker info --format 'daemon    : {{.Name}} ({{.OperatingSystem}}, docker {{.ServerVersion}})'
           echo "container : $CONTAINER_NAME"
           echo "ports     : http $IOT_HTTP_PORT, mqtt $IOT_MQTT_PORT, ws $IOT_MQTT_WS_PORT, tls $IOT_MQTT_TLS_PORT"
           echo "host dir  : $IOT_HOST_DIR/{data,etc}"
@@ -82,17 +84,27 @@ jobs:
 
       - name: Wait for healthy
         run: |
+          state() { docker inspect -f '{{.State.Status}} restarts={{.RestartCount}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER_NAME" 2>/dev/null || echo missing; }
+          ok=0
           for i in $(seq 1 40); do
-            status="$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo missing)"
-            echo "health: $status"
-            case "$status" in
-              healthy) exit 0 ;;
-              unhealthy|missing) break ;;
+            s="$(state)"; echo "$s"
+            case "$s" in
+              "running restarts=0 health=healthy") ok=1; break ;;
+              missing|exited*|dead*|*restarts=[1-9]*|*health=unhealthy*) break ;;
             esac
             sleep 3
           done
-          docker logs --tail 100 "$CONTAINER_NAME" || true
-          exit 1
+          if [ "$ok" = 1 ]; then
+            # Healthy once is not enough: make sure it stays up.
+            sleep 30
+            s="$(state)"; echo "after 30s: $s"
+            [ "$s" = "running restarts=0 health=healthy" ] || ok=0
+          fi
+          docker ps -a --filter "name=^/${CONTAINER_NAME}$" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+          if [ "$ok" != 1 ]; then
+            docker logs --tail 100 "$CONTAINER_NAME" || true
+            exit 1
+          fi
 
       - name: Prune dangling images
         if: always()

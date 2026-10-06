@@ -1,6 +1,6 @@
 # Автоматизация (Node-RED)
 
-Node-RED — отдельный процесс (`deploy/docker-compose.yml` / Synology). Платформа предоставляет шину правил для MQTT-автоматизации и интеграций с внешними системами, такими как Node-RED. Отдельных MQTT-кредов у Node-RED нет: он подключается к встроенному брокеру как **внешний плагин** (см. [MQTT-креды Node-RED](#mqtt-креды-node-red)).
+Node-RED — отдельный процесс (`docker-compose.yml`, профиль `nodered` / Synology). Платформа предоставляет шину правил для MQTT-автоматизации и интеграций с внешними системами, такими как Node-RED. Отдельных MQTT-кредов у Node-RED нет: он подключается к встроенному брокеру как **внешний плагин** (см. [MQTT-креды Node-RED](#mqtt-креды-node-red)).
 
 ## Руководство по интеграции
 
@@ -120,7 +120,7 @@ RPC-команда (платформа выделяет device-facing `id`):
 
 1. Дважды кликнуть по **MQTT Connection** → **Edit connection node**.
 2. Вкладки `Server` / `Security`:
-   - **Server**: IP или hostname хоста платформы (с `deploy/docker-compose.yml` платформа работает на хосте, поэтому `host.docker.internal` / LAN IP — поставляемый flow использует `MQTT_BROKER_HOST`), **Port**: `1883`
+   - **Server**: `platform`, если оба сервиса запущены из `docker-compose.yml`, иначе хост платформы (`host.docker.internal` / LAN IP) — поставляемый flow использует `MQTT_BROKER_HOST`, **Port**: `1883`
    - TLS (опционально): **Port**: `8883`, включить *Enable TLS* — см. [05-mqtt-tls.md](05-mqtt-tls.md)
 3. Вкладка **Security**:
    - **User ID**: `MQTT User` из шага создания (`extplg_…`)
@@ -171,7 +171,7 @@ RPC-команда (платформа выделяет device-facing `id`):
 
 ## Docker-compose
 
-В `deploy/docker-compose.yml` сервис `nodered` (`nodered/node-red:4.0`, порт `${NODERED_PORT:-1880}`) входит в профиль `nodered`: `docker compose --profile nodered up -d`. В том же файле есть сервис `platform`; платформа может работать и отдельно (bare-metal/systemd, deb-пакет, `docker run`) — см. [13-deploy-docker.md](13-deploy-docker.md).
+В корневом `docker-compose.yml` сервис `nodered` (`nodered/node-red:4.0`, порт `${NODERED_PORT:-1880}`) входит в профиль `nodered`: `docker compose --profile nodered up -d`. В том же файле есть сервис `platform`; платформа может работать и отдельно (bare-metal/systemd, deb-пакет, `docker run`) — см. [13-deploy-docker.md](13-deploy-docker.md).
 
 ### Структура томов
 
