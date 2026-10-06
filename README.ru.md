@@ -97,8 +97,8 @@ go build -o bin/platform.exe ./cmd/platform       # собрать Go-бинар
 ### 2. Запуск через Docker
 
 ```bash
-# Compose: порты и папки хоста задаются в deploy/.env (см. docs/ru/13-deploy-docker.md)
-cd deploy && cp .env.example .env && docker compose up -d --build
+# Compose: образ с Docker Hub; порты и папки хоста задаются в .env (см. docs/ru/13-deploy-docker.md)
+cp .env.example .env && docker compose up -d     # --build — собрать из текущего checkout
 # + Node-RED: docker compose --profile nodered up -d
 
 # Или просто docker run: -p ХОСТ:КОНТЕЙНЕР, данные → /opt/iot-platform/lib, конфиг → /opt/iot-platform/etc
@@ -473,12 +473,11 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 
 Образ платформы собирается из корневого `Dockerfile` (см. [Запуск через Docker](#2-запуск-через-docker)). Тома образа: `/opt/iot-platform/lib` (SQLite `platform.db` + прошивки) и `/opt/iot-platform/etc` (`config.yml` от мастера установки + сертификаты); порты контейнера `8080 1883 8083 8883`.
 
-`deploy/docker-compose.yml` запускает платформу (порты и папки хоста — из `deploy/.env`, необязательные настройки — из `deploy/platform.env`) и, с `--profile nodered`, Node-RED на `:1880`:
+`docker-compose.yml` в корне репозитория запускает платформу (образ `darvik80/iot-platform:latest` или локальная сборка, порты и папки хоста — из `.env`, необязательные настройки — из `platform.env`) и, с `--profile nodered`, Node-RED на `:1880`:
 
 ```bash
-cd deploy
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d            # или: docker compose up -d --build
 ```
 
 Подробности, деплой через Gitea CI и переход со старой раскладки `/data` — [docs/ru/13-deploy-docker.md](docs/ru/13-deploy-docker.md).

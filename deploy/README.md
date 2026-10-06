@@ -1,30 +1,21 @@
-# Cogitor IoT — deploy stack
+# Cogitor IoT — deploy files
 
 See root [README](../README.md) for full platform docs.
+
+- `nodered/` — Node-RED assets for the `nodered` service of the root [`docker-compose.yml`](../docker-compose.yml):
+  `settings.js`, `flows.json` (template copied to `nodered/data/` on first start), `entrypoint.sh`.
+- `iot-platform.service`, `remote-deploy.sh` — bare-metal / systemd deploy on a VPS, see [12-deploy-vds](../docs/en/12-deploy-vds.md).
+
+Docker Compose runs from the repository root:
 
 ```bash
 cp .env.example .env                    # host ports, host folders, image
 cp platform.env.example platform.env    # optional: pinned platform settings
-docker compose up -d --build            # platform
+docker compose up -d                    # platform (Docker Hub image; --build for a local build)
 docker compose --profile nodered up -d  # + Node-RED
 ```
 
-`docker-compose.yml` services:
-
-- **`platform`** — built from the root `Dockerfile` (or `IOT_IMAGE`, e.g. `darvik80/iot-platform:latest`).
-  Host ports `IOT_HTTP_PORT` / `IOT_MQTT_PORT` / `IOT_MQTT_WS_PORT` / `IOT_MQTT_TLS_PORT` → container `8080` / `1883` / `8083` / `8883`;
-  the MQTT host ports are also announced to devices (`MQTT_*_PUBLIC_PORT`).
-  Host folders `IOT_DATA_DIR` → `/opt/iot-platform/lib` (SQLite + firmware) and `IOT_ETC_DIR` → `/opt/iot-platform/etc`
-  (`config.yml` written by the setup wizard + certs). First start: open `http://<host>:<IOT_HTTP_PORT>/setup`.
-- **`nodered`** (profile `nodered`) — `nodered/node-red:4.0` on `NODERED_PORT` (default `1880`) with bind mounts
-  `./nodered/data:/data`, `./nodered/settings.js`, `./nodered/flows.json` (template copied to `/data` on first start)
-  and `./nodered/entrypoint.sh`. Reads `NODERED_CREDENTIAL_SECRET`, `MQTT_BROKER_HOST` and `ACCOUNT_SLUG` from `.env`.
-
-Other ways to run the platform:
-
-- bare-metal / systemd — `iot-platform.service` (optional `EnvironmentFile=/opt/iot-platform/etc/.env`), see [12-deploy-vds](../docs/en/12-deploy-vds.md);
-- as a deb package — `make deb` (`deb/`);
-- `docker run` or Gitea CI — see [13-deploy-docker](../docs/en/13-deploy-docker.md).
+Details (ports, folders, Gitea CI, Docker Hub) — [13-deploy-docker](../docs/en/13-deploy-docker.md).
 
 Node-RED has no dedicated MQTT credentials (`NODERED_MQTT_USER` / `NODERED_MQTT_PASSWORD` are gone).
 Register it as an external plugin in the dashboard (**Settings → External Plugins**), then put the issued

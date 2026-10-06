@@ -4,7 +4,7 @@
 
 Один и тот же образ можно запустить тремя способами:
 
-- **Docker Compose** — `deploy/docker-compose.yml` (сервис `platform`, опционально `nodered`), порты и папки хоста в `deploy/.env`;
+- **Docker Compose** — корневой `docker-compose.yml` (сервис `platform`, опционально `nodered`), порты и папки хоста в `.env`;
 - **`docker run`** — на любом хосте;
 - **Gitea CI** — `.gitea/workflows/deploy-docker.yml` пересобирает образ и пересоздаёт контейнер при push в `master` (раннер на Synology).
 
@@ -53,19 +53,24 @@ docker build -t localhost/iot-platform-go:latest .
 
 ## Docker Compose
 
+Из корня репозитория:
+
 ```bash
-cd deploy
 cp .env.example .env                   # порты, папки хоста, имя образа
 cp platform.env.example platform.env   # опционально: закреплённые настройки платформы
-docker compose up -d --build           # только платформа
+docker compose up -d                   # готовый образ с Docker Hub
+docker compose up -d --build           # или: сборка из текущего checkout
 docker compose --profile nodered up -d # + Node-RED
 ```
 
-`deploy/.env` (только для подстановки в compose):
+Без `.env` действуют значения по умолчанию из таблицы ниже, так что просто `docker compose up -d` тоже работает. На хосте без репозитория достаточно одного `docker-compose.yml` (плюс необязательные `.env` / `platform.env`): если локального образа нет, Compose скачает `IOT_IMAGE`.
+
+`.env` используется только для подстановки `${…}` — в контейнер из него ничего не попадает. В корневом `.env.example` есть и переменные bare-metal запуска (`HTTP_ADDR`, `DATABASE_DSN=./data/…`, …); Compose их игнорирует.
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `IOT_IMAGE` | `localhost/iot-platform-go:latest` | Запускаемый образ; `--build` помечает локальную сборку этим именем. Готовый образ: `darvik80/iot-platform:latest` (amd64 + arm64) |
+| `IOT_IMAGE` | `darvik80/iot-platform:latest` | Запускаемый образ (amd64 + arm64); `--build` помечает локальную сборку этим именем |
+| `IOT_VERSION` | `dev` | Build arg `VERSION` для `--build` |
 | `IOT_CONTAINER_NAME` | `iot-platform-go` | Имя контейнера |
 | `IOT_HTTP_PORT` | `8080` | Порт хоста → 8080 |
 | `IOT_MQTT_PORT` | `1883` | Порт хоста → 1883, он же `MQTT_PUBLIC_PORT` |
@@ -75,7 +80,9 @@ docker compose --profile nodered up -d # + Node-RED
 | `IOT_ETC_DIR` | `./iot/etc` | Папка хоста → `/opt/iot-platform/etc` |
 | `NODERED_PORT` | `1880` | Порт Node-RED на хосте (профиль `nodered`) |
 
-`deploy/platform.env` передаётся через `env_file` и необязателен. Каждая переменная из него **перекрывает** `config.yml` мастера установки, поэтому оставляйте только то, что хотите закрепить (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `JWT_SECRET`, `DATABASE_*`, `MQTT_TLS_*`, …), и не оставляйте переменные с пустым значением: пустая переменная всё равно считается заданной и скрывает значение из `config.yml`.
+Изменения в `.env` применяются при следующем `docker compose up -d` (Compose пересоздаёт контейнер, если поменялись порты, тома или окружение).
+
+`platform.env` передаётся через `env_file` и необязателен. Каждая переменная из него **перекрывает** `config.yml` мастера установки, поэтому оставляйте только то, что хотите закрепить (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `JWT_SECRET`, `DATABASE_*`, `MQTT_TLS_*`, …), и не оставляйте переменные с пустым значением: пустая переменная всё равно считается заданной и скрывает значение из `config.yml`.
 
 ---
 
@@ -133,12 +140,15 @@ docker run -d --name iot-platform-go --restart unless-stopped \
 
 `.gitea/workflows/deploy-docker.yml` запускается на **push в `master`** и вручную (**workflow_dispatch**), одним джобом на раннере NAS (образ собирается там же, где работает контейнер):
 
-1. Собирает `localhost/<контейнер>:latest` с `VERSION` (из `version.txt`) и `COMMIT`.
-2. Пересоздаёт контейнер с `--restart unless-stopped`, публикует все четыре порта и монтирует `<IOT_HOST_DIR>/data` → `/opt/iot-platform/lib`, `<IOT_HOST_DIR>/etc` → `/opt/iot-platform/etc`. Отсутствующие папки Docker создаёт сам.
-3. Ждёт, пока healthcheck контейнера станет `healthy` (≈90 с); иначе печатает последние 100 строк лога и падает.
-4. Удаляет «висячие» образы.
+1. Печатает итоговые настройки (удобно проверить, что переменные подхватились).
+2. Собирает `localhost/<контейнер>:latest` с `--pull`, `VERSION` (из `version.txt`) и `COMMIT` (короткий SHA).
+3. Пересоздаёт контейнер с `--restart unless-stopped`, публикует все четыре порта и монтирует `<IOT_HOST_DIR>/data` → `/opt/iot-platform/lib`, `<IOT_HOST_DIR>/etc` → `/opt/iot-platform/etc`. Отсутствующие папки Docker создаёт сам.
+4. Ждёт, пока healthcheck контейнера станет `healthy` (до 2 мин, на `unhealthy` прекращает ждать сразу); иначе печатает последние 100 строк лога и падает.
+5. Удаляет «висячие» образы.
 
-Всё переопределяется **переменными репозитория** (Settings → Actions → Variables), править файл не нужно:
+Запуски идут строго по одному (`concurrency`), поэтому два быстрых push не столкнутся на `docker rm` / `docker run`. Джоб использует `runs-on: ubuntu-latest` — эта метка должна вести на раннер на самом Docker-хосте.
+
+Всё переопределяется **переменными репозитория** (Settings → Actions → Variables), править файл не нужно. Переменные читаются в момент старта запуска: после изменения перезапустите воркфлоу (**Run workflow** / workflow_dispatch), чтобы применить. При смене `IOT_CONTAINER_NAME` удалите старый контейнер вручную (`docker rm -f <старое имя>`), иначе он держит порты хоста и новый не стартует.
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
@@ -149,10 +159,21 @@ docker run -d --name iot-platform-go --restart unless-stopped \
 | `IOT_MQTT_TLS_PORT` | `8883` | Порт хоста → 8883 (+ `MQTT_TLS_PUBLIC_PORT`) |
 | `IOT_HOST_DIR` | `/volume1/docker/iot-platform-go` | Содержит `data/` и `etc/` |
 | `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `TIMEZONE` | — | Передаются как `-e` только если заданы; иначе действует `config.yml` |
+| `DOCKER_API_VERSION` | `1.43` | Версия API Docker-клиента (демон Synology не принимает более новые) |
 
 Дашборд: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.
 
-`.gitea/workflows/deploy-docker-hub.yml` собирает тот же `Dockerfile` под `linux/amd64` + `linux/arm64` и публикует `darvik80/iot-platform` (`latest` из `master`, версионные теги из `v*`).
+### Docker Hub
+
+`.gitea/workflows/deploy-docker-hub.yml` собирает тот же `Dockerfile` через buildx + QEMU на раннере `devops.local`:
+
+| Событие | Публикуемые теги |
+|---|---|
+| push в `master` | `latest` |
+| push тега `vX.Y.Z` | `X.Y.Z` (и значение из `version.txt`, если отличается) |
+| workflow_dispatch на другой ветке | никаких — только сборка |
+
+Секреты: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (access token Docker Hub). Переменные: `DOCKERHUB_IMAGE` (по умолчанию `darvik80/iot-platform`), `DOCKER_PLATFORMS` (по умолчанию `linux/amd64,linux/arm64`; для arm64 раннеру нужен привилегированный QEMU/binfmt — если его нет, задайте `linux/amd64`).
 
 ### Переход со старой раскладки `/data`
 
@@ -178,7 +199,8 @@ docker run -d --name iot-platform-go --restart unless-stopped \
 Данные лежат в папках хоста, поэтому пересоздание контейнера безопасно:
 
 ```bash
-cd deploy && docker compose up -d --build        # compose
+docker compose pull && docker compose up -d      # compose, образ с Docker Hub
+docker compose up -d --build                     # compose, локальная сборка
 # или: docker build … && docker rm -f iot-platform-go && docker run … (те же аргументы)
 ```
 
@@ -206,14 +228,14 @@ docker exec iot-platform-go ls -l /opt/iot-platform/lib /opt/iot-platform/etc
 
 ## Node-RED (опционально)
 
-Сервис `nodered` в `deploy/docker-compose.yml`, запускается с `--profile nodered`:
+Сервис `nodered` в `docker-compose.yml`, запускается с `--profile nodered`:
 
 - образ `nodered/node-red:4.0`, контейнер `cogitor-nodered`, порт `${NODERED_PORT:-1880}:1880`
 - `extra_hosts: host.docker.internal:host-gateway`
-- env `NODERED_CREDENTIAL_SECRET` (по умолчанию `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (по умолчанию `host.docker.internal`; для Podman `host.containers.internal`; `platform`, если оба сервиса из этого compose), `ACCOUNT_SLUG`
-- bind-монтирования `./nodered/data:/data`, `./nodered/settings.js`, `./nodered/flows.json`, `./nodered/entrypoint.sh` (относительно `deploy/`)
+- env `NODERED_CREDENTIAL_SECRET` (по умолчанию `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (по умолчанию `platform` — сервис из compose; для платформы вне compose — `host.docker.internal`, для Podman `host.containers.internal`, либо LAN IP), `ACCOUNT_SLUG`
+- bind-монтирования `./deploy/nodered/data:/data`, `./deploy/nodered/settings.js`, `./deploy/nodered/flows.json`, `./deploy/nodered/entrypoint.sh`
 
-Шаблон флоу подключается к порту 1883 хоста `MQTT_BROKER_HOST`; при `MQTT_BROKER_HOST=platform` это порт контейнера, независимо от `IOT_MQTT_PORT`. Отдельных MQTT-учёток у Node-RED нет — зарегистрируйте его как **внешний плагин** в дашборде и используйте выданные `extplg_…` логин/пароль. Настройка автоматизаций — [06-automation.md](06-automation.md).
+`MQTT_BROKER_HOST` подставляется в `deploy/nodered/data/flows.json` только при первом старте; чтобы поменять позже, отредактируйте broker-ноду в Node-RED или удалите этот файл. Шаблон флоу подключается к порту 1883 хоста `MQTT_BROKER_HOST`; при `MQTT_BROKER_HOST=platform` это порт контейнера, независимо от `IOT_MQTT_PORT`. Отдельных MQTT-учёток у Node-RED нет — зарегистрируйте его как **внешний плагин** в дашборде и используйте выданные `extplg_…` логин/пароль. Настройка автоматизаций — [06-automation.md](06-automation.md).
 
 ---
 

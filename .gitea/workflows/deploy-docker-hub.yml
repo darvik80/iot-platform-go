@@ -1,7 +1,13 @@
 name: Build & Push Docker Hub
 
-# Builds multi-arch Docker image and pushes to Docker Hub.
-# Triggers: master (latest tag) + v* tags (versioned tag).
+# Builds the multi-arch image and pushes it to Docker Hub.
+#   push to master → :latest
+#   push of tag vX.Y.Z → :X.Y.Z (+ :<version.txt> if it differs)
+#   manual run on another branch → build only, nothing is pushed
+#
+# Secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN (Hub access token, not the password).
+# Variables (optional): DOCKERHUB_IMAGE, DOCKER_PLATFORMS.
+# linux/arm64 needs a runner that can run privileged QEMU (binfmt).
 
 on:
   push:
@@ -9,8 +15,13 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+concurrency:
+  group: docker-hub-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  DOCKER_IMAGE: darvik80/iot-platform
+  DOCKER_IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'darvik80/iot-platform' }}
+  DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
 
 jobs:
   build-and-push:
@@ -23,8 +34,8 @@ jobs:
       - name: Read version
         id: version
         run: |
-          VERSION="$(tr -d '[:space:]' < version.txt)"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version=$(tr -d '[:space:]' < version.txt)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -32,30 +43,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
+            type=semver,pattern={{version}}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Login to Docker Hub
+        if: steps.meta.outputs.tags != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64, linux/arm64
-          push: true
+          pull: true
+          platforms: ${{ env.DOCKER_PLATFORMS }}
+          push: ${{ steps.meta.outputs.tags != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
-            COMMIT=${{ github.sha }}
+            COMMIT=${{ steps.version.outputs.commit }}

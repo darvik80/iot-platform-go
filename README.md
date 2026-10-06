@@ -102,8 +102,8 @@ go build -o bin/platform.exe ./cmd/platform
 ### 2. Run with Docker
 
 ```bash
-# Compose: ports and host folders come from deploy/.env (see docs/en/13-deploy-docker.md)
-cd deploy && cp .env.example .env && docker compose up -d --build
+# Compose: Docker Hub image; ports and host folders come from .env (see docs/en/13-deploy-docker.md)
+cp .env.example .env && docker compose up -d     # add --build to build this checkout
 # + Node-RED: docker compose --profile nodered up -d
 
 # Or plain docker run: -p HOST:CONTAINER, data → /opt/iot-platform/lib, config → /opt/iot-platform/etc
@@ -568,12 +568,11 @@ If `DATABASE_DSN` is empty and no `config.yml` exists, the platform starts the s
 
 The platform image is built from the root `Dockerfile` (see [Run with Docker](#2-run-with-docker)). Image volumes: `/opt/iot-platform/lib` (SQLite `platform.db` + firmware) and `/opt/iot-platform/etc` (`config.yml` from the setup wizard + certs); container ports `8080 1883 8083 8883`.
 
-`deploy/docker-compose.yml` runs the platform (host ports and folders from `deploy/.env`, optional settings from `deploy/platform.env`) and, with `--profile nodered`, Node-RED on `:1880`:
+`docker-compose.yml` in the repository root runs the platform (image `darvik80/iot-platform:latest` or a local build, host ports and folders from `.env`, optional settings from `platform.env`) and, with `--profile nodered`, Node-RED on `:1880`:
 
 ```bash
-cd deploy
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d            # or: docker compose up -d --build
 ```
 
 Details, Gitea CI deploy and migration from the old `/data` layout — [docs/en/13-deploy-docker.md](docs/en/13-deploy-docker.md).

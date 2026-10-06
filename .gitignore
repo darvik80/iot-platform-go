@@ -11,7 +11,7 @@ bin/
 certs/
 .deploy_keys/
 platform.env
-deploy/iot/
+/iot/
 deploy/nodered/data/
 *.exe
 .DS_Store

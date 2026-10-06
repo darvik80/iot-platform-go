@@ -4,7 +4,7 @@ Containerized platform deployment — convenient for NAS (Synology, QNAP) or any
 
 Three ways to run the same image:
 
-- **Docker Compose** — `deploy/docker-compose.yml` (service `platform`, optional `nodered`), ports and host folders in `deploy/.env`;
+- **Docker Compose** — root `docker-compose.yml` (service `platform`, optional `nodered`), ports and host folders in `.env`;
 - **`docker run`** — any host;
 - **Gitea CI** — `.gitea/workflows/deploy-docker.yml` rebuilds and recreates the container on push to `master` (Synology runner).
 
@@ -53,19 +53,24 @@ Image facts (`Dockerfile`, `docker-entrypoint.sh`):
 
 ## Docker Compose
 
+From the repository root:
+
 ```bash
-cd deploy
-cp .env.example .env              # ports, host folders, image name
+cp .env.example .env                   # ports, host folders, image name
 cp platform.env.example platform.env   # optional: pinned platform settings
-docker compose up -d --build      # platform only
-docker compose --profile nodered up -d   # + Node-RED
+docker compose up -d                   # prebuilt image from Docker Hub
+docker compose up -d --build           # or: build from this checkout
+docker compose --profile nodered up -d # + Node-RED
 ```
 
-`deploy/.env` (compose substitution only):
+Without a `.env` the defaults below apply, so a bare `docker compose up -d` also works. On a host without the repository, `docker-compose.yml` alone (plus an optional `.env` / `platform.env`) is enough: with no local image Compose pulls `IOT_IMAGE`.
+
+`.env` is used for `${…}` substitution only — none of its variables reach the container. The root `.env.example` also lists bare-metal platform variables (`HTTP_ADDR`, `DATABASE_DSN=./data/…`, …); Compose ignores them.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `IOT_IMAGE` | `localhost/iot-platform-go:latest` | Image to run; `--build` tags the local build with it. Prebuilt: `darvik80/iot-platform:latest` (amd64 + arm64) |
+| `IOT_IMAGE` | `darvik80/iot-platform:latest` | Image to run (amd64 + arm64); `--build` tags the local build with this name |
+| `IOT_VERSION` | `dev` | `VERSION` build arg for `--build` |
 | `IOT_CONTAINER_NAME` | `iot-platform-go` | Container name |
 | `IOT_HTTP_PORT` | `8080` | Host port → 8080 |
 | `IOT_MQTT_PORT` | `1883` | Host port → 1883, also `MQTT_PUBLIC_PORT` |
@@ -75,7 +80,9 @@ docker compose --profile nodered up -d   # + Node-RED
 | `IOT_ETC_DIR` | `./iot/etc` | Host folder → `/opt/iot-platform/etc` |
 | `NODERED_PORT` | `1880` | Node-RED host port (profile `nodered`) |
 
-`deploy/platform.env` is passed with `env_file` and is optional. Every variable in it **overrides** `config.yml` from the setup wizard, so keep only what you want to pin (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `JWT_SECRET`, `DATABASE_*`, `MQTT_TLS_*`, …) and never leave a variable with an empty value — an empty variable still counts as set and hides the `config.yml` value.
+Changes to `.env` apply on the next `docker compose up -d` (Compose recreates the container when ports, volumes or environment differ).
+
+`platform.env` is passed with `env_file` and is optional. Every variable in it **overrides** `config.yml` from the setup wizard, so keep only what you want to pin (`PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `JWT_SECRET`, `DATABASE_*`, `MQTT_TLS_*`, …) and never leave a variable with an empty value — an empty variable still counts as set and hides the `config.yml` value.
 
 ---
 
@@ -133,12 +140,15 @@ Put the files into `<host etc dir>/certs/mqtt/` (or let the wizard generate them
 
 `.gitea/workflows/deploy-docker.yml` runs on **push to `master`** and on **workflow_dispatch**, in one job on the NAS runner (the image is built where the container runs):
 
-1. Builds `localhost/<container>:latest` with `VERSION` (from `version.txt`) and `COMMIT`.
-2. Recreates the container with `--restart unless-stopped`, publishing all four ports and mounting `<IOT_HOST_DIR>/data` → `/opt/iot-platform/lib`, `<IOT_HOST_DIR>/etc` → `/opt/iot-platform/etc`. Docker creates missing host folders.
-3. Waits until the container healthcheck reports `healthy` (≈90 s); otherwise prints the last 100 log lines and fails.
-4. Prunes dangling images.
+1. Prints the effective settings (handy to check that variables were picked up).
+2. Builds `localhost/<container>:latest` with `--pull`, `VERSION` (from `version.txt`) and `COMMIT` (short SHA).
+3. Recreates the container with `--restart unless-stopped`, publishing all four ports and mounting `<IOT_HOST_DIR>/data` → `/opt/iot-platform/lib`, `<IOT_HOST_DIR>/etc` → `/opt/iot-platform/etc`. Docker creates missing host folders.
+4. Waits until the container healthcheck reports `healthy` (up to 2 min, stops early on `unhealthy`); otherwise prints the last 100 log lines and fails.
+5. Prunes dangling images.
 
-Override anything with **repository variables** (Settings → Actions → Variables), no file edits needed:
+Runs are serialized (`concurrency`), so two quick pushes never race on `docker rm` / `docker run`. The job uses `runs-on: ubuntu-latest` — that label must point to the runner on the Docker host itself.
+
+Override anything with **repository variables** (Settings → Actions → Variables), no file edits needed. Variables are read when a run starts: after changing one, re-run the workflow (**Run workflow** / workflow_dispatch) to apply it. When you change `IOT_CONTAINER_NAME`, remove the old container by hand (`docker rm -f <old name>`) — otherwise it keeps the host ports and the new one fails to start.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -149,10 +159,21 @@ Override anything with **repository variables** (Settings → Actions → Variab
 | `IOT_MQTT_TLS_PORT` | `8883` | Host port → 8883 (+ `MQTT_TLS_PUBLIC_PORT`) |
 | `IOT_HOST_DIR` | `/volume1/docker/iot-platform-go` | Contains `data/` and `etc/` |
 | `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `TIMEZONE` | — | Passed as `-e` only when set; otherwise `config.yml` applies |
+| `DOCKER_API_VERSION` | `1.43` | Docker client API version (Synology's daemon rejects newer ones) |
 
 Dashboard: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.
 
-`.gitea/workflows/deploy-docker-hub.yml` builds the same `Dockerfile` for `linux/amd64` + `linux/arm64` and pushes `darvik80/iot-platform` (`latest` from `master`, version tags from `v*`).
+### Docker Hub
+
+`.gitea/workflows/deploy-docker-hub.yml` builds the same `Dockerfile` with buildx + QEMU on the `devops.local` runner:
+
+| Trigger | Tags pushed |
+|---|---|
+| push to `master` | `latest` |
+| push of tag `vX.Y.Z` | `X.Y.Z` (and `version.txt` value if it differs) |
+| workflow_dispatch on another branch | none — build only |
+
+Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (Hub access token). Variables: `DOCKERHUB_IMAGE` (default `darvik80/iot-platform`), `DOCKER_PLATFORMS` (default `linux/amd64,linux/arm64`; arm64 needs a runner allowed to run privileged QEMU/binfmt — set `linux/amd64` if it is not).
 
 ### Migrating from the old `/data` layout
 
@@ -178,7 +199,8 @@ docker run -d --name iot-platform-go --restart unless-stopped \
 Data lives in the host folders, so recreating the container is safe:
 
 ```bash
-cd deploy && docker compose up -d --build        # compose
+docker compose pull && docker compose up -d      # compose, Docker Hub image
+docker compose up -d --build                     # compose, local build
 # or: docker build … && docker rm -f iot-platform-go && docker run … (same arguments)
 ```
 
@@ -206,14 +228,14 @@ If another broker uses 1883 on the host, publish MQTT on another host port: `IOT
 
 ## Node-RED (optional)
 
-Service `nodered` in `deploy/docker-compose.yml`, started with `--profile nodered`:
+Service `nodered` in `docker-compose.yml`, started with `--profile nodered`:
 
 - image `nodered/node-red:4.0`, container `cogitor-nodered`, port `${NODERED_PORT:-1880}:1880`
 - `extra_hosts: host.docker.internal:host-gateway`
-- env `NODERED_CREDENTIAL_SECRET` (default `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (default `host.docker.internal`; Podman `host.containers.internal`; `platform` when both run from this compose file), `ACCOUNT_SLUG`
-- bind mounts `./nodered/data:/data`, `./nodered/settings.js`, `./nodered/flows.json`, `./nodered/entrypoint.sh` (relative to `deploy/`)
+- env `NODERED_CREDENTIAL_SECRET` (default `cogitor-nodered-dev`), `MQTT_BROKER_HOST` (default `platform` — the compose service; for a platform outside compose use `host.docker.internal`, Podman `host.containers.internal`, or its LAN IP), `ACCOUNT_SLUG`
+- bind mounts `./deploy/nodered/data:/data`, `./deploy/nodered/settings.js`, `./deploy/nodered/flows.json`, `./deploy/nodered/entrypoint.sh`
 
-The flow template connects to port 1883 of `MQTT_BROKER_HOST`; with `MQTT_BROKER_HOST=platform` that is the container port, regardless of `IOT_MQTT_PORT`. Node-RED has no dedicated MQTT credentials — register it as an **external plugin** in the dashboard and use the returned `extplg_…` user/password. Automation setup — [06-automation.md](06-automation.md).
+`MQTT_BROKER_HOST` is baked into `deploy/nodered/data/flows.json` on the first start only; to change it later, edit the broker node in Node-RED or delete that file. The flow template connects to port 1883 of `MQTT_BROKER_HOST`; with `MQTT_BROKER_HOST=platform` that is the container port, regardless of `IOT_MQTT_PORT`. Node-RED has no dedicated MQTT credentials — register it as an **external plugin** in the dashboard and use the returned `extplg_…` user/password. Automation setup — [06-automation.md](06-automation.md).
 
 ---
 

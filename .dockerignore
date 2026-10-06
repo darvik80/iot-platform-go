@@ -2,7 +2,9 @@
 .git
 .env
 **/.env
+platform.env
 config.yml
+iot/
 data/
 run/
 certs/

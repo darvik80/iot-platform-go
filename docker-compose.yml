@@ -1,8 +1,17 @@
+# Cogitor IoT platform. Docs: docs/en/13-deploy-docker.md
+#
+#   docker compose up -d                     # prebuilt image from Docker Hub
+#   docker compose up -d --build             # build from this checkout
+#   docker compose --profile nodered up -d   # + Node-RED
+#
+# Values below come from ./.env (IOT_*, NODERED_*, see .env.example) and are
+# used for substitution only. Platform settings go to ./platform.env.
+
 services:
   platform:
-    image: ${IOT_IMAGE:-localhost/iot-platform-go:latest}
+    image: ${IOT_IMAGE:-darvik80/iot-platform:latest}
     build:
-      context: ..
+      context: .
       args:
         VERSION: ${IOT_VERSION:-dev}
     container_name: ${IOT_CONTAINER_NAME:-iot-platform-go}
@@ -40,16 +49,17 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       NODERED_CREDENTIAL_SECRET: ${NODERED_CREDENTIAL_SECRET:-cogitor-nodered-dev}
-      # Container runtime: Docker=host.docker.internal, Podman=host.containers.internal
-      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-host.docker.internal}
+      # "platform" when both run from this file; Docker=host.docker.internal,
+      # Podman=host.containers.internal for a platform outside compose.
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-platform}
       # Account slug of the external plugin used by Node-RED (extplg_{slug}_{id})
       ACCOUNT_SLUG: ${ACCOUNT_SLUG:-default}
     entrypoint: ["/entrypoint-custom.sh"]
     volumes:
-      - ./nodered/data:/data
-      - ./nodered/settings.js:/data/settings.js:ro
-      - ./nodered/flows.json:/templates/flows.json:ro
-      - ./nodered/entrypoint.sh:/entrypoint-custom.sh:ro
+      - ./deploy/nodered/data:/data
+      - ./deploy/nodered/settings.js:/data/settings.js:ro
+      - ./deploy/nodered/flows.json:/templates/flows.json:ro
+      - ./deploy/nodered/entrypoint.sh:/entrypoint-custom.sh:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:1880/"]
       interval: 30s

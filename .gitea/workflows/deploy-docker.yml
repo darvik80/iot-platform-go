@@ -4,12 +4,19 @@ name: Deploy Docker
 # VPS production uses build-deb.yml (systemd) instead.
 #
 # Everything below can be overridden with repository variables
-# (Settings → Actions → Variables) without editing this file.
+# (Settings → Actions → Variables) without editing this file. Variables are
+# read when a run starts: after changing one, re-run the workflow
+# (workflow_dispatch) to recreate the container with the new values.
 
 on:
   push:
     branches: ["master"]
   workflow_dispatch:
+
+# One deploy at a time: concurrent runs would race on docker rm / docker run.
+concurrency:
+  group: deploy-docker
+  cancel-in-progress: false
 
 env:
   CONTAINER_NAME: ${{ vars.IOT_CONTAINER_NAME || 'iot-platform-go' }}
@@ -24,21 +31,32 @@ env:
   PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
   BROKER_HOST_PUBLIC: ${{ vars.BROKER_HOST_PUBLIC }}
   TIMEZONE: ${{ vars.TIMEZONE }}
-  DOCKER_API_VERSION: "1.43"
+  # Synology's Docker daemon rejects newer client API versions.
+  DOCKER_API_VERSION: ${{ vars.DOCKER_API_VERSION || '1.43' }}
 
 jobs:
   deploy:
     name: Build & deploy
+    # Must be the runner on the Docker host itself: the image is built and run there.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show effective settings
+        run: |
+          echo "container : $CONTAINER_NAME"
+          echo "ports     : http $IOT_HTTP_PORT, mqtt $IOT_MQTT_PORT, ws $IOT_MQTT_WS_PORT, tls $IOT_MQTT_TLS_PORT"
+          echo "host dir  : $IOT_HOST_DIR/{data,etc}"
+          echo "public url: ${PUBLIC_BASE_URL:-<config.yml>}, broker host: ${BROKER_HOST_PUBLIC:-<config.yml>}, tz: ${TIMEZONE:-<config.yml>}"
+
       - name: Build image
         run: |
           VERSION="$(tr -d '[:space:]' < version.txt)"
           COMMIT="$(git rev-parse --short HEAD)"
-          docker build --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" -t "localhost/$CONTAINER_NAME:latest" .
+          docker build --pull \
+            --build-arg VERSION="$VERSION" --build-arg COMMIT="$COMMIT" \
+            -t "localhost/$CONTAINER_NAME:latest" .
 
       - name: Recreate container
         run: |
@@ -57,18 +75,20 @@ jobs:
             -v "$IOT_HOST_DIR/etc:/opt/iot-platform/etc"
           for v in PUBLIC_BASE_URL BROKER_HOST_PUBLIC TIMEZONE; do
             eval "val=\${$v}"
-            [ -n "$val" ] && set -- "$@" -e "$v=$val"
+            if [ -n "$val" ]; then set -- "$@" -e "$v=$val"; fi
           done
           docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
           docker run "$@" "localhost/$CONTAINER_NAME:latest"
 
       - name: Wait for healthy
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 40); do
             status="$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo missing)"
             echo "health: $status"
-            [ "$status" = "healthy" ] && exit 0
-            [ "$status" = "missing" ] && break
+            case "$status" in
+              healthy) exit 0 ;;
+              unhealthy|missing) break ;;
+            esac
             sleep 3
           done
           docker logs --tail 100 "$CONTAINER_NAME" || true
