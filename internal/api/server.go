@@ -240,7 +240,12 @@ func (s *Server) Router() http.Handler {
 			}
 		}
 		return mcpbridge.NewServer(mcpbridge.NewLocal(s.Plat, role, accID, slug))
-	}, &mcp.StreamableHTTPOptions{Stateless: true})
+	}, &mcp.StreamableHTTPOptions{
+		Stateless: true,
+		// Behind a reverse proxy requests arrive from localhost with the public Host;
+		// the endpoint requires a token, which a DNS-rebinding page cannot supply.
+		DisableLocalhostProtection: true,
+	})
 	r.Group(func(r chi.Router) {
 		r.Use(s.authenticate)
 		r.Use(s.requireAccount)
