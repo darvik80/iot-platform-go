@@ -7,7 +7,7 @@ The platform process **is** the MQTT broker ([mochi-mqtt](https://github.com/moc
 | Parameter | Value |
 |-----------|-------|
 | TCP | `MQTT_ADDR` (default `:1883`) |
-| WebSocket | `MQTT_WS_ADDR` (default `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, subprotocol `mqtt`). `MQTT_WS_ADDR=off` to disable |
+| WebSocket | `MQTT_WS_ADDR` (default `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/` or `MQTT_WS_PUBLIC_URL` behind a reverse proxy, subprotocol `mqtt`). `MQTT_WS_ADDR=off` to disable |
 | TLS | `MQTT_TLS_ADDR` (default `:8883`) — see [05-mqtt-tls.md](05-mqtt-tls.md) |
 | Username | `{product_id}.{device_id}` |
 | Password | access token (generated in the dashboard) |

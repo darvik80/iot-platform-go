@@ -254,7 +254,7 @@ container:
 | `IOT_MQTT_WS_PORT` | `8083` | Порт хоста → 8083 (+ `MQTT_WS_PUBLIC_PORT`) |
 | `IOT_MQTT_TLS_PORT` | `8883` | Порт хоста → 8883 (+ `MQTT_TLS_PUBLIC_PORT`) |
 | `IOT_HOST_DIR` | `/volume1/docker/iot-platform-go` | Содержит `data/` и `etc/` |
-| `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `TIMEZONE` | — | Передаются как `-e` только если заданы; иначе действует `config.yml` |
+| `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `MQTT_WS_PUBLIC_URL`, `TIMEZONE` | — | Передаются как `-e` только если заданы; иначе действует `config.yml` |
 | `DOCKER_API_VERSION` | `1.43` | Версия API Docker-клиента (демон Synology не принимает более новые) |
 
 Дашборд: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.

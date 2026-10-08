@@ -30,6 +30,7 @@ env:
   # Optional; empty values are not passed so config.yml from the setup wizard applies.
   PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
   BROKER_HOST_PUBLIC: ${{ vars.BROKER_HOST_PUBLIC }}
+  MQTT_WS_PUBLIC_URL: ${{ vars.MQTT_WS_PUBLIC_URL }}
   TIMEZONE: ${{ vars.TIMEZONE }}
   # Synology's Docker daemon rejects newer client API versions.
   DOCKER_API_VERSION: ${{ vars.DOCKER_API_VERSION || '1.43' }}
@@ -80,7 +81,7 @@ jobs:
             -e "MQTT_TLS_PUBLIC_PORT=$IOT_MQTT_TLS_PORT" \
             -v "$IOT_HOST_DIR/data:/opt/iot-platform/lib" \
             -v "$IOT_HOST_DIR/etc:/opt/iot-platform/etc"
-          for v in PUBLIC_BASE_URL BROKER_HOST_PUBLIC TIMEZONE; do
+          for v in PUBLIC_BASE_URL BROKER_HOST_PUBLIC MQTT_WS_PUBLIC_URL TIMEZONE; do
             eval "val=\${$v}"
             if [ -n "$val" ]; then set -- "$@" -e "$v=$val"; fi
           done

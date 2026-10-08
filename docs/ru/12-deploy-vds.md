@@ -120,7 +120,10 @@ sudo tee /opt/iot-platform-go/etc/.env << 'EOF'
 # --- Обязательные ---
 PUBLIC_BASE_URL=https://iot.cogitor.dev
 JWT_SECRET=<сгенерировать-случайный-64-символа>
+# MQTT TCP/TLS-хост для устройств (за Cloudflare — отдельное DNS-only имя, см. «Cloudflare» ниже)
 BROKER_HOST_PUBLIC=iot.cogitor.dev
+# MQTT over WebSocket идёт через nginx (location /mqtt ниже)
+MQTT_WS_PUBLIC_URL=wss://iot.cogitor.dev/mqtt
 
 # --- База данных (SQLite по умолчанию; или DATABASE_DRIVER=postgres + DSN postgres://) ---
 DATABASE_DRIVER=sqlite
@@ -213,6 +216,30 @@ sudo nginx -t && sudo systemctl reload nginx
 | 443 | TCP | HTTPS (дашборд + API + WebSocket + MQTT-over-WebSocket) |
 | 1883 | TCP | MQTT TCP (для устройств) |
 | 8883 | TCP | MQTT over TLS (только если заданы `MQTT_TLS_CERT` / `MQTT_TLS_KEY`) |
+
+---
+
+## Cloudflare
+
+Прокси Cloudflare (оранжевое облако) пропускает только HTTP(S) и WebSocket на стандартных портах. HTTPS, WebSocket дашборда и MQTT over WebSocket (`wss://…/mqtt` через nginx) через него работают, а MQTT по TCP (1883) и TLS (8883) — нет. Опубликуйте MQTT под отдельным именем с режимом **DNS only** (серое облако), указывающим на IP сервера:
+
+| DNS-запись | Прокси | Для чего |
+|---|---|---|
+| `iot.cogitor.dev` → IP сервера | proxied | дашборд, API, `wss://iot.cogitor.dev/mqtt` |
+| `iot-mqtt.cogitor.dev` → IP сервера | DNS only | `mqtt://iot-mqtt.cogitor.dev:1883`, `mqtts://iot-mqtt.cogitor.dev:8883` |
+
+```bash
+# /opt/iot-platform-go/etc/.env
+PUBLIC_BASE_URL=https://iot.cogitor.dev
+BROKER_HOST_PUBLIC=iot-mqtt.cogitor.dev
+MQTT_WS_PUBLIC_URL=wss://iot.cogitor.dev/mqtt
+```
+
+В `config.yml` (шаг 7 мастера пишет то же самое): `platform.broker_host_public` и `mqtt.ws_public_url`. После изменения перезапустите сервис — credentials устройств, Settings, статус MQTT и эндпоинт внешних плагинов покажут новый хост. Устройства, уже прошитые со старым хостом, нужно перепровизионить.
+
+- DNS-only имя раскрывает IP сервера; для «сырого» MQTT это неизбежно (если не брать Cloudflare Spectrum).
+- Для `mqtts://` сертификат брокера должен быть выпущен на `iot-mqtt.cogitor.dev` (например, `sudo certbot certonly --nginx -d iot-mqtt.cogitor.dev` или DNS-challenge; ключ должен быть доступен на чтение пользователю `iot`), а не Cloudflare Origin Certificate — устройства ему не доверяют. См. [05-mqtt-tls.md](05-mqtt-tls.md).
+- В режиме SSL **Full (strict)** nginx всё равно нужен валидный сертификат для `iot.cogitor.dev` (Let's Encrypt или Cloudflare Origin Certificate).
 
 ---
 

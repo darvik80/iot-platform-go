@@ -7,7 +7,7 @@
 | Параметр | Значение |
 |----------|----------|
 | TCP | `MQTT_ADDR` (по умолчанию `:1883`) |
-| WebSocket | `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/`, подпротокол `mqtt`). `MQTT_WS_ADDR=off` — отключить |
+| WebSocket | `MQTT_WS_ADDR` (по умолчанию `:8083`, URL `ws://{BROKER_HOST_PUBLIC}:8083/` или `MQTT_WS_PUBLIC_URL` за reverse proxy, подпротокол `mqtt`). `MQTT_WS_ADDR=off` — отключить |
 | TLS | `MQTT_TLS_ADDR` (по умолчанию `:8883`) — см. [05-mqtt-tls.md](05-mqtt-tls.md) |
 | Username | `{product_id}.{device_id}` |
 | Password | access token (генерируется в дашборде) |

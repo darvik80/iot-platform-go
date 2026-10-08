@@ -22,6 +22,8 @@ Full examples: `config.yml.example`, `.env.example`.
 | `MQTT_ADDR` | `:1883` | MQTT TCP listener |
 | `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS listener (active only when `MQTT_TLS_CERT` + `MQTT_TLS_KEY` are set) |
 | `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | listen port | Port announced to clients (device credentials, Settings, MQTT status) when it differs from the listen port, e.g. Docker `-p 11883:1883`. Does not move the listener |
+| `BROKER_HOST_PUBLIC` | host of `PUBLIC_BASE_URL` (wizard) / `localhost` | MQTT host announced to devices for TCP and TLS. A URL or `host:port` is reduced to the host. Behind Cloudflare use a DNS-only name — see [12-deploy-vds](12-deploy-vds.md#cloudflare) |
+| `MQTT_WS_PUBLIC_URL` | — | Full MQTT-over-WebSocket URL announced to clients, e.g. `wss://iot.example.com/mqtt` behind nginx. Empty = `ws://{BROKER_HOST_PUBLIC}:{WS port}/` |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
 | `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | SQLite file path or PostgreSQL URL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
 | `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Legacy: SQLite file used when `DATABASE_DSN` is empty |

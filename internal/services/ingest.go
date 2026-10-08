@@ -540,7 +540,7 @@ func (p *Platform) HandleClientRPC(d *models.Device, payload []byte) error {
 	case "issueUploadUrl":
 		resp = map[string]any{
 			"id": id, "code": 0, "message": "ok",
-			"data": map[string]any{"url": fmt.Sprintf("https://%s/upload/%s/%s", p.Cfg.Platform.BrokerHostPublic, d.ProductID, d.DeviceID), "expires_in": 3600},
+			"data": map[string]any{"url": fmt.Sprintf("%s/upload/%s/%s", p.Cfg.Platform.PublicBaseURL, d.ProductID, d.DeviceID), "expires_in": 3600},
 		}
 	}
 	b, _ := json.Marshal(resp)

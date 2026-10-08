@@ -22,6 +22,8 @@ YAML-ключи разворачиваются в имена переменны�
 | `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
 | `MQTT_TLS_ADDR` | `:8883` | Слушатель MQTT over TLS (активен только при заданных `MQTT_TLS_CERT` + `MQTT_TLS_KEY`) |
 | `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | порт слушателя | Порт, который сообщается клиентам (credentials устройств, Settings, статус MQTT), если он отличается от порта слушателя, например Docker `-p 11883:1883`. Слушатель не переносит |
+| `BROKER_HOST_PUBLIC` | хост из `PUBLIC_BASE_URL` (мастер) / `localhost` | MQTT-хост для устройств (TCP и TLS). URL или `host:port` сводится к хосту. За Cloudflare используйте отдельное DNS-only имя — см. [12-deploy-vds](12-deploy-vds.md#cloudflare) |
+| `MQTT_WS_PUBLIC_URL` | — | Полный URL MQTT over WebSocket для клиентов, например `wss://iot.example.com/mqtt` за nginx. Пусто = `ws://{BROKER_HOST_PUBLIC}:{WS-порт}/` |
 | `DATABASE_DRIVER` | `sqlite` | `sqlite` \| `postgres` |
 | `DATABASE_DSN` | `/opt/iot-platform/lib/platform.db` | Путь к файлу SQLite или URL PostgreSQL (`postgres://user:pass@host:5432/db?sslmode=disable`) |
 | `SQLITE_PATH` | `/opt/iot-platform/lib/platform.db` | Устаревшая: файл SQLite, если `DATABASE_DSN` пуст |

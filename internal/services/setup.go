@@ -66,6 +66,7 @@ type SetupState struct {
 	// Step 7: Public URL
 	PublicBaseURL    string `json:"public_base_url"`
 	BrokerHostPublic string `json:"broker_host_public"`
+	MQTTWSPublicURL  string `json:"mqtt_ws_public_url"`
 
 	// Error state
 	Error string `json:"error,omitempty"`
@@ -93,8 +94,7 @@ func NewSetupService(log *slog.Logger) *SetupService {
 			AccountName:      "Default",
 			SMTPPort:         587,
 			JWTSecret:        generateSecret(),
-			PublicBaseURL:    "http://localhost:8080",
-			BrokerHostPublic: "localhost",
+			PublicBaseURL: "http://localhost:8080",
 		},
 		log: log,
 	}
@@ -122,6 +122,7 @@ type SetupView struct {
 	MQTTTLSCA        string `json:"mqtt_tls_ca,omitempty"`
 	PublicBaseURL    string `json:"public_base_url"`
 	BrokerHostPublic string `json:"broker_host_public"`
+	MQTTWSPublicURL  string `json:"mqtt_ws_public_url"`
 	Error            string `json:"error,omitempty"`
 	Completed        bool   `json:"completed"`
 }
@@ -151,6 +152,7 @@ func (s *SetupService) View() SetupView {
 		MQTTTLSCA:        st.MQTTTLSCA,
 		PublicBaseURL:    st.PublicBaseURL,
 		BrokerHostPublic: st.BrokerHostPublic,
+		MQTTWSPublicURL:  st.MQTTWSPublicURL,
 		Error:            st.Error,
 		Completed:        st.Completed,
 	}
@@ -231,8 +233,18 @@ func (s *SetupService) UpdateStep(step int, data map[string]any) error {
 		if v, ok := data["public_base_url"].(string); ok && v != "" {
 			s.state.PublicBaseURL = v
 		}
-		if v, ok := data["broker_host_public"].(string); ok && v != "" {
-			s.state.BrokerHostPublic = v
+		if v, ok := data["broker_host_public"].(string); ok {
+			s.state.BrokerHostPublic = config.NormalizeHost(v)
+		}
+		if v, ok := data["mqtt_ws_public_url"].(string); ok {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				u, err := url.Parse(v)
+				if err != nil || (u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+					return errors.New("mqtt_ws_public_url must be a ws:// or wss:// URL")
+				}
+			}
+			s.state.MQTTWSPublicURL = v
 		}
 	default:
 		return fmt.Errorf("invalid step: %d", step)
@@ -316,6 +328,8 @@ func (s *SetupService) Apply() error {
 			TLSCert: s.state.MQTTTLSCert,
 			TLSKey:  s.state.MQTTTLSKey,
 			TLSCA:   s.state.MQTTTLSCA,
+
+			PublicWSURL: s.state.MQTTWSPublicURL,
 		},
 		Platform: config.PlatformConfig{
 			PublicBaseURL:    s.state.PublicBaseURL,
@@ -501,11 +515,12 @@ func writeConfigYAML(cfg config.Config) error {
 			SMTPFrom string `yaml:"smtp_from"`
 		} `yaml:"email,omitempty"`
 		MQTT *struct {
-			Addr    string `yaml:"addr"`
-			WSAddr  string `yaml:"ws_addr"`
-			TLSCert string `yaml:"tls_cert"`
-			TLSKey  string `yaml:"tls_key"`
-			TLSCA   string `yaml:"tls_ca,omitempty"`
+			Addr        string `yaml:"addr"`
+			WSAddr      string `yaml:"ws_addr"`
+			WSPublicURL string `yaml:"ws_public_url,omitempty"`
+			TLSCert     string `yaml:"tls_cert"`
+			TLSKey      string `yaml:"tls_key"`
+			TLSCA       string `yaml:"tls_ca,omitempty"`
 		} `yaml:"mqtt,omitempty"`
 	}
 
@@ -533,17 +548,19 @@ func writeConfigYAML(cfg config.Config) error {
 	}
 	if cfg.MQTT.TLSCert != "" || cfg.MQTT.Addr != "" || cfg.MQTT.WSAddr != "" {
 		out.MQTT = &struct {
-			Addr    string `yaml:"addr"`
-			WSAddr  string `yaml:"ws_addr"`
-			TLSCert string `yaml:"tls_cert"`
-			TLSKey  string `yaml:"tls_key"`
-			TLSCA   string `yaml:"tls_ca,omitempty"`
+			Addr        string `yaml:"addr"`
+			WSAddr      string `yaml:"ws_addr"`
+			WSPublicURL string `yaml:"ws_public_url,omitempty"`
+			TLSCert     string `yaml:"tls_cert"`
+			TLSKey      string `yaml:"tls_key"`
+			TLSCA       string `yaml:"tls_ca,omitempty"`
 		}{
-			Addr:    cfg.MQTT.Addr,
-			WSAddr:  cfg.MQTT.WSAddr,
-			TLSCert: cfg.MQTT.TLSCert,
-			TLSKey:  cfg.MQTT.TLSKey,
-			TLSCA:   cfg.MQTT.TLSCA,
+			Addr:        cfg.MQTT.Addr,
+			WSAddr:      cfg.MQTT.WSAddr,
+			WSPublicURL: cfg.MQTT.PublicWSURL,
+			TLSCert:     cfg.MQTT.TLSCert,
+			TLSKey:      cfg.MQTT.TLSKey,
+			TLSCA:       cfg.MQTT.TLSCA,
 		}
 	}
 

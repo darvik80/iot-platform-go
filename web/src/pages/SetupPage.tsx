@@ -23,6 +23,7 @@ interface SetupState {
   mqtt_tls_ca?: string;
   public_base_url: string;
   broker_host_public: string;
+  mqtt_ws_public_url: string;
   completed: boolean;
   error?: string;
 }
@@ -414,6 +415,7 @@ export function SetupPage() {
               submitStep(7, {
                 public_base_url: fd.get('public_base_url'),
                 broker_host_public: fd.get('broker_host_public'),
+                mqtt_ws_public_url: fd.get('mqtt_ws_public_url'),
               });
             }}
             saving={saving}
@@ -427,9 +429,17 @@ export function SetupPage() {
             </div>
             <div>
               <label className="form-label">MQTT Broker Host / Domain</label>
-              <input name="broker_host_public" className="form-control mono" defaultValue={state.broker_host_public} placeholder="iot.example.com" />
+              <input name="broker_host_public" className="form-control mono" defaultValue={state.broker_host_public} placeholder="mqtt.example.com" />
               <div className="form-text">
-                Hostname or IP that devices use to connect to the MQTT broker (TCP, WS, TLS). Defaults to the hostname from Public Base URL if empty.
+                Hostname or IP that devices use for MQTT over TCP and TLS. Defaults to the hostname from Public Base URL if empty.
+                Behind Cloudflare (or another HTTP-only proxy) use a separate DNS-only name, e.g. <code>mqtt.example.com</code>.
+              </div>
+            </div>
+            <div>
+              <label className="form-label">MQTT WebSocket URL (optional)</label>
+              <input name="mqtt_ws_public_url" className="form-control mono" defaultValue={state.mqtt_ws_public_url} placeholder="wss://iot.example.com/mqtt" />
+              <div className="form-text">
+                Full URL when MQTT over WebSocket is published through a reverse proxy. Empty = <code>ws://&lt;broker host&gt;:8083/</code>.
               </div>
             </div>
           </StepForm>
@@ -448,7 +458,8 @@ export function SetupPage() {
                   <ReviewRow label="JWT Secret" value={state.jwt_secret_set ? '(set)' : '(not set)'} />
                   <ReviewRow label="MQTT TLS" value={state.mqtt_tls_cert ? `${state.mqtt_tls_cert}${state.mqtt_tls_ca ? ' + CA' : ''}` : '(disabled)'} />
                   <ReviewRow label="Public URL" value={state.public_base_url} />
-                  <ReviewRow label="Broker Host" value={state.broker_host_public || '(not set)'} />
+                  <ReviewRow label="Broker Host" value={state.broker_host_public || '(from Public URL)'} />
+                  <ReviewRow label="MQTT WebSocket" value={state.mqtt_ws_public_url || '(ws://<broker host>:8083/)'} />
                 </tbody>
               </table>
             </div>

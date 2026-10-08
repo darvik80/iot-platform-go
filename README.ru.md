@@ -462,7 +462,8 @@ platform/v1/commands/{account_slug}/{product_id}/{device_id}/ota
 | `ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin` / `admin@cogitor.local` / `admin` | Используются только мастером установки; существующая БД не пересоздаётся |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Период хранения телеметрии |
 | `RPC_DEFAULT_TIMEOUT_MS` | `30000` | Таймаут ожидания ответа RPC |
-| `BROKER_HOST_PUBLIC` | `localhost` | MQTT-хост для credentials устройств |
+| `BROKER_HOST_PUBLIC` | `localhost` | MQTT TCP/TLS-хост для credentials устройств (за Cloudflare — DNS-only имя) |
+| `MQTT_WS_PUBLIC_URL` | — | URL MQTT over WebSocket за reverse proxy, например `wss://iot.example.com/mqtt` |
 | `REGISTER_ENABLED` | `true` | Разрешить саморегистрацию (отключайте на приватных инсталляциях) |
 | `REGISTER_DEFAULT_ROLE` | `admin` | Роль в личном аккаунте зарегистрировавшегося |
 | `REQUIRE_EMAIL_VERIFY` | `false` | Требовать подтверждение email |

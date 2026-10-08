@@ -100,7 +100,10 @@ sudo tee /opt/iot-platform-go/etc/.env << 'EOF'
 # --- Required ---
 PUBLIC_BASE_URL=https://iot.cogitor.dev
 JWT_SECRET=<generate-random-64-chars>
+# MQTT TCP/TLS host for devices (behind Cloudflare: a DNS-only name, see "Cloudflare" below)
 BROKER_HOST_PUBLIC=iot.cogitor.dev
+# MQTT over WebSocket goes through nginx (location /mqtt below)
+MQTT_WS_PUBLIC_URL=wss://iot.cogitor.dev/mqtt
 
 # --- Database (SQLite default; or DATABASE_DRIVER=postgres + postgres:// DSN) ---
 DATABASE_DRIVER=sqlite
@@ -193,6 +196,30 @@ sudo nginx -t && sudo systemctl reload nginx
 | 443 | TCP | HTTPS (dashboard + API + WSS) |
 | 1883 | TCP | MQTT TCP (for devices) |
 | 8883 | TCP | MQTT over TLS (only if `MQTT_TLS_CERT` / `MQTT_TLS_KEY` are configured) |
+
+---
+
+## Cloudflare
+
+Cloudflare's proxy (orange cloud) passes only HTTP(S) and WebSocket on standard ports. HTTPS, the dashboard WebSocket and MQTT over WebSocket (`wss://…/mqtt` via nginx) work through it; MQTT over TCP (1883) and TLS (8883) do not. Publish MQTT under a separate **DNS-only** (grey cloud) name that points to the server IP:
+
+| DNS record | Proxy | Used for |
+|---|---|---|
+| `iot.cogitor.dev` → server IP | proxied | dashboard, API, `wss://iot.cogitor.dev/mqtt` |
+| `iot-mqtt.cogitor.dev` → server IP | DNS only | `mqtt://iot-mqtt.cogitor.dev:1883`, `mqtts://iot-mqtt.cogitor.dev:8883` |
+
+```bash
+# /opt/iot-platform-go/etc/.env
+PUBLIC_BASE_URL=https://iot.cogitor.dev
+BROKER_HOST_PUBLIC=iot-mqtt.cogitor.dev
+MQTT_WS_PUBLIC_URL=wss://iot.cogitor.dev/mqtt
+```
+
+In `config.yml` (setup wizard step 7 writes the same): `platform.broker_host_public` and `mqtt.ws_public_url`. Restart the service after a change; device credentials, Settings, MQTT status and the external-plugin endpoint then show the new host. Devices already flashed with the old host need to be re-provisioned.
+
+- The DNS-only name exposes the server IP; that is unavoidable for raw MQTT (Cloudflare Spectrum aside).
+- For `mqtts://` the broker certificate must be issued for `iot-mqtt.cogitor.dev` (e.g. `sudo certbot certonly --nginx -d iot-mqtt.cogitor.dev` or a DNS challenge; the `iot` user must be able to read the key), not a Cloudflare Origin certificate, which devices do not trust. See [05-mqtt-tls.md](05-mqtt-tls.md).
+- Under SSL mode **Full (strict)** nginx still needs a valid certificate for `iot.cogitor.dev` (Let's Encrypt or a Cloudflare Origin certificate).
 
 ---
 

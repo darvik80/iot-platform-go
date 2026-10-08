@@ -80,6 +80,51 @@ func TestMQTTWSPublicURL(t *testing.T) {
 	}
 }
 
+func TestMQTTWSPublicURLOverride(t *testing.T) {
+	t.Setenv("BROKER_HOST_PUBLIC", "mqtt.example.com")
+	t.Setenv("MQTT_WS_PUBLIC_URL", "wss://iot.example.com/mqtt")
+	c := Load()
+	if got := c.MQTT.WSPublicURL(c.Platform.BrokerHostPublic); got != "wss://iot.example.com/mqtt" {
+		t.Errorf("ws url = %q", got)
+	}
+	if got := c.MQTT.WSPublicPort(); got != 443 {
+		t.Errorf("ws port = %d, want 443", got)
+	}
+	if got := c.MQTT.PublicURL(c.Platform.BrokerHostPublic); got != "mqtt://mqtt.example.com:1883" {
+		t.Errorf("tcp = %q (WS override must not change the TCP host)", got)
+	}
+
+	cases := map[string]int{"wss://h:8443/mqtt": 8443, "ws://h/mqtt": 80}
+	for u, want := range cases {
+		m := MQTTConfig{WSAddr: ":8083", PublicWSURL: u}
+		if got := m.WSPublicPort(); got != want {
+			t.Errorf("WSPublicPort(%q)=%d want %d", u, got, want)
+		}
+	}
+	off := MQTTConfig{WSAddr: "off", PublicWSURL: "wss://h/mqtt"}
+	if off.WSPublicURL("h") != "" || off.WSPublicPort() != 0 {
+		t.Error("disabled WS listener must not be announced")
+	}
+}
+
+func TestNormalizeHost(t *testing.T) {
+	cases := map[string]string{
+		"mqtt.example.com":              "mqtt.example.com",
+		" mqtt.example.com ":            "mqtt.example.com",
+		"mqtt://mqtt.example.com:1883/": "mqtt.example.com",
+		"mqtts://mqtt.example.com":      "mqtt.example.com",
+		"mqtt.example.com:1883":         "mqtt.example.com",
+		"https://iot.example.com/x?y=1": "iot.example.com",
+		"192.168.1.22:1883":             "192.168.1.22",
+		"":                              "",
+	}
+	for in, want := range cases {
+		if got := NormalizeHost(in); got != want {
+			t.Errorf("NormalizeHost(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
 func TestParseListenPort(t *testing.T) {
 	cases := map[string]int{
 		"":               1883,

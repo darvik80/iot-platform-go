@@ -529,7 +529,8 @@ Configuration priority (first non-empty wins): **OS env → `./config.yml` → `
 | `ADMIN_LOGIN` / `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin` / `admin@cogitor.local` / `admin` | Used only by the setup wizard; an existing DB is never re-seeded |
 | `TELEMETRY_RETENTION_DAYS` | `30` | Telemetry cleanup period |
 | `RPC_DEFAULT_TIMEOUT_MS` | `30000` | RPC response wait timeout |
-| `BROKER_HOST_PUBLIC` | `localhost` | MQTT host shown in device credentials |
+| `BROKER_HOST_PUBLIC` | `localhost` | MQTT TCP/TLS host shown in device credentials (behind Cloudflare: a DNS-only name) |
+| `MQTT_WS_PUBLIC_URL` | — | MQTT-over-WebSocket URL behind a reverse proxy, e.g. `wss://iot.example.com/mqtt` |
 | `REGISTER_ENABLED` | `true` | Allow self-registration (disable on private installs) |
 | `REGISTER_DEFAULT_ROLE` | `admin` | Role in the registrant's own personal account |
 | `REQUIRE_EMAIL_VERIFY` | `false` | Require email verification before login |

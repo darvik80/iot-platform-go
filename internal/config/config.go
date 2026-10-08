@@ -3,6 +3,7 @@ package config
 import (
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,6 +38,11 @@ type MQTTConfig struct {
 	PublicTCPPort int
 	PublicWSPort  int
 	PublicTLSPort int
+
+	// Full WebSocket URL announced to clients when MQTT over WS is published
+	// behind a reverse proxy / CDN (e.g. wss://iot.example.com/mqtt) instead of
+	// ws://{broker host}:{WS port}/. Empty = derive from the broker host.
+	PublicWSURL string
 }
 
 type AuthConfig struct {
@@ -176,6 +182,7 @@ func Load() Config {
 			PublicTCPPort: getenvInt("MQTT_PUBLIC_PORT", 0),
 			PublicWSPort:  getenvInt("MQTT_WS_PUBLIC_PORT", 0),
 			PublicTLSPort: getenvInt("MQTT_TLS_PUBLIC_PORT", 0),
+			PublicWSURL:   strings.TrimSpace(getenv("MQTT_WS_PUBLIC_URL", "", "PLATFORM_MQTT_WS_PUBLIC_URL")),
 		},
 		Auth: AuthConfig{
 			JWTSecret: getenv("JWT_SECRET", DevJWTSecret, "AUTH_JWT_SECRET"),
@@ -208,7 +215,7 @@ func Load() Config {
 		Platform: PlatformConfig{
 			Name:                   getenv("PLATFORM_NAME", "Cogitor IoT", "SERVER_PLATFORM_NAME"),
 			PublicBaseURL:          strings.TrimRight(getenv("PUBLIC_BASE_URL", "http://localhost:8080", "SERVER_PUBLIC_BASE_URL", "PLATFORM_PUBLIC_BASE_URL"), "/"),
-			BrokerHostPublic:       firstNonEmpty(os.Getenv("PLATFORM_BROKER_HOST_PUBLIC"), os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost"),
+			BrokerHostPublic:       NormalizeHost(firstNonEmpty(os.Getenv("PLATFORM_BROKER_HOST_PUBLIC"), os.Getenv("BROKER_HOST_PUBLIC"), os.Getenv("MQTT_BROKER_HOST_PUBLIC"), os.Getenv("MQTT_HOST_PUBLIC"), "localhost")),
 			TelemetryRetentionDays: getenvInt("TELEMETRY_RETENTION_DAYS", 30, "PLATFORM_TELEMETRY_RETENTION_DAYS"),
 			RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000, "PLATFORM_RPC_DEFAULT_TIMEOUT_MS")) * time.Millisecond,
 			LabAllowUnknownDevices: getenvBool("LAB_ALLOW_UNKNOWN_DEVICES", false, "PLATFORM_LAB_ALLOW_UNKNOWN_DEVICES"),
@@ -321,6 +328,17 @@ func (m MQTTConfig) WSPublicPort() int {
 	if !m.WSEnabled() {
 		return 0
 	}
+	if m.PublicWSURL != "" {
+		if u, err := url.Parse(m.PublicWSURL); err == nil {
+			if p, err := strconv.Atoi(u.Port()); err == nil && p > 0 {
+				return p
+			}
+			if strings.EqualFold(u.Scheme, "wss") {
+				return 443
+			}
+			return 80
+		}
+	}
 	if m.PublicWSPort > 0 {
 		return m.PublicWSPort
 	}
@@ -332,10 +350,29 @@ func (m MQTTConfig) WSPublicURL(host string) string {
 	if port <= 0 {
 		return ""
 	}
+	if m.PublicWSURL != "" {
+		return m.PublicWSURL
+	}
 	if host == "" {
 		host = "localhost"
 	}
 	return "ws://" + host + ":" + strconv.Itoa(port) + "/"
+}
+
+// NormalizeHost reduces a broker host entered as a URL or host:port
+// ("mqtt://mqtt.example.com:1883/") to the bare host name or IP.
+func NormalizeHost(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+		s = s[:i]
+	}
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		s = h
+	}
+	return s
 }
 
 // ── OTA / Firmware helpers ───────────────────────────────────────────

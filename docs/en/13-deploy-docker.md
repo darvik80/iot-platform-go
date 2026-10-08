@@ -254,7 +254,7 @@ Override anything with **repository variables** (Settings → Actions → Variab
 | `IOT_MQTT_WS_PORT` | `8083` | Host port → 8083 (+ `MQTT_WS_PUBLIC_PORT`) |
 | `IOT_MQTT_TLS_PORT` | `8883` | Host port → 8883 (+ `MQTT_TLS_PUBLIC_PORT`) |
 | `IOT_HOST_DIR` | `/volume1/docker/iot-platform-go` | Contains `data/` and `etc/` |
-| `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `TIMEZONE` | — | Passed as `-e` only when set; otherwise `config.yml` applies |
+| `PUBLIC_BASE_URL`, `BROKER_HOST_PUBLIC`, `MQTT_WS_PUBLIC_URL`, `TIMEZONE` | — | Passed as `-e` only when set; otherwise `config.yml` applies |
 | `DOCKER_API_VERSION` | `1.43` | Docker client API version (Synology's daemon rejects newer ones) |
 
 Dashboard: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.

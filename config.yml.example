@@ -25,6 +25,9 @@ mqtt:
   # tls_cert: "/opt/iot-platform/etc/certs/mqtt/cert.pem"   # env: MQTT_TLS_CERT
   # tls_key: "/opt/iot-platform/etc/certs/mqtt/key.pem"     # env: MQTT_TLS_KEY
   # tls_ca: "/opt/iot-platform/etc/certs/mqtt/ca.pem"       # env: MQTT_TLS_CA  —  optional: enables mutual TLS
+  # WebSocket URL announced to clients when WS is published through a reverse proxy / CDN.
+  # Empty = ws://{broker_host_public}:{ws port}/
+  # ws_public_url: "wss://iot.example.com/mqtt"             # env: MQTT_WS_PUBLIC_URL
 
 auth:
   jwt_secret: "dev-jwt-secret-change-me"              # env: AUTH_JWT_SECRET (or JWT_SECRET)  —  change in production (wizard generates one)
@@ -62,7 +65,7 @@ ota_dir: "./data/firmware"                            # env: OTA_DIR  —  defau
 
 platform:
   public_base_url: "http://192.168.1.22:8080"         # env: PLATFORM_PUBLIC_BASE_URL (device-reachable URL)
-  broker_host_public: "192.168.1.22"                  # env: PLATFORM_BROKER_HOST_PUBLIC
+  broker_host_public: "192.168.1.22"                  # env: PLATFORM_BROKER_HOST_PUBLIC  —  MQTT TCP/TLS host; behind Cloudflare use a DNS-only name
   telemetry_retention_days: 30                        # env: PLATFORM_TELEMETRY_RETENTION_DAYS
   rpc_default_timeout_ms: 30000                       # env: PLATFORM_RPC_DEFAULT_TIMEOUT_MS
   lab_allow_unknown_devices: false                    # env: PLATFORM_LAB_ALLOW_UNKNOWN_DEVICES  —  currently has no effect
