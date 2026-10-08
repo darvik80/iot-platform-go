@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -12,24 +14,53 @@ import (
 // Nested keys are joined with "_", e.g. mqtt.addr → MQTT_ADDR, server.public_base_url → SERVER_PUBLIC_BASE_URL.
 // Returns true if the file was found and parsed successfully.
 func LoadYAML(path string) bool {
-	return loadYAML(path, false)
+	ok, _ := LoadYAMLFile(path, false)
+	return ok
 }
 
 // LoadYAMLForce reads a YAML config file and sets values as env vars, overriding existing values.
 // This is used after setup wizard to ensure the new config is applied.
 // Returns true if the file was found and parsed successfully.
 func LoadYAMLForce(path string) bool {
-	return loadYAML(path, true)
+	ok, _ := LoadYAMLFile(path, true)
+	return ok
 }
 
-func loadYAML(path string, force bool) bool {
+// Files lists the config files the platform reads, highest priority first.
+// Both .yml and .yaml are accepted.
+var Files = []string{
+	"./config.yml", "./config.yaml",
+	"/opt/iot-platform/etc/config.yml", "/opt/iot-platform/etc/config.yaml",
+}
+
+// LoadFiles loads every existing file from Files and returns the paths that
+// were applied plus the reasons existing files were not.
+func LoadFiles(force bool) (loaded []string, errs []error) {
+	for _, p := range Files {
+		ok, err := LoadYAMLFile(p, force)
+		if ok {
+			loaded = append(loaded, p)
+		}
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return loaded, errs
+}
+
+// LoadYAMLFile is LoadYAML / LoadYAMLForce that also reports why an existing
+// file was not applied (unreadable or invalid YAML). A missing file is not an error.
+func LoadYAMLFile(path string, force bool) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
 	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return false
+		return false, fmt.Errorf("parse %s: %w", path, err)
 	}
 	flat := make(map[string]string)
 	flatten("", raw, flat)
@@ -40,7 +71,7 @@ func loadYAML(path string, force bool) bool {
 			_ = os.Setenv(k, v)
 		}
 	}
-	return true
+	return true, nil
 }
 
 // flatten recursively walks nested maps and produces SCREAMING_SNAKE_CASE keys.

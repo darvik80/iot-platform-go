@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,16 +39,18 @@ func main() {
 
 // initConfig loads YAML configs, builds Config and creates the logger.
 func initConfig() (config.Config, *slog.Logger) {
-	loadedLocal := config.LoadYAML("./config.yml")
-	loadedOpt := config.LoadYAML("/opt/iot-platform/etc/config.yml")
+	loaded, errs := config.LoadFiles(false)
 	cfg := config.Load()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	slog.SetDefault(log)
 
+	for _, err := range errs {
+		log.Error("config file ignored", "err", err)
+	}
+
 	log.Info("config sources",
-		"./config.yml", loadedLocal,
-		"/opt/iot-platform/etc/config.yml", loadedOpt,
+		"files", configSources(loaded),
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 		"http_addr", cfg.HTTP.Addr,
@@ -115,8 +118,10 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 	_ = httpServer.Shutdown(context.Background())
 
 	// Reload config (wizard wrote config.yml) — force override any existing env vars
-	loadedLocal := config.LoadYAMLForce("./config.yml")
-	loadedOpt := config.LoadYAMLForce("/opt/iot-platform/etc/config.yml")
+	loaded, errs := config.LoadFiles(true)
+	for _, err := range errs {
+		log.Error("config file ignored", "err", err)
+	}
 	cfg = config.Load()
 	if cfg.HTTP.Addr == "" {
 		cfg.HTTP.Addr = ":8080"
@@ -126,8 +131,7 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 	}
 
 	log.Info("config reloaded after setup",
-		"./config.yml", loadedLocal,
-		"/opt/iot-platform/etc/config.yml", loadedOpt,
+		"files", configSources(loaded),
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 	)
@@ -253,6 +257,14 @@ func waitForShutdown() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
+}
+
+// configSources renders the loaded config files for the startup log.
+func configSources(loaded []string) string {
+	if len(loaded) == 0 {
+		return "none (env only; looked for " + strings.Join(config.Files, ", ") + ")"
+	}
+	return strings.Join(loaded, ", ")
 }
 
 func fileExists(path string) bool {

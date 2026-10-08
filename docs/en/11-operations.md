@@ -6,7 +6,7 @@ Guide for running, configuring, and maintaining the platform.
 
 ## Configuration
 
-Priority (first non-empty wins): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**.
+Priority (first non-empty wins): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**. The `.yaml` extension is accepted too (`config.yml` wins if both exist). The startup log line `config sources files=…` shows which files were applied; an unreadable or invalid file is logged as `config file ignored` with the reason.
 
 YAML keys are flattened to env names (`server.public_base_url` → `SERVER_PUBLIC_BASE_URL`, `mqtt.addr` → `MQTT_ADDR`). Environment variables override YAML.
 

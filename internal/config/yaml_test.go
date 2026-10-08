@@ -6,6 +6,35 @@ import (
 	"testing"
 )
 
+func TestLoadYAMLFileErrors(t *testing.T) {
+	dir := t.TempDir()
+
+	if ok, err := LoadYAMLFile(filepath.Join(dir, "missing.yml"), false); ok || err != nil {
+		t.Fatalf("missing file: ok=%v err=%v, want false/nil", ok, err)
+	}
+
+	bad := filepath.Join(dir, "bad.yaml")
+	if err := os.WriteFile(bad, []byte("platform:\n  broker_host_public: [unclosed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := LoadYAMLFile(bad, false); ok || err == nil {
+		t.Fatalf("invalid yaml: ok=%v err=%v, want false/error", ok, err)
+	}
+
+	good := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(good, []byte("platform:\n  broker_host_public: mqtt.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLATFORM_BROKER_HOST_PUBLIC", "")
+	os.Unsetenv("PLATFORM_BROKER_HOST_PUBLIC")
+	if ok, err := LoadYAMLFile(good, false); !ok || err != nil {
+		t.Fatalf("valid .yaml: ok=%v err=%v", ok, err)
+	}
+	if got := os.Getenv("PLATFORM_BROKER_HOST_PUBLIC"); got != "mqtt.example.com" {
+		t.Fatalf("env = %q", got)
+	}
+}
+
 func TestFlattenServerSection(t *testing.T) {
 	flat := map[string]string{}
 	flatten("", map[string]any{

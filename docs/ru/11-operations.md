@@ -6,7 +6,7 @@
 
 ## Конфигурация
 
-Приоритет (первый непустой выигрывает): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**.
+Приоритет (первый непустой выигрывает): **OS env → `./config.yml` → `/opt/iot-platform/etc/config.yml`**. Расширение `.yaml` тоже принимается (если есть оба файла, побеждает `config.yml`). Строка лога при старте `config sources files=…` показывает, какие файлы применены; нечитаемый или некорректный файл пишется в лог как `config file ignored` с причиной.
 
 YAML-ключи разворачиваются в имена переменных (`server.public_base_url` → `SERVER_PUBLIC_BASE_URL`, `mqtt.addr` → `MQTT_ADDR`). Переменные окружения переопределяют YAML.
 
