@@ -2,10 +2,11 @@
 
 Контейнерный деплой платформы — удобно для NAS (Synology, QNAP) или любого Docker-хоста. Многоэтапная сборка: Node.js → Go → Alpine (итоговый образ ~30 МБ).
 
-Один и тот же образ можно запустить тремя способами:
+Способы запустить один и тот же образ:
 
+- **Docker Hub** — готовый multi-arch образ `darvik80/iot-platform`, на хосте не нужны ни репозиторий, ни инструменты сборки (см. [Из Docker Hub](#из-docker-hub));
 - **Docker Compose** — корневой `docker-compose.yml` (сервис `platform`, опционально `nodered`), порты и папки хоста в `.env`;
-- **`docker run`** — на любом хосте;
+- **`docker run`** — на любом хосте, локальная сборка;
 - **Gitea CI** — `.gitea/workflows/deploy-docker.yml` пересобирает образ и пересоздаёт контейнер при push в `master` (раннер на Synology).
 
 Продакшн на VPS работает через systemd — см. [12-deploy-vds.md](12-deploy-vds.md).
@@ -48,6 +49,90 @@ docker build -t localhost/iot-platform-go:latest .
 **Порты:** меняйте только **хостовую** сторону (`-p ХОСТ:КОНТЕЙНЕР`). Порты контейнера зафиксированы образом. Если порт хоста отличается от порта контейнера, сообщите платформе, какой порт использовать клиентам: `PUBLIC_BASE_URL` для HTTP и `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` для MQTT (они показываются в credentials устройств, в Settings и в статусе MQTT). Compose и CI-воркфлоу выставляют MQTT-порты автоматически.
 
 **Папки:** оба bind-монтирования могут принадлежать root на хосте — entrypoint при каждом старте отдаёт их uid 1000. `config.yml` содержит секреты и пишется с правами `0600`.
+
+---
+
+## Из Docker Hub
+
+Образ публикует `.gitea/workflows/deploy-docker-hub.yml` (см. [Публикация в Docker Hub](#публикация-в-docker-hub)):
+
+| Тег | Содержимое |
+|---|---|
+| `darvik80/iot-platform:latest` | последняя сборка `master` |
+| `darvik80/iot-platform:X.Y.Z` | релиз `vX.Y.Z` — в продакшене закрепляйте его |
+
+Платформы: `linux/amd64`, `linux/arm64` (Docker сам выберет нужную; Synology на ARM и 64-битный Raspberry Pi работают как есть).
+
+### docker run
+
+```bash
+mkdir -p /srv/iot-platform/data /srv/iot-platform/etc
+docker pull darvik80/iot-platform:latest
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v /srv/iot-platform/data:/opt/iot-platform/lib \
+  -v /srv/iot-platform/etc:/opt/iot-platform/etc \
+  darvik80/iot-platform:latest
+```
+
+Откройте `http://<host>:8080/setup` и пройдите [мастер установки](#первый-запуск--мастер-установки). Если порты хоста другие, добавьте `-e MQTT_PUBLIC_PORT=…` (и `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT`), как в разделе [docker run](#docker-run-1).
+
+### Docker Compose без репозитория
+
+Скопируйте на хост корневой [`docker-compose.yml`](../../docker-compose.yml) (нужен только сервис `platform`) или используйте минимальный файл:
+
+```yaml
+services:
+  platform:
+    image: darvik80/iot-platform:${IOT_TAG:-latest}
+    container_name: iot-platform-go
+    restart: unless-stopped
+    ports:
+      - "${IOT_HTTP_PORT:-8080}:8080"
+      - "${IOT_MQTT_PORT:-1883}:1883"
+      - "${IOT_MQTT_WS_PORT:-8083}:8083"
+      - "${IOT_MQTT_TLS_PORT:-8883}:8883"
+    environment:
+      MQTT_PUBLIC_PORT: ${IOT_MQTT_PORT:-1883}
+      MQTT_WS_PUBLIC_PORT: ${IOT_MQTT_WS_PORT:-8083}
+      MQTT_TLS_PUBLIC_PORT: ${IOT_MQTT_TLS_PORT:-8883}
+    env_file:
+      - path: ./platform.env
+        required: false
+    volumes:
+      - ./data:/opt/iot-platform/lib
+      - ./etc:/opt/iot-platform/etc
+```
+
+```bash
+docker compose up -d
+```
+
+### Synology Container Manager
+
+1. **Реестр** → найдите `darvik80/iot-platform` → **Загрузить**, тег `latest` (или версию).
+2. В File Station создайте `docker/iot-platform-go/data` и `docker/iot-platform-go/etc`.
+3. **Образ** → выберите его → **Запустить**:
+   - имя контейнера `iot-platform-go`, включите **автоперезапуск**;
+   - **Порты**: локальный `9083` → контейнер `8080`, `1883` → `1883`, `8083` → `8083`, `8883` → `8883` (TCP);
+   - **Тома**: `docker/iot-platform-go/data` → `/opt/iot-platform/lib`, `docker/iot-platform-go/etc` → `/opt/iot-platform/etc`;
+   - **Переменные среды**: `MQTT_PUBLIC_PORT`, `MQTT_WS_PUBLIC_PORT`, `MQTT_TLS_PUBLIC_PORT` = выбранные выше локальные порты (нужны, только если они отличаются от портов контейнера).
+4. Откройте `http://<nas-ip>:9083/setup`.
+
+### Обновление развёртывания из Docker Hub
+
+Данные и `config.yml` лежат в папках хоста, поэтому контейнер можно пересоздавать в любой момент:
+
+```bash
+docker pull darvik80/iot-platform:latest
+docker rm -f iot-platform-go
+docker run …                         # та же команда, что выше
+# compose: docker compose pull && docker compose up -d
+```
+
+В Container Manager: **Реестр** → загрузите тег заново, затем остановите контейнер и пересоздайте его из нового образа с теми же настройками (**Действие → Сбросить** в DSM 7.2+, иначе удалите и запустите заново).
+
+Для отката запустите предыдущий тег `X.Y.Z` с теми же папками. Миграции базы применяются при старте и не откатываются — перед обновлением между версиями сохраните `data/platform.db` и `etc/config.yml`.
 
 ---
 
@@ -174,7 +259,9 @@ container:
 
 Дашборд: `http://<nas-ip>:9083` · MQTT: `<nas-ip>:1883`.
 
-### Docker Hub
+### Публикация в Docker Hub
+
+Развёртывание опубликованного образа: [Из Docker Hub](#из-docker-hub).
 
 `.gitea/workflows/deploy-docker-hub.yml` собирает тот же `Dockerfile` через buildx + QEMU на раннере `devops.local`:
 

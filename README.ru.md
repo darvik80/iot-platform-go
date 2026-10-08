@@ -97,6 +97,12 @@ go build -o bin/platform.exe ./cmd/platform       # собрать Go-бинар
 ### 2. Запуск через Docker
 
 ```bash
+# Docker Hub (репозиторий не нужен), затем откройте http://<host>:8080/setup
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v /srv/iot-platform/data:/opt/iot-platform/lib -v /srv/iot-platform/etc:/opt/iot-platform/etc \
+  darvik80/iot-platform:latest
+
 # Compose: образ с Docker Hub; порты и папки хоста задаются в .env (см. docs/ru/13-deploy-docker.md)
 cp .env.example .env && docker compose up -d     # --build — собрать из текущего checkout
 # + Node-RED: docker compose --profile nodered up -d

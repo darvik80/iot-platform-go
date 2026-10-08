@@ -102,6 +102,12 @@ go build -o bin/platform.exe ./cmd/platform
 ### 2. Run with Docker
 
 ```bash
+# Docker Hub (no checkout needed), then open http://<host>:8080/setup
+docker run -d --name iot-platform-go --restart unless-stopped \
+  -p 8080:8080 -p 1883:1883 -p 8083:8083 -p 8883:8883 \
+  -v /srv/iot-platform/data:/opt/iot-platform/lib -v /srv/iot-platform/etc:/opt/iot-platform/etc \
+  darvik80/iot-platform:latest
+
 # Compose: Docker Hub image; ports and host folders come from .env (see docs/en/13-deploy-docker.md)
 cp .env.example .env && docker compose up -d     # add --build to build this checkout
 # + Node-RED: docker compose --profile nodered up -d
