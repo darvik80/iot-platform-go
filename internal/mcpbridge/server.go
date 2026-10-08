@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"cogitor-iot-platform/internal/models"
 
@@ -259,9 +260,12 @@ func textOK(v any) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errResult(err), nil, nil
 	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: s}},
-	}, v, nil
+	res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
+	// MCP requires structuredContent to be a JSON object; lists go out as text only.
+	if strings.HasPrefix(s, "{") {
+		res.StructuredContent = json.RawMessage(s)
+	}
+	return res, nil, nil
 }
 
 func errResult(err error) *mcp.CallToolResult {
