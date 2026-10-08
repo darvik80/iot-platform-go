@@ -67,6 +67,7 @@ func (h *PluginHub) Start(ctx context.Context) {
 	h.root, h.cancel = context.WithCancel(ctx)
 	h.mu.Unlock()
 
+	h.plat.pruneNonDeviceBindings()
 	list, err := h.plat.ListAllPluginBindings()
 	if err != nil {
 		if h.plat.Log != nil {
@@ -332,18 +333,26 @@ func (p *Platform) ListPluginCatalog() []models.PluginInfo {
 			Form: plugins.FormJSON(d.Form),
 		})
 	}
-	// Merge external plugins into catalog
-	if p.ExternalPlugins != nil {
-		for _, ep := range p.ExternalPlugins.ListAll() {
-			out = append(out, models.PluginInfo{
-				ID: ep.ID, Name: ep.Name, Description: ep.Description,
-				DefaultConfig: ep.DefaultConfig, Effects: ep.Effects,
-				Form: ep.Form,
-			})
-		}
-	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// pruneNonDeviceBindings removes device bindings of plugins that are not
+// device plugins — e.g. external plugins such as Node-RED, which earlier
+// versions let users attach to a device although they never run per device.
+func (p *Platform) pruneNonDeviceBindings() {
+	list, err := p.ListAllPluginBindings()
+	if err != nil {
+		return
+	}
+	for _, b := range list {
+		if _, _, ok := plugins.Lookup(b.PluginID); ok {
+			continue
+		}
+		if _, err := p.DB.Exec(`DELETE FROM device_plugin_bindings WHERE id=?`, b.ID); err == nil && p.Log != nil {
+			p.Log.Info("removed device binding of a non-device plugin", "plugin", b.PluginID, "device_pk", b.DevicePK)
+		}
+	}
 }
 
 func (p *Platform) ListAllPluginBindings() ([]models.DevicePluginBinding, error) {
@@ -385,16 +394,9 @@ func (p *Platform) GetPluginBinding(id int64) (*models.DevicePluginBinding, erro
 }
 
 func (p *Platform) decorateBinding(b *models.DevicePluginBinding) {
-	// Try internal plugin first
 	if d, _, ok := plugins.Lookup(b.PluginID); ok {
 		b.Name, b.Description, b.Effects = d.Name, d.Description, d.Effects
 		b.Form = plugins.FormJSON(d.Form)
-	} else if p.ExternalPlugins != nil {
-		// Try external plugin
-		if ep, ok := p.ExternalPlugins.GetPlugin(b.PluginID); ok {
-			b.Name, b.Description, b.Effects = ep.Name, ep.Description, ep.Effects
-			b.Form = ep.Form
-		}
 	}
 	if p.Plugins != nil {
 		b.Running, b.LastError = p.Plugins.Running(b.ID)
@@ -414,30 +416,21 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 	}
 	in.PluginID = strings.TrimSpace(in.PluginID)
 
-	// Check internal plugin first
-	desc, fac, isInternal := plugins.Lookup(in.PluginID)
-	var isExternal bool
-	var extPlugin *models.ExternalPlugin
-	if !isInternal && p.ExternalPlugins != nil {
-		extPlugin, isExternal = p.ExternalPlugins.GetPlugin(in.PluginID)
-		if isExternal && extPlugin.AccountID != device.AccountID {
-			isExternal = false
+	desc, fac, ok := plugins.Lookup(in.PluginID)
+	if !ok {
+		if p.ExternalPlugins != nil {
+			if ep, ext := p.ExternalPlugins.GetPlugin(in.PluginID); ext && ep.AccountID == device.AccountID {
+				return nil, errors.New("external plugins work account-wide over the rules bus and are not bound to devices")
+			}
 		}
-	}
-	if !isInternal && !isExternal {
 		return nil, errors.New("unknown plugin")
 	}
 
 	cfg := in.Config
 	if len(cfg) == 0 || string(cfg) == "null" {
-		if isInternal {
-			cfg = desc.DefaultConfig
-		} else {
-			cfg = extPlugin.DefaultConfig
-		}
+		cfg = desc.DefaultConfig
 	}
-	// Validate config for internal plugins
-	if isInternal && fac != nil {
+	if fac != nil {
 		if err := fac().ApplyConfig(cfg); err != nil {
 			return nil, err
 		}
@@ -460,14 +453,12 @@ func (p *Platform) BindDevicePlugin(devicePK int64, in PluginBindingInput) (*mod
 	if err != nil {
 		return nil, err
 	}
-	// Start internal plugin runner if applicable
-	if isInternal && p.Plugins != nil {
+	if p.Plugins != nil {
 		p.Plugins.syncRunner(*b)
 		if enabled == 1 {
 			_ = p.Plugins.Apply(b.ID)
 		}
 	}
-	// External plugin: config is stored in bindings; plugin reads via MQTT when ready.
 	if fresh, err := p.GetPluginBinding(id); err == nil {
 		b = fresh
 	}

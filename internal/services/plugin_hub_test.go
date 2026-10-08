@@ -81,3 +81,37 @@ func TestBindLEDGarlandPlugin(t *testing.T) {
 	defer cancel()
 	p.StartPlugins(ctx)
 }
+
+func TestExternalPluginsAreNotDevicePlugins(t *testing.T) {
+	p := newTestPlatform(t, config.Config{})
+	if _, err := p.CreateProduct(1, ProductInput{ProductID: "home", Name: "Home"}); err != nil {
+		t.Fatalf("CreateProduct: %v", err)
+	}
+	dev, _, err := p.CreateDevice(1, DeviceInput{ProductID: "home", DeviceID: "d1"})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	if _, _, err := p.ExternalPlugins.Register(RegisterExternalPluginInput{ID: "nodered", AccountID: 1, AccountSlug: "default", Name: "Node RED"}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	for _, c := range p.ListPluginCatalog() {
+		if c.ID == "nodered" {
+			t.Fatal("external plugin must not be offered as a device plugin")
+		}
+	}
+	if _, err := p.BindDevicePlugin(dev.ID, PluginBindingInput{PluginID: "nodered"}); err == nil {
+		t.Fatal("binding an external plugin to a device must fail")
+	}
+
+	// Bindings created by older versions are removed on start.
+	if _, err := p.DB.Exec(`INSERT INTO device_plugin_bindings(device_pk, plugin_id, enabled, config_json, created_at, updated_at) VALUES(?,?,1,'{}',0,0)`, dev.ID, "nodered"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.StartPlugins(ctx)
+	if list, _ := p.ListDevicePlugins(dev.ID); len(list) != 0 {
+		t.Fatalf("stale external binding kept: %+v", list)
+	}
+}

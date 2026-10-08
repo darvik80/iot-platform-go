@@ -1040,6 +1040,8 @@ and `last_heartbeat_at`; these columns do not exist yet.
 
 External plugins are **not** bound to devices in v1.0.x: `device_plugin_bindings` is used only
 by internal plugins. Delivering events to bound external plugins via `PluginHub` is planned.
+External plugins are not offered in the device **Add plugin…** list, `POST /devices/{id}/plugins`
+rejects them, and bindings created by earlier versions are removed on platform start.
 
 ---
 
