@@ -38,6 +38,22 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
+// registerViaInvitation creates the invited user and returns a session token.
+func (s *Server) registerViaInvitation(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	var in services.InviteRegisterInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	u, tok, err := s.Plat.RegisterInvitedUser(token, in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "user": u})
+}
+
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Email          string `json:"email"`

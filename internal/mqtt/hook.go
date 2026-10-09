@@ -1,14 +1,12 @@
 package mqtt
 
 import (
-	"crypto/subtle"
 	"fmt"
 	"strings"
 
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
 
-	"cogitor-iot-platform/internal/auth"
 	"cogitor-iot-platform/internal/models"
 	"cogitor-iot-platform/internal/protocol"
 )
@@ -53,8 +51,10 @@ func (h *platHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 	if clientID == "" {
 		clientID = cl.ID
 	}
-	if user == "" || pass == "" {
-		h.b.note("warn", "auth_fail", clientID, user, remote, "", "missing username or password", 0)
+	// Passwordless dialects (ThingsBoard) authenticate on the username alone;
+	// token-based dialects still fail VerifyPassword with an empty password.
+	if user == "" {
+		h.b.note("warn", "auth_fail", clientID, user, remote, "", "missing username", 0)
 		return false
 	}
 	// External plugin MQTT auth (Node-RED connects as an external plugin)
@@ -75,13 +75,8 @@ func (h *platHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bo
 		h.b.note("warn", "auth_fail", clientID, user, remote, "", "device disabled", 0)
 		return false
 	}
-	if d.AccessTokenHash == "" {
-		h.b.note("warn", "auth_fail", clientID, user, remote, "", "no token hash", 0)
-		return false
-	}
-	got := auth.HashToken(pass)
-	if subtle.ConstantTimeCompare([]byte(got), []byte(d.AccessTokenHash)) != 1 {
-		h.b.note("warn", "auth_fail", clientID, user, remote, "", "bad token", 0)
+	if ok, reason := protocol.DialectFor(d.TopicStyle).VerifyPassword(d, pass, clientID); !ok {
+		h.b.note("warn", "auth_fail", clientID, user, remote, "", reason, 0)
 		return false
 	}
 	// Reject device CONNECT if the owning account is suspended
@@ -133,12 +128,17 @@ func (h *platHook) aclOK(user, topic string, write bool) bool {
 	if d == nil || !d.Enabled {
 		return false
 	}
-	up := protocol.FullUpRoot(d.ProductID, d.DeviceID)
-	down := protocol.FullDownRoot(d.ProductID, d.DeviceID)
-	if write {
-		return topicUnder(topic, up) || topicUnder(topic, protocol.PrefixShort)
+	dl := protocol.DialectFor(d.TopicStyle)
+	roots := dl.PublishRoots(d)
+	if !write {
+		roots = dl.SubscribeRoots(d)
 	}
-	return topicUnder(topic, down) || topicUnder(topic, protocol.PrefixShort)
+	for _, root := range roots {
+		if topicUnder(topic, root) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *platHook) OnSessionEstablished(cl *mochi.Client, _ packets.Packet) {

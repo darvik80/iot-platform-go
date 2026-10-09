@@ -83,11 +83,11 @@ func TestFullStyleUplinkBoundToSession(t *testing.T) {
 	bobUser := bob.ProductID + "." + bob.DeviceID
 
 	foreign := protocol.FullUpRoot(alice.ProductID, alice.DeviceID) + protocol.UpTelemetry
-	if _, _, err := b.resolve(foreign, bobUser); err == nil {
+	if _, _, _, err := b.resolve(foreign, bobUser); err == nil {
 		t.Error("bob's session published as alice's device")
 	}
 	own := protocol.FullUpRoot(bob.ProductID, bob.DeviceID) + protocol.UpTelemetry
-	d, _, err := b.resolve(own, bobUser)
+	d, _, _, err := b.resolve(own, bobUser)
 	if err != nil || d.ID != bob.ID {
 		t.Errorf("own full-style uplink: device=%v err=%v", d, err)
 	}
