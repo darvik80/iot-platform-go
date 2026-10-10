@@ -15,6 +15,8 @@ The platform process **is** the MQTT broker ([mochi-mqtt](https://github.com/moc
 
 After CONNECT the platform resolves the device by username and verifies the token (SHA-256 stored in the database). ACL: in the full format a device may only publish under its own `iot/v1/{product_id}/{device_id}/up/…` and subscribe under its own `…/down/…`; short topics (`v1/…`) are allowed and bound to the device by the session username.
 
+These are the parameters of the native protocol (`short` / `full` styles). The **alink** and **ThingsBoard** dialects use different CONNECT parameters — see [Device styles (dialects)](#device-styles-dialects).
+
 ---
 
 ## Addressing
@@ -68,6 +70,125 @@ Example: `v1/me/t` — telemetry from the current device.
 | `…/up/logs/report` | `v1/me/l` | ↑ device | Device logs |
 
 Full topic: `iot/v1/{product_id}/{device_id}/{up|down}/…`. The "Full topic" column shows the tail after `up/` or `down/`.
+
+---
+
+## Device styles (dialects)
+
+The platform supports four MQTT protocol dialects. The style (`topic_style`) is set on the device at creation time or inherited from the product's **Topic style default** field; it can be viewed and changed on the device page.
+
+| Dialect (`topic_style`) | Compatibility | Authentication | Topics |
+|---|---|---|---|
+| `short` (default) | native | `username={product}.{device}`, `password=token` | `v1/me/…` + full |
+| `full` | native | `username={product}.{device}`, `password=token` | `iot/v1/…` + short |
+| `alink` | Alibaba Cloud IoT (Alink) | HMAC signature of the deviceSecret | `/sys/…`, `/ext/ntp/…`, `/ota/device/…` |
+| `thingsboard` | ThingsBoard MQTT Device API | `username=access token`, no password | `v1/devices/me/…` |
+
+Style selection rules:
+
+- **Auto-detection** works only between `short` and `full`: a Will topic, subscription, or first packet with a foreign prefix flips the device's style.
+- **`alink` and `thingsboard` are pinned**: they are never auto-detected on or off, because the style defines the authentication model (secret/token). Pick them explicitly when creating a device — or set the product default.
+- Downlinks (RPC, desired attributes, OTA) are always sent in the device's dialect format; uplinks are translated into the internal format, so the dashboard, automation, and plugins work identically for every dialect.
+
+The sections below describe the native protocol (`short` / `full`); the dialect specifics are in [alink](#alink-dialect-alibaba-cloud-iot) and [thingsboard](#thingsboard-dialect).
+
+### Alink dialect (Alibaba Cloud IoT)
+
+For firmware built against the Alink protocol (Alicloud IoT embed component). At create/rotate time the platform generates a **deviceSecret** — the HMAC key, shown once.
+
+Connection:
+
+| Parameter | Value |
+|-----------|-------|
+| Username | `{deviceName}&{productKey}` (the native `{product}.{device}` is also accepted) |
+| Password | HMAC-SHA256 of `clientId{username}deviceName{dn}productKey{pk}timestamp{ts}` keyed by the deviceSecret, uppercase hex |
+| Client ID | `{deviceName}&{productKey}\|timestamp=…,ext=…\|`; timestamp from the KV section, default `2524608000000` |
+
+Topics:
+
+| Topic | Dir | Purpose |
+|---|---|---|
+| `/sys/{pk}/{dn}/thing/event/property/post` | ↑ | Telemetry |
+| `/sys/{pk}/{dn}/thing/event/{eventId}/post` | ↑ | Event |
+| `/sys/{pk}/{dn}/thing/property/desired/get` | ↑ | Desired attribute request |
+| `/sys/{pk}/{dn}/thing/property/desired/delete` | ↑ | Desired attribute deletion |
+| `/sys/{pk}/{dn}/thing/service/property/set_reply` | ↑ | Reply to property/set |
+| `/sys/{pk}/{dn}/thing/service/{method}/_reply` | ↑ | RPC reply |
+| `/sys/{pk}/{dn}/thing/ota/firmware/get` | ↑ | OTA query (pull) |
+| `/ota/device/inform/{pk}/{dn}` | ↑ | Firmware version |
+| `/ota/device/progress/{pk}/{dn}` | ↑ | OTA progress |
+| `/ext/ntp/{pk}/{dn}/request` | ↑ | Time request (NTP) |
+| `/sys/{pk}/{dn}/thing/service/property/set` | ↓ | Desired attribute update |
+| `/sys/{pk}/{dn}/thing/property/desired/{get,delete}_reply` | ↓ | Desired get/delete reply |
+| `/sys/{pk}/{dn}/thing/service/{method}` | ↓ | Platform RPC call |
+| `/ota/device/upgrade/{pk}/{dn}` | ↓ | OTA command (and cancel) |
+| `/ext/ntp/{pk}/{dn}/response` | ↓ | Time response |
+
+Payload examples. Telemetry — values with an optional timestamp:
+```json
+{"id": "1", "version": "1.0", "params": {"temperature": {"value": 23.5, "time": 1710000000000}}}
+```
+
+Platform RPC call (id is a string):
+```json
+{"id": "1", "version": "1.0", "method": "thing.service.reboot", "params": {"delay": 5}}
+```
+The device replies on `/sys/{pk}/{dn}/thing/service/reboot/_reply`; code `200` means success:
+```json
+{"id": "1", "code": 200, "message": "success", "data": {}}
+```
+
+Desired attribute update — all params values are sent as strings (the firmware reads strings only):
+```json
+{"id": "2", "version": "1.0", "method": "thing.service.property.set", "params": {"interval": "30"}}
+```
+
+OTA command (`code: "1000"` — update, `"-1"` — cancel):
+```json
+{"code": "1000", "data": {"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288}}
+```
+
+Not available in the alink style: LWT status, reported-attribute report, device-to-platform RPC, logs. Telemetry, events, desired attributes, NTP, and OTA work as in the native style.
+
+### ThingsBoard dialect
+
+For firmware built against the ThingsBoard MQTT Device API (JSON, v1; the v2 RPC protobuf forms and `v2/fw/…` topics are out of scope). Authentication: **the MQTT username is the device access token**, no password. The token is generated at create/rotate time and shown once.
+
+Topics:
+
+| Topic | Dir | Purpose |
+|---|---|---|
+| `v1/devices/me/telemetry` | ↑ | Telemetry (same payload formats as the native style) |
+| `v1/devices/me/attributes` | ↑ | Attributes report |
+| `v1/devices/me/attributes/request/{id}` | ↑ | Attribute request |
+| `v1/devices/me/attributes/response/{id}` | ↓ | Attribute request response |
+| `v1/devices/me/rpc/request/{id}` | ↓ | Platform RPC call |
+| `v1/devices/me/rpc/response/{id}` | ↑ | RPC reply |
+| `v2/devices/me/rpc/response/{id}` | ↑ | RPC reply (v2 topic form) |
+
+The device subscribes to `v1/devices/me/attributes` (desired updates arrive as a flat object) and `v1/devices/me/rpc/request/+`.
+
+Payload examples. Platform RPC call — the id lives in the topic, not the body:
+```json
+{"method": "reboot", "params": {"delay": 5}}
+```
+The device replies on `v1/devices/me/rpc/response/1` with arbitrary JSON:
+```json
+{"status": "ok"}
+```
+
+Attribute request: `sharedKeys` — desired (server-side), `clientKeys` — reported (client-side); a JSON array or a comma-separated string is accepted:
+```json
+{"sharedKeys": "interval", "clientKeys": "fw"}
+```
+The reply arrives on `v1/devices/me/attributes/response/1`:
+```json
+{"client": {"fw": "1.2.3"}, "shared": {"interval": 30}}
+```
+
+Not available in the thingsboard style: LWT status, events, logs, NTP, device-side OTA, device-to-platform RPC. Telemetry and attributes work as in the native style.
+
+> ThingsBoard downlink topics (`v1/devices/me/…`) look the same for every device — the platform delivers each message directly to the target device's session, like the short native style.
 
 ---
 
@@ -270,6 +391,8 @@ Events are published to `platform/v1/events/{account_slug}/{product_id}/{device_
 2. MQTT CONNECT: `username={product}.{device}`, `password=token`
 3. Token rotation → new hash in DB; active session is disconnected
 4. Disable / delete device → session disconnected; reconnect fails
+
+This is the native model. `alink` devices authenticate with an HMAC signature of the deviceSecret, `thingsboard` devices with the access token as username and no password (see [Device styles (dialects)](#device-styles-dialects)).
 
 ## Monitoring
 
