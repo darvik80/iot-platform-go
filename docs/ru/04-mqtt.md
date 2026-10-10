@@ -115,6 +115,7 @@ v1/me/{mnemonic}
 | `/sys/{pk}/{dn}/thing/service/property/set_reply` | ↑ | Ответ на property/set |
 | `/sys/{pk}/{dn}/thing/service/{method}/_reply` | ↑ | Ответ на RPC |
 | `/sys/{pk}/{dn}/thing/ota/firmware/get` | ↑ | Запрос OTA (pull) |
+| `/sys/{pk}/{dn}/thing/log/post` | ↑ | Логи устройства |
 | `/ota/device/inform/{pk}/{dn}` | ↑ | Версия прошивки |
 | `/ota/device/progress/{pk}/{dn}` | ↑ | Прогресс OTA |
 | `/ext/ntp/{pk}/{dn}/request` | ↑ | Запрос времени (NTP) |
@@ -148,7 +149,12 @@ OTA-команда (`code: "1000"` — обновление, `"-1"` — отме
 {"code": "1000", "data": {"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288}}
 ```
 
-Недоступны в alink-стиле: статус LWT, отчёт reported-атрибутов, RPC от устройства к платформе, логи. Телеметрия, события, desired-атрибуты, NTP и OTA работают как в нативном стиле.
+Логи — батч до 40 записей; `utcTime` — epoch-ms или ISO-строка `yyyy-MM-ddTHH:mm:ss.SSSZ`, `traceContext` необязателен:
+```json
+{"id": "1", "version": "1.0", "method": "thing.log.post", "params": [{"utcTime": "2024-01-02T03:04:05.678Z", "logLevel": "ERROR", "module": "wifi", "code": "E_TIMEOUT", "traceContext": "trace-42", "logContent": "Read timeout"}]}
+```
+
+Недоступны в alink-стиле: статус LWT, отчёт reported-атрибутов, RPC от устройства к платформе. Телеметрия, события, логи, desired-атрибуты, NTP и OTA работают как в нативном стиле.
 
 ### Диалект ThingsBoard
 

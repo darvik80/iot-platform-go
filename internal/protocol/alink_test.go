@@ -120,6 +120,7 @@ func TestAlinkParseTopic(t *testing.T) {
 		{"/sys/pk/dn/thing/service/property/set_reply", "pk", "dn", KindRPCResponse, "property/set"},
 		{"/sys/pk/dn/thing/service/custom/reboot/_reply", "pk", "dn", KindRPCResponse, "custom/reboot"},
 		{"/sys/pk/dn/thing/ota/firmware/get", "pk", "dn", KindOTAQuery, ""},
+		{"/sys/pk/dn/thing/log/post", "pk", "dn", KindLogs, ""},
 		{"/ext/ntp/pk/dn/request", "pk", "dn", KindNTPRequest, ""},
 		{"/ota/device/inform/pk/dn", "pk", "dn", KindOTAVersion, ""},
 		{"/ota/device/progress/pk/dn", "pk", "dn", KindOTAProgress, ""},
@@ -146,21 +147,21 @@ func TestAlinkParseTopicRejects(t *testing.T) {
 		"iot/v1/p/d/up/telemetry/data", // full style
 		"v1/t",                         // short style
 		"$SYS/broker/clients",
-		"/sys/pk/dn",                   // no tail
-		"/sys/pk/dn/",                  // empty tail
-		"/sys/pk/dn/thing/service/property/set",      // downlink
+		"/sys/pk/dn",                            // no tail
+		"/sys/pk/dn/",                           // empty tail
+		"/sys/pk/dn/thing/service/property/set", // downlink
 		"/sys/pk/dn/thing/property/desired/get_reply", // downlink
-		"/sys/pk/dn/thing/log/post",    // device logs: out of MVP scope
-		"/sys/p+/dn/thing/event/property/post", // wildcard id
-		"/sys/pk/d#/thing/event/property/post", // wildcard id
-		"/sys//dn/thing/event/property/post",   // empty product
-		"/sys/pk/dn/thing/event//post",         // empty event id
-		"/sys/pk/dn/thing/service//_reply",     // empty service method
-		"/ext/ntp/pk/dn/response",              // downlink
-		"/ext/ntp/pk/dn",                       // no suffix
-		"/ota/device/upgrade/pk/dn",            // downlink
-		"/ota/device/other/pk/dn",              // unknown suffix
-		"/ota/device/inform/pk",                // missing device
+		"/sys/pk/dn/thing/log/post_reply",             // reply, not uplink
+		"/sys/p+/dn/thing/event/property/post",        // wildcard id
+		"/sys/pk/d#/thing/event/property/post",        // wildcard id
+		"/sys//dn/thing/event/property/post",          // empty product
+		"/sys/pk/dn/thing/event//post",                // empty event id
+		"/sys/pk/dn/thing/service//_reply",            // empty service method
+		"/ext/ntp/pk/dn/response",                     // downlink
+		"/ext/ntp/pk/dn",                              // no suffix
+		"/ota/device/upgrade/pk/dn",                   // downlink
+		"/ota/device/other/pk/dn",                     // unknown suffix
+		"/ota/device/inform/pk",                       // missing device
 	} {
 		if _, ok := AlinkParseTopic(topic); ok {
 			t.Errorf("AlinkParseTopic(%q) accepted, want rejected", topic)
@@ -352,9 +353,43 @@ func TestAlinkToInternalOTA(t *testing.T) {
 }
 
 func TestAlinkToInternalUnsupported(t *testing.T) {
-	if _, err := AlinkToInternal(KindLogs, "", []byte(`{}`)); err == nil {
+	if _, err := AlinkToInternal(KindStatus, "", []byte(`{}`)); err == nil {
 		t.Error("unsupported kind must fail")
 	}
+}
+
+func TestAlinkToInternalLogs(t *testing.T) {
+	got, err := AlinkToInternal(KindLogs, "", []byte(
+		`{"id":"1","version":"1.0","method":"thing.log.post","sys":{"ack":0},"params":[`+
+			`{"utcTime":"2024-01-02T03:04:05.678Z","logLevel":"ERROR","module":"wifi","code":"E_TIMEOUT",`+
+			`"traceContext":"trace-42","logContent":"Read timeout"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, got, `[{"ts":1704164645678,"level":"ERROR","module":"wifi","code":"E_TIMEOUT","message":"Read timeout","context":{"traceContext":"trace-42"}}]`)
+
+	// epoch-milliseconds utcTime, no trace context
+	got, err = AlinkToInternal(KindLogs, "", []byte(
+		`{"params":[{"utcTime":1700000000000,"logLevel":"INFO","module":"wifi","logContent":"Connected to AP"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, got, `[{"ts":1700000000000,"level":"INFO","module":"wifi","code":"","message":"Connected to AP"}]`)
+
+	// unparsable utcTime -> ts 0, the ingest stamps server time
+	got, err = AlinkToInternal(KindLogs, "", []byte(
+		`{"params":[{"utcTime":"yesterday","logLevel":"WARN","module":"m","logContent":"hm"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, got, `[{"ts":0,"level":"WARN","module":"m","code":"","message":"hm"}]`)
+
+	// empty batch is accepted
+	got, err = AlinkToInternal(KindLogs, "", []byte(`{"params":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSON(t, got, `[]`)
 }
 
 func TestAlinkDownlinkRPC(t *testing.T) {

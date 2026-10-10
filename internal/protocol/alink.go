@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"cogitor-iot-platform/internal/models"
 )
@@ -139,6 +140,9 @@ func AlinkParseTopic(topic string) (AlinkTopic, bool) {
 		case "thing/ota/firmware/get":
 			at.Kind = KindOTAQuery
 			return at, true
+		case "thing/log/post":
+			at.Kind = KindLogs
+			return at, true
 		case "thing/service/property/set_reply":
 			at.Kind, at.Aux = KindRPCResponse, "property/set"
 			return at, true
@@ -216,6 +220,8 @@ func AlinkToInternal(kind, aux string, payload []byte) ([]byte, error) {
 		return alinkOTAVersionToInternal(payload)
 	case KindOTAProgress:
 		return alinkOTAProgressToInternal(payload)
+	case KindLogs:
+		return alinkLogPostToInternal(payload)
 	default:
 		return nil, fmt.Errorf("alink: unsupported uplink kind %q", kind)
 	}
@@ -427,6 +433,56 @@ func alinkOTAProgressToInternal(payload []byte) ([]byte, error) {
 	}
 	step, _ := alinkInt(env.Params.Step)
 	return json.Marshal(map[string]any{"module": env.Params.Module, "step": step, "desc": env.Params.Desc})
+}
+
+// alinkLogPostToInternal translates a thing/log/post batch into the internal
+// log item array. utcTime is epoch milliseconds or an ISO-8601 UTC string;
+// unparsable times stay 0 and the ingest stamps server time.
+func alinkLogPostToInternal(payload []byte) ([]byte, error) {
+	var env struct {
+		Params []struct {
+			UTCTime      json.RawMessage `json:"utcTime"`
+			LogLevel     string          `json:"logLevel"`
+			Module       string          `json:"module"`
+			Code         string          `json:"code"`
+			TraceContext string          `json:"traceContext"`
+			LogContent   string          `json:"logContent"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(env.Params))
+	for _, it := range env.Params {
+		item := map[string]any{
+			"ts":      alinkLogTime(it.UTCTime),
+			"level":   it.LogLevel,
+			"module":  it.Module,
+			"code":    it.Code,
+			"message": it.LogContent,
+		}
+		if it.TraceContext != "" {
+			item["context"] = map[string]any{"traceContext": it.TraceContext}
+		}
+		out = append(out, item)
+	}
+	return json.Marshal(out)
+}
+
+// alinkLogTime accepts epoch milliseconds or an RFC 3339 UTC string such as
+// the alink utcTime 2024-01-02T03:04:05.678Z.
+func alinkLogTime(raw json.RawMessage) int64 {
+	if ms, ok := alinkInt(raw); ok {
+		return ms
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0
+	}
+	if t, err := time.Parse(time.RFC3339, strings.TrimSpace(s)); err == nil {
+		return t.UnixMilli()
+	}
+	return 0
 }
 
 // AlinkDownlink translates an internal downlink into the alink topic and

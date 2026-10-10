@@ -115,6 +115,7 @@ Topics:
 | `/sys/{pk}/{dn}/thing/service/property/set_reply` | ↑ | Reply to property/set |
 | `/sys/{pk}/{dn}/thing/service/{method}/_reply` | ↑ | RPC reply |
 | `/sys/{pk}/{dn}/thing/ota/firmware/get` | ↑ | OTA query (pull) |
+| `/sys/{pk}/{dn}/thing/log/post` | ↑ | Device logs |
 | `/ota/device/inform/{pk}/{dn}` | ↑ | Firmware version |
 | `/ota/device/progress/{pk}/{dn}` | ↑ | OTA progress |
 | `/ext/ntp/{pk}/{dn}/request` | ↑ | Time request (NTP) |
@@ -148,7 +149,12 @@ OTA command (`code: "1000"` — update, `"-1"` — cancel):
 {"code": "1000", "data": {"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288}}
 ```
 
-Not available in the alink style: LWT status, reported-attribute report, device-to-platform RPC, logs. Telemetry, events, desired attributes, NTP, and OTA work as in the native style.
+Logs — a batch of up to 40 entries; `utcTime` is epoch-ms or an ISO string `yyyy-MM-ddTHH:mm:ss.SSSZ`, `traceContext` is optional:
+```json
+{"id": "1", "version": "1.0", "method": "thing.log.post", "params": [{"utcTime": "2024-01-02T03:04:05.678Z", "logLevel": "ERROR", "module": "wifi", "code": "E_TIMEOUT", "traceContext": "trace-42", "logContent": "Read timeout"}]}
+```
+
+Not available in the alink style: LWT status, reported-attribute report, device-to-platform RPC. Telemetry, events, logs, desired attributes, NTP, and OTA work as in the native style.
 
 ### ThingsBoard dialect
 
