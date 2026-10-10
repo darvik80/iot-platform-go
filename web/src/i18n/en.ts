@@ -144,6 +144,7 @@ export const en: Record<string, string> = {
   'products.noProducts': 'No products',
   'products.deleteConfirm': 'Delete product #{id}?',
   'products.deleteTitle': 'Delete this product and all its devices',
+  'products.topicStyleDefault': 'Topic style default',
 
   // ── Devices ─────────────────────────────────────────────────────────
   'devices.title': 'Devices',

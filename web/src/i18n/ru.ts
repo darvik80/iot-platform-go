@@ -144,6 +144,7 @@ export const ru: Record<string, string> = {
   'products.noProducts': 'Нет продуктов',
   'products.deleteConfirm': 'Удалить продукт #{id}?',
   'products.deleteTitle': 'Удалить этот продукт и все его устройства',
+  'products.topicStyleDefault': 'Стиль топиков по умолчанию',
 
   // ── Устройства ──────────────────────────────────────────────────────
   'devices.title': 'Устройства',
