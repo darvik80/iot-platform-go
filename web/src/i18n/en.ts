@@ -91,6 +91,7 @@ export const en: Record<string, string> = {
   'invite.createFor': 'Create an account for {email}:',
   'invite.passwordHint': 'At least 8 characters, must contain letters and digits',
   'invite.back': 'Back',
+  'invite.accountExists': 'An account with this email already exists. Please sign in to accept the invitation.',
 
   // ── Overview ────────────────────────────────────────────────────────
   'overview.title': 'Overview',

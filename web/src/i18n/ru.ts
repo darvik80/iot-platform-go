@@ -91,6 +91,7 @@ export const ru: Record<string, string> = {
   'invite.createFor': 'Создать аккаунт для {email}:',
   'invite.passwordHint': 'Минимум 8 символов, буквы и цифры',
   'invite.back': 'Назад',
+  'invite.accountExists': 'Аккаунт с таким email уже существует. Войдите, чтобы принять приглашение.',
 
   // ── Обзор ───────────────────────────────────────────────────────────
   'overview.title': 'Обзор',
