@@ -217,13 +217,15 @@ username  = {product_id}.{device_id}
 password  = <access_token>
 ```
 
+> This is the native protocol. For firmware built against Alibaba Cloud (Alink) or ThingsBoard, pick the matching **topic style** when creating the device — the CONNECT parameters and topics differ (see [docs/en/04-mqtt.md](docs/en/04-mqtt.md)).
+
 ### Step 4 — Device Online
 
 Once the device connects:
 - It appears as **online** in the dashboard (green badge)
 - Telemetry starts flowing to the device detail page
 - Auto-OTA pushes the latest firmware if versions differ (when enabled)
-- The platform auto-detects the topic style (full `iot/v1/...` vs short `v1/me/...`)
+- The platform auto-detects the topic style (full `iot/v1/...` vs short `v1/me/...`); the alink/ThingsBoard dialects are chosen explicitly at device creation
 
 ### Token Rotation
 
@@ -632,6 +634,15 @@ New devices default to `short`; the style is **auto-detected** from the device's
 |--------|-------|
 | `iot/v1/{product}/{device}/…` | Full |
 | `v1/me/…` or `v1/me/t`, `v1/me/r/req`, … | Short |
+
+On top of the native styles the platform supports two **dialects** for off-the-shelf firmware — chosen explicitly at device creation (or via the product's *Topic style default*), never auto-detected:
+
+| Dialect | Compatibility | Authentication |
+|---------|---------------|----------------|
+| `alink` | Alibaba Cloud IoT (Alink) | deviceSecret + HMAC signature |
+| `thingsboard` | ThingsBoard MQTT Device API | access token as username, no password |
+
+Topics and payload formats of both dialects — [docs/en/04-mqtt.md](docs/en/04-mqtt.md).
 
 ### Key Topics (Short and Full Style)
 

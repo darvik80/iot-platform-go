@@ -14,10 +14,6 @@ import (
 	"cogitor-iot-platform/internal/protocol"
 )
 
-func DeviceMQTTUsername(productID, deviceID string) string {
-	return productID + "." + deviceID
-}
-
 func slugifyID(s string) string {
 	s = strings.TrimSpace(strings.ToLower(s))
 	var b strings.Builder
@@ -53,6 +49,7 @@ type DeviceInput struct {
 	Description string   `json:"description"`
 	Tags        []string `json:"tags"`
 	TopicStyle  string   `json:"topic_style"`
+	AlinkSecret string   `json:"alink_secret"`
 	AutoOTA     *bool    `json:"auto_ota"`
 }
 
@@ -166,29 +163,61 @@ func (p *Platform) CreateDevice(accountID int64, in DeviceInput) (*models.Device
 	if in.Name == "" {
 		in.Name = in.DeviceID
 	}
-	token, err := auth.GenerateAccessToken()
-	if err != nil {
-		return nil, nil, err
+	style := in.TopicStyle
+	if style == "" {
+		style = pr.TopicStyleDefault
 	}
-	hash := auth.HashToken(token)
-	prefix := auth.TokenPrefix(token)
+	if !protocol.ValidStyle(style) {
+		return nil, nil, fmt.Errorf("invalid topic_style %q", style)
+	}
 
 	now := db.NowMS()
-	res, err := p.DB.Exec(`INSERT INTO devices(product_pk, device_id, name, description, tags, access_token_hash, token_prefix, status, topic_style, enabled, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`,
-		pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", protocol.StyleShort, now, now)
+	var credential string
+	usesSecret := protocol.DialectFor(style).UsesSecret()
+	if usesSecret {
+		// one credential per device: secret-carrying dialects have no
+		// access token; the raw secret is stored because auth needs it
+		credential = strings.TrimSpace(in.AlinkSecret)
+		if credential == "" {
+			credential, err = auth.GenerateAccessToken()
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	} else {
+		credential, err = auth.GenerateAccessToken()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	var res sql.Result
+	var hash, prefix string
+	if usesSecret {
+		res, err = p.DB.Exec(`INSERT INTO devices(product_pk, device_id, name, description, tags, status, topic_style, alink_secret, enabled, created_at, updated_at)
+			VALUES(?,?,?,?,?,?,'alink',?,1,?,?)`,
+			pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), "offline", credential, now, now)
+	} else {
+		hash = auth.HashToken(credential)
+		prefix = auth.TokenPrefix(credential)
+		res, err = p.DB.Exec(`INSERT INTO devices(product_pk, device_id, name, description, tags, access_token_hash, token_prefix, status, topic_style, enabled, created_at, updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,1,?,?)`,
+			pr.ID, in.DeviceID, in.Name, in.Description, tagsJSON(in.Tags), hash, prefix, "offline", style, now, now)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	id, _ := res.LastInsertId()
-	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
-		id, pr.AccountID, hash, prefix, now)
+	if !usesSecret {
+		_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
+			id, pr.AccountID, hash, prefix, now)
+	}
 	_ = p.ReloadDeviceMaps()
 	d, err := p.GetDevice(id)
 	if err != nil {
 		return nil, nil, err
 	}
-	creds := p.deviceCreds(in.ProductID, in.DeviceID, token, "auto")
+	creds := p.deviceCreds(in.ProductID, in.DeviceID, credential, style)
 	if p.Log != nil {
 		p.Log.Info("device created", "product", in.ProductID, "device", in.DeviceID, "mqtt_user", creds.Username, "token_prefix", prefix)
 	}
@@ -200,28 +229,40 @@ func (p *Platform) RotateDeviceToken(id int64) (*models.DeviceCredentials, error
 	if err != nil {
 		return nil, err
 	}
-	token, err := auth.GenerateAccessToken()
-	if err != nil {
-		return nil, err
-	}
-	hash := auth.HashToken(token)
-	prefix := auth.TokenPrefix(token)
 	now := db.NowMS()
-	_, _ = p.DB.Exec(`UPDATE device_credentials SET revoked_at=? WHERE device_pk=? AND revoked_at IS NULL`, now, id)
-	_, err = p.DB.Exec(`UPDATE devices SET access_token_hash=?, token_prefix=?, updated_at=? WHERE id=?`, hash, prefix, now, id)
+	credential, err := auth.GenerateAccessToken()
 	if err != nil {
 		return nil, err
 	}
-	_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`, id, d.AccountID, hash, prefix, now)
-	_ = p.ReloadDeviceMaps()
-	user := DeviceMQTTUsername(d.ProductID, d.DeviceID)
+	dl := protocol.DialectFor(d.TopicStyle)
+	// Drop live sessions before the credential changes: DropDevice resolves
+	// sessions through the in-memory maps, which still hold the old token.
 	if p.MQTT != nil {
-		p.MQTT.DropUsername(user)
+		p.MQTT.DropDevice(id)
 	}
+	if dl.UsesSecret() {
+		if _, err := p.DB.Exec(`UPDATE devices SET alink_secret=?, updated_at=? WHERE id=?`, credential, now, id); err != nil {
+			return nil, err
+		}
+	} else {
+		hash := auth.HashToken(credential)
+		prefix := auth.TokenPrefix(credential)
+		_, _ = p.DB.Exec(`UPDATE device_credentials SET revoked_at=? WHERE device_pk=? AND revoked_at IS NULL`, now, id)
+		_, err = p.DB.Exec(`UPDATE devices SET access_token_hash=?, token_prefix=?, updated_at=? WHERE id=?`, hash, prefix, now, id)
+		if err != nil {
+			return nil, err
+		}
+		_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`, id, d.AccountID, hash, prefix, now)
+	}
+	_ = p.ReloadDeviceMaps()
 	if p.Log != nil {
-		p.Log.Info("device token rotated", "product", d.ProductID, "device", d.DeviceID, "mqtt_user", user, "token_prefix", prefix)
+		args := []any{"product", d.ProductID, "device", d.DeviceID, "style", d.TopicStyle}
+		if !dl.UsesSecret() {
+			args = append(args, "token_prefix", auth.TokenPrefix(credential))
+		}
+		p.Log.Info("device credential rotated", args...)
 	}
-	return p.deviceCreds(d.ProductID, d.DeviceID, token, d.TopicStyle), nil
+	return p.deviceCreds(d.ProductID, d.DeviceID, credential, d.TopicStyle), nil
 }
 
 func (p *Platform) UpdateDevice(id int64, in DeviceInput) (*models.Device, error) {
@@ -239,6 +280,21 @@ func (p *Platform) UpdateDevice(id int64, in DeviceInput) (*models.Device, error
 	if in.AutoOTA != nil {
 		d.AutoOTA = *in.AutoOTA
 	}
+	styleChanged := false
+	if in.TopicStyle != "" && in.TopicStyle != d.TopicStyle {
+		if !protocol.ValidStyle(in.TopicStyle) {
+			return nil, fmt.Errorf("invalid topic_style %q", in.TopicStyle)
+		}
+		styleChanged = true
+	}
+	secret := strings.TrimSpace(in.AlinkSecret)
+	newStyle := d.TopicStyle
+	if styleChanged {
+		newStyle = in.TopicStyle
+		if protocol.DialectFor(newStyle).UsesSecret() && secret == "" && d.AlinkSecret == "" {
+			return nil, errors.New("alink_secret required when switching topic_style to alink (or rotate after the switch)")
+		}
+	}
 	autoOTA := 0
 	if d.AutoOTA {
 		autoOTA = 1
@@ -248,36 +304,60 @@ func (p *Platform) UpdateDevice(id int64, in DeviceInput) (*models.Device, error
 	if err != nil {
 		return nil, err
 	}
+	if styleChanged {
+		// drop the old style's sessions — switching back requires a fresh
+		// rotate, no silent credential resurrection. Dropping before the
+		// UPDATE keeps the old usernames/token resolvable.
+		if p.MQTT != nil {
+			p.MQTT.DropDevice(id)
+		}
+		if protocol.DialectFor(newStyle).UsesSecret() {
+			_, _ = p.DB.Exec(`UPDATE devices SET topic_style=?, access_token_hash=NULL, token_prefix='', updated_at=? WHERE id=?`, newStyle, db.NowMS(), id)
+			now := db.NowMS()
+			_, _ = p.DB.Exec(`UPDATE device_credentials SET revoked_at=? WHERE device_pk=? AND revoked_at IS NULL`, now, id)
+		} else {
+			_, _ = p.DB.Exec(`UPDATE devices SET topic_style=?, alink_secret=NULL, updated_at=? WHERE id=?`, newStyle, db.NowMS(), id)
+		}
+	}
+	if protocol.DialectFor(newStyle).UsesSecret() && secret != "" {
+		_, err = p.DB.Exec(`UPDATE devices SET alink_secret=?, updated_at=? WHERE id=?`, secret, db.NowMS(), id)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if styleChanged || secret != "" {
+		_ = p.ReloadDeviceMaps()
+	}
 	return p.GetDevice(id)
 }
 
 func (p *Platform) SetDeviceEnabled(id int64, enabled bool) error {
-	d, err := p.GetDevice(id)
-	if err != nil {
+	if _, err := p.GetDevice(id); err != nil {
 		return err
 	}
 	v := 0
 	if enabled {
 		v = 1
 	}
-	_, err = p.DB.Exec(`UPDATE devices SET enabled=?, updated_at=? WHERE id=?`, v, db.NowMS(), id)
+	// Dropping before the UPDATE keeps the device resolvable: a disabled
+	// device is removed from the credential maps on reload.
+	if !enabled && p.MQTT != nil {
+		p.MQTT.DropDevice(id)
+	}
+	_, err := p.DB.Exec(`UPDATE devices SET enabled=?, updated_at=? WHERE id=?`, v, db.NowMS(), id)
 	if err != nil {
 		return err
 	}
 	_ = p.ReloadDeviceMaps()
-	if !enabled && p.MQTT != nil {
-		p.MQTT.DropUsername(DeviceMQTTUsername(d.ProductID, d.DeviceID))
-	}
 	return nil
 }
 
 func (p *Platform) DeleteDevice(id int64) error {
-	d, err := p.GetDevice(id)
-	if err != nil {
+	if _, err := p.GetDevice(id); err != nil {
 		return err
 	}
 	if p.MQTT != nil {
-		p.MQTT.DropUsername(DeviceMQTTUsername(d.ProductID, d.DeviceID))
+		p.MQTT.DropDevice(id)
 	}
 	res, err := p.DB.Exec(`DELETE FROM devices WHERE id=?`, id)
 	if err != nil {
@@ -292,7 +372,6 @@ func (p *Platform) DeleteDevice(id int64) error {
 }
 
 func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models.DeviceCredentials {
-	user := DeviceMQTTUsername(productID, deviceID)
 	host := p.Cfg.Platform.BrokerHostPublic
 	port := p.Cfg.MQTT.PublicPort()
 	wsURL := p.Cfg.MQTT.WSPublicURL(host)
@@ -301,18 +380,15 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 	if tlsEnabled {
 		port = p.Cfg.MQTT.TLSPublicPort()
 	}
-	return &models.DeviceCredentials{
+	c := &models.DeviceCredentials{
 		ProductID:    productID,
 		DeviceID:     deviceID,
 		AccessToken:  token,
-		Username:     user,
-		ClientID:     user,
 		BrokerHost:   host,
 		BrokerPort:   port,
 		BrokerWSURL:  wsURL,
 		BrokerWSPort: wsPort,
 		TopicStyle:   style,
-		Snippet:      snippet(productID, deviceID, host, token),
 		Provision: &models.DeviceProvision{
 			WiFi: models.DeviceProvisionWiFi{},
 			Cogitor: models.DeviceProvisionCogitor{
@@ -324,10 +400,19 @@ func (p *Platform) deviceCreds(productID, deviceID, token, style string) *models
 				WSPort:     wsPort,
 				Token:      token,
 				TLS:        tlsEnabled,
-				TopicShort: style != protocol.StyleFull,
+				TopicShort: style == protocol.StyleShort,
 			},
 		},
 	}
+	dl := protocol.DialectFor(style)
+	user := dl.CredsUsername(productID, deviceID, token)
+	c.Username = user
+	c.ClientID = user
+	if dl.UsesSecret() {
+		c.DeviceSecret = token
+	}
+	c.Snippet = dl.Snippet(productID, deviceID, host, token)
+	return c
 }
 
 func (p *Platform) MarkOnline(d *models.Device) {
@@ -390,6 +475,23 @@ func (p *Platform) MQTTClientByUser(username string) *models.MQTTClient {
 	st := p.MQTTStatus()
 	for i := range st.Clients {
 		if st.Clients[i].Username == username || st.Clients[i].ClientID == username {
+			c := st.Clients[i]
+			return &c
+		}
+	}
+	return nil
+}
+
+// MQTTClientByTokenPrefix finds a live session whose username starts with the
+// access-token prefix. ThingsBoard sessions connect with the raw token as the
+// username; the token itself is never stored in plaintext.
+func (p *Platform) MQTTClientByTokenPrefix(prefix string) *models.MQTTClient {
+	if prefix == "" {
+		return nil
+	}
+	st := p.MQTTStatus()
+	for i := range st.Clients {
+		if strings.HasPrefix(st.Clients[i].Username, prefix) {
 			c := st.Clients[i]
 			return &c
 		}

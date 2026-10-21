@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	StyleFull  = "full"
-	StyleShort = "short"
+	StyleFull        = "full"
+	StyleShort       = "short"
+	StyleAlink       = "alink"
+	StyleThingsBoard = "thingsboard"
 )
 
 const (
@@ -30,6 +32,8 @@ const (
 	KindEvent       = "event"
 	KindAttrReport  = "attributes/report"
 	KindAttrRequest = "attributes/request"
+	KindAttrGet     = "attributes/get"
+	KindAttrDelete  = "attributes/delete"
 	KindRPCResponse = "rpc/response"
 	KindRPCRequest  = "rpc/request"
 	KindNTPRequest  = "ntp/request"
@@ -78,10 +82,12 @@ const (
 	CapNTP        = "ntp"
 	CapOTA        = "ota"
 
-	OpResponse = "response"
-	OpUpdate   = "update"
-	OpRequest  = "request"
-	OpCancel   = "cancel"
+	OpResponse    = "response"
+	OpUpdate      = "update"
+	OpRequest     = "request"
+	OpCancel      = "cancel"
+	OpGetReply    = "get-reply"
+	OpDeleteReply = "delete-reply"
 )
 
 const (
@@ -111,24 +117,6 @@ const (
 )
 
 var mePrefixes = []string{"devices/me/", "dev/me/", "me/"}
-
-func ValidStyle(s string) bool {
-	return s == StyleFull || s == StyleShort
-}
-
-func DetectStyle(topic string) string {
-	t := strings.TrimSpace(topic)
-	if t == "" || strings.HasPrefix(t, "$") {
-		return ""
-	}
-	if strings.HasPrefix(t, PrefixFull) {
-		return StyleFull
-	}
-	if strings.HasPrefix(t, PrefixShort) {
-		return StyleShort
-	}
-	return ""
-}
 
 func UnwrapMe(capOp string) string {
 	for _, p := range mePrefixes {

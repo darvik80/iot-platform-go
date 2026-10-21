@@ -304,10 +304,71 @@ func filterMatches(filter, topic string) bool {
 	return len(fp) == len(tp)
 }
 
-// DropUsername disconnects every session authenticated as username
-// (token rotate / disable / delete).
-func (b *Broker) DropUsername(username string) {
-	if b.server == nil || username == "" {
+// sessionIsDevice reports whether user authenticates as the given device:
+// the username is a dialect username (product.device) or a raw access token.
+func (b *Broker) sessionIsDevice(user string, devicePK int64) bool {
+	if user == "" || strings.HasPrefix(user, "extplg_") {
+		return false
+	}
+	if d := b.plat.ResolveByClientID(user); d != nil {
+		return d.ID == devicePK
+	}
+	if d := b.plat.ResolveByToken(user); d != nil {
+		return d.ID == devicePK
+	}
+	return false
+}
+
+// PublishToDevice delivers a publish only to sessions of one device,
+// resolved through the credential maps. Used for dialects whose downlink
+// topics are shared by every device and whose username is the credential
+// itself (ThingsBoard), so neither the topic tree nor a static username can
+// address them.
+func (b *Broker) PublishToDevice(devicePK int64, topic string, qos byte, payload []byte) error {
+	if b.server == nil {
+		return fmt.Errorf("mqtt broker not started")
+	}
+	delivered := 0
+	for _, cl := range b.server.Clients.GetAll() {
+		user := string(cl.Properties.Username)
+		if cl.Net.Inline || !b.sessionIsDevice(user, devicePK) {
+			continue
+		}
+		subQos, ok := matchingSubscription(cl, topic)
+		if !ok {
+			continue
+		}
+		out := packets.Packet{
+			FixedHeader: packets.FixedHeader{Type: packets.Publish, Qos: min(qos, subQos)},
+			TopicName:   topic,
+			Payload:     append([]byte(nil), payload...),
+			Created:     time.Now().Unix(),
+		}
+		if out.FixedHeader.Qos > 0 {
+			id, err := cl.NextPacketID()
+			if err != nil {
+				continue
+			}
+			out.PacketID = uint16(id)
+			cl.State.Inflight.Set(out)
+		}
+		if cl.Closed() {
+			continue // queued in inflight for a persistent session
+		}
+		if err := cl.WritePacket(out); err != nil {
+			b.note("warn", "publish", cl.ID, user, cl.Net.Remote, topic, err.Error(), len(payload))
+			continue
+		}
+		delivered++
+	}
+	b.note("info", "publish", "inline", fmt.Sprintf("device:%d", devicePK), "", topic, fmt.Sprintf("direct to %d session(s)", delivered), len(payload))
+	return nil
+}
+
+// DropDevice disconnects every session of one device (token rotate /
+// disable / delete), across every username the device may authenticate as.
+func (b *Broker) DropDevice(devicePK int64) {
+	if b.server == nil {
 		return
 	}
 	n := 0
@@ -315,12 +376,12 @@ func (b *Broker) DropUsername(username string) {
 		if cl.Net.Inline {
 			continue
 		}
-		if string(cl.Properties.Username) == username {
+		if b.sessionIsDevice(string(cl.Properties.Username), devicePK) {
 			n++
 			_ = b.server.DisconnectClient(cl, packets.ErrNotAuthorized)
 		}
 	}
 	if n > 0 {
-		b.note("info", "kick", "", username, "", "", fmt.Sprintf("dropped %d session(s)", n), 0)
+		b.note("info", "kick", "", fmt.Sprintf("device:%d", devicePK), "", "", fmt.Sprintf("dropped %d session(s) for device %d", n, devicePK), 0)
 	}
 }

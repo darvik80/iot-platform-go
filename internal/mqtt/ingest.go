@@ -17,7 +17,7 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 		b.handleCommand(topic, payload, userID)
 		return
 	}
-	dev, capOp, err := b.resolve(topic, userID)
+	dev, kind, aux, err := b.resolve(topic, userID)
 	if err != nil || dev == nil {
 		msg := "unresolved"
 		if err != nil {
@@ -26,7 +26,12 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 		b.note("warn", "drop", "", userID, "", topic, msg, len(payload))
 		return
 	}
-	kind := protocol.NormalizeCapOp(capOp)
+	dl := protocol.DialectFor(dev.TopicStyle)
+	payload, err = dl.Uplink(kind, aux, payload)
+	if err != nil {
+		b.note("warn", "drop", "", userID, "", topic, "uplink: "+err.Error(), len(payload))
+		return
+	}
 	b.note("info", "ingest", "", userID, "", topic, kind, len(payload))
 	switch kind {
 	case protocol.KindStatus:
@@ -53,6 +58,14 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 		if err := json.Unmarshal(payload, &attrs); err == nil {
 			_ = b.plat.MergeReported(dev, attrs)
 		}
+	case protocol.KindAttrGet:
+		if err := b.plat.ReplyDesiredGet(dev, payload); err != nil {
+			b.note("warn", "desired_get_error", "", userID, "", topic, err.Error(), len(payload))
+		}
+	case protocol.KindAttrDelete:
+		if err := b.plat.DeleteDesired(dev, payload); err != nil {
+			b.note("warn", "desired_delete_error", "", userID, "", topic, err.Error(), len(payload))
+		}
 	case protocol.KindAttrRequest:
 		_ = b.plat.ReplyAttributeRequest(dev, payload)
 	case protocol.KindRPCResponse:
@@ -72,55 +85,37 @@ func (b *Broker) handle(topic string, payload []byte, userID string) {
 	case protocol.KindLogs:
 		_ = b.plat.StoreLogs(dev, payload)
 	default:
-		b.note("debug", "unhandled", "", userID, "", topic, capOp, len(payload))
+		b.note("debug", "unhandled", "", userID, "", topic, kind, len(payload))
 	}
 }
 
-func (b *Broker) resolve(topic, userID string) (*models.Device, string, error) {
-	parts := strings.Split(topic, "/")
-	if len(parts) >= 6 && strings.HasPrefix(topic, protocol.PrefixFull) && parts[4] == protocol.DirUp {
-		productID, deviceID := parts[2], parts[3]
-		capOp := strings.Join(parts[5:], "/")
-		// Identity comes from the authenticated session, not from the topic:
-		// product/device ids are only unique within an account.
-		d := b.plat.ResolveByClientID(userID)
-		if d == nil && userID != "" && !strings.HasPrefix(userID, "extplg_") {
+// resolve maps an uplink topic to the session's device and the internal
+// kind. Identity comes from the authenticated session, not from the topic:
+// product/device ids are only unique within an account. For dialects whose
+// topics encode identity it is still verified against the session.
+func (b *Broker) resolve(topic, userID string) (*models.Device, string, string, error) {
+	up, dl, ok := protocol.ParseUplinkTopic(topic)
+	if !ok {
+		return nil, "", "", fmt.Errorf("unknown topic shape")
+	}
+	var d *models.Device
+	if userID != "" && !strings.HasPrefix(userID, "extplg_") {
+		d = b.plat.ResolveByClientID(userID)
+		if d == nil {
 			d = b.plat.ResolveByToken(userID)
 		}
-		if d == nil || d.ProductID != productID || d.DeviceID != deviceID {
-			return nil, "", fmt.Errorf("topic does not belong to session %q", userID)
-		}
-		if !d.Enabled {
-			return nil, "", fmt.Errorf("disabled")
-		}
-		if d.Status != "online" {
-			b.plat.MarkOnline(d)
-		}
-		b.plat.ObserveTopicStyle(d, protocol.StyleFull)
-		return d, capOp, nil
 	}
-	if strings.HasPrefix(topic, protocol.PrefixShort) && len(parts) >= 2 {
-		capOp := strings.Join(parts[1:], "/")
-		var d *models.Device
-		if userID != "" && !strings.HasPrefix(userID, "extplg_") {
-			d = b.plat.ResolveByClientID(userID)
-			if d == nil {
-				d = b.plat.ResolveByToken(userID)
-			}
-		}
-		if d == nil {
-			return nil, "", fmt.Errorf("cannot resolve short-topic device (no username)")
-		}
-		if !d.Enabled {
-			return nil, "", fmt.Errorf("disabled")
-		}
-		if d.Status != "online" {
-			b.plat.MarkOnline(d)
-		}
-		b.plat.ObserveTopicStyle(d, protocol.StyleShort)
-		return d, capOp, nil
+	if d == nil || (up.ProductID != "" && (d.ProductID != up.ProductID || d.DeviceID != up.DeviceID)) {
+		return nil, "", "", fmt.Errorf("topic does not belong to session %q", userID)
 	}
-	return nil, "", fmt.Errorf("unknown topic shape")
+	if !d.Enabled {
+		return nil, "", "", fmt.Errorf("disabled")
+	}
+	if d.Status != "online" {
+		b.plat.MarkOnline(d)
+	}
+	b.plat.ObserveTopicStyle(d, dl.Name())
+	return d, up.Kind, up.Aux, nil
 }
 
 // handleCommand executes {prefix}/commands/{accountSlug}/{productID}/{deviceID}/{kind}

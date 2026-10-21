@@ -19,6 +19,7 @@ import (
 	"cogitor-iot-platform/internal/mcpbridge"
 	"cogitor-iot-platform/internal/models"
 	"cogitor-iot-platform/internal/plugins"
+	"cogitor-iot-platform/internal/protocol"
 	"cogitor-iot-platform/internal/services"
 	"cogitor-iot-platform/internal/ws"
 
@@ -117,8 +118,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/auth/google", s.googleStart)
 		r.Get("/auth/google/callback", s.googleCallback)
 
-		// Public invitation info (no auth required)
+		// Public invitation endpoints (no auth required)
 		r.Get("/invitations/{token}", s.getInvitationInfo)
+		r.Post("/invitations/{token}/register", s.limitByIP(s.registerViaInvitation))
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.authenticate)
@@ -657,7 +659,16 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 	latest, _ := s.Plat.LatestTelemetry(id)
 	events, _ := s.Plat.ListEvents(0, id, "", 0, 0, 20)
 	product, _ := s.Plat.GetProduct(d.ProductPK)
-	username := d.ProductID + "." + d.DeviceID
+	dl := protocol.DialectFor(d.TopicStyle)
+	username := dl.CredsUsername(d.ProductID, d.DeviceID, "")
+	note := dl.ConnectNote()
+	var session *models.MQTTClient
+	if username != "" {
+		session = s.Plat.MQTTClientByUser(username)
+	} else {
+		// ThingsBoard sessions connect with the raw token as the username.
+		session = s.Plat.MQTTClientByTokenPrefix(d.TokenPrefix)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"device": d, "product": product, "reported": reported, "desired": desired, "latest_telemetry": latest, "recent_events": events,
 		"connection": map[string]any{
@@ -669,8 +680,8 @@ func (s *Server) getDevice(w http.ResponseWriter, r *http.Request) {
 			"broker_ws_port": s.Plat.Cfg.MQTT.WSPublicPort(),
 			"topic_style":    d.TopicStyle,
 			"token_prefix":   d.TokenPrefix,
-			"note":           "MQTT username = product.device; password = access token (shown only at create/rotate). TCP :1883 or WebSocket MQTT_WS_ADDR (default :8083).",
-			"mqtt_session":   s.Plat.MQTTClientByUser(username),
+			"note":           note,
+			"mqtt_session":   session,
 		},
 	})
 }

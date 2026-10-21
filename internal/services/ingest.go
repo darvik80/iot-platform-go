@@ -365,6 +365,58 @@ func filterKeys(src map[string]any, keys []string) map[string]any {
 	return out
 }
 
+// ReplyDesiredGet answers an alink desired-get with the stored desired
+// attributes. Empty keys means "all".
+func (p *Platform) ReplyDesiredGet(d *models.Device, payload []byte) error {
+	var req struct {
+		ID   json.RawMessage `json:"id"`
+		Keys []string        `json:"keys"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return err
+	}
+	if len(req.Keys) == 0 {
+		req.Keys = []string{"*"}
+	}
+	_, desired, err := p.GetAttributes(d.ID)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(map[string]any{"id": echoID(req.ID), "desired": filterKeys(desired, req.Keys)})
+	if err != nil {
+		return err
+	}
+	if p.Pub == nil {
+		return errors.New("mqtt not connected")
+	}
+	return p.publishDown(d, protocol.CapAttributes, protocol.OpGetReply, b)
+}
+
+// DeleteDesired removes desired attributes an alink device asked to clear and
+// acknowledges with a delete reply.
+func (p *Platform) DeleteDesired(d *models.Device, payload []byte) error {
+	var req struct {
+		ID   json.RawMessage `json:"id"`
+		Keys []string        `json:"keys"`
+	}
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return err
+	}
+	for _, k := range req.Keys {
+		if _, err := p.DB.Exec(`DELETE FROM device_attributes_desired WHERE device_pk=? AND key=?`, d.ID, k); err != nil {
+			return err
+		}
+	}
+	b, err := json.Marshal(map[string]any{"id": echoID(req.ID)})
+	if err != nil {
+		return err
+	}
+	if p.Pub == nil {
+		return errors.New("mqtt not connected")
+	}
+	return p.publishDown(d, protocol.CapAttributes, protocol.OpDeleteReply, b)
+}
+
 type RPCRequest struct {
 	Method        string         `json:"method"`
 	Params        map[string]any `json:"params"`

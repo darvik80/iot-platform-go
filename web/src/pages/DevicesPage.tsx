@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
+import { DIALECT_IDS, dialectOf } from '../dialects';
 import { CredsModal } from '../components/CredsModal';
 import { StatusBadge } from '../components/StatusBadge';
 import { errorMsg, useToast } from '../components/Toast';
@@ -15,9 +16,10 @@ export function DevicesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ product_id: '', device_id: '', name: '' });
+  const [form, setForm] = useState({ product_id: '', device_id: '', name: '', topic_style: '', alink_secret: '' });
   const toast = useToast();
   const t = useT();
+  const formDialect = dialectOf(form.topic_style);
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +59,8 @@ export function DevicesPage() {
           product_id: form.product_id,
           device_id: form.device_id,
           name: form.name,
+          topic_style: form.topic_style,
+          ...(formDialect.credential === 'secret' ? { alink_secret: form.alink_secret.trim() } : {}),
         }),
       });
       setCreds(res.credentials);
@@ -82,7 +86,7 @@ export function DevicesPage() {
         <div className="panel">
           <h2 className="h6 text-uppercase muted">{t('devices.registerDevice')}</h2>
           <div className="row g-2">
-            <div className="col-md-3">
+            <div className="col-md-4">
               <select
                 className="form-select"
                 value={form.product_id}
@@ -95,12 +99,40 @@ export function DevicesPage() {
                 ))}
               </select>
             </div>
-            <div className="col-md-3">
+            <div className="col-md-4">
               <input className="form-control" placeholder="device_id" value={form.device_id} onChange={(e) => setForm({ ...form, device_id: e.target.value })} />
             </div>
             <div className="col-md-4">
               <input className="form-control" placeholder={t('common.displayName')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
+            <div className="col-md-4">
+              <select
+                className="form-select"
+                value={form.topic_style}
+                onChange={(e) => setForm({ ...form, topic_style: e.target.value })}
+                aria-label={t('devices.topicStyle')}
+              >
+                <option value="">{t('devices.styleProductDefault')}</option>
+                {DIALECT_IDS.map((s) => (
+                  <option key={s} value={s}>
+                    {t(dialectOf(s).labelKey)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {formDialect.credential === 'secret' && (
+              <div className="col-md-6">
+                <input
+                  className="form-control"
+                  placeholder={t('devices.alinkSecretPlaceholder')}
+                  value={form.alink_secret}
+                  onChange={(e) => setForm({ ...form, alink_secret: e.target.value })}
+                />
+              </div>
+            )}
+            {formDialect.hintKey && (
+              <p className="form-text small muted mb-0">{t(formDialect.hintKey)}</p>
+            )}
             <div className="col-md-2">
               <button type="button" className="btn btn-primary w-100" onClick={create}>
                 {t('common.create')}

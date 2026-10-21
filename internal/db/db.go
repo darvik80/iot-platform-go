@@ -356,10 +356,26 @@ func migrate(db *sql.DB, dialect Dialect) error {
 		if err != nil {
 			return err
 		}
+		raw := string(body)
+		// SQLite cannot ALTER a CHECK constraint; migrations that rebuild parent
+		// tables declare "PRAGMA foreign_keys=OFF" in the file. A PRAGMA executed
+		// inside a transaction is a silent no-op, so the engine applies it on the
+		// connection outside the tx and restores it afterwards.
+		needsFKOff := strings.Contains(raw, "PRAGMA foreign_keys=OFF")
+		if err := runMigration(db, dialect, name, adaptSQL(raw, dialect), needsFKOff); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-		// Adapt SQL for dialect
-		sql := adaptSQL(string(body), dialect)
-
+func runMigration(db *sql.DB, dialect Dialect, name, sql string, needsFKOff bool) error {
+	if needsFKOff && dialect == DialectSQLite {
+		if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+			return fmt.Errorf("migration %s: disable foreign keys: %w", name, err)
+		}
+	}
+	err := func() error {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -377,15 +393,20 @@ func migrate(db *sql.DB, dialect Dialect) error {
 			_ = tx.Rollback()
 			return err
 		}
-		if err := tx.Commit(); err != nil {
-			return err
+		return tx.Commit()
+	}()
+	if needsFKOff && dialect == DialectSQLite {
+		if _, ferr := db.Exec(`PRAGMA foreign_keys=ON`); ferr != nil && err == nil {
+			return fmt.Errorf("migration %s: re-enable foreign keys: %w", name, ferr)
 		}
 	}
-	return nil
+	return err
 }
 
 // adaptSQL converts migration SQL syntax for the target dialect.
+// Dialect blocks (-- sqlite:begin/end, -- pg:begin/end) are resolved first.
 func adaptSQL(sql string, dialect Dialect) string {
+	sql = applyDirectives(sql, dialect)
 	if dialect == DialectSQLite {
 		return sql
 	}
@@ -443,6 +464,40 @@ func convertInsertOrIgnore(sql string) string {
 		}
 	}
 	return result
+}
+
+// applyDirectives keeps only the blocks marked for the dialect: lines
+// between "-- sqlite:begin"/"-- sqlite:end" (or "-- pg:begin"/"-- pg:end")
+// are dropped for the other dialect. Content outside any block is shared.
+func applyDirectives(sql string, dialect Dialect) string {
+	want := "sqlite"
+	if dialect == DialectPostgres {
+		want = "pg"
+	}
+	var b strings.Builder
+	open := "" // dialect owning the current block; "" = shared
+	for _, line := range strings.Split(sql, "\n") {
+		switch strings.TrimSpace(line) {
+		case "-- sqlite:begin":
+			open = "sqlite"
+			continue
+		case "-- sqlite:end":
+			open = ""
+			continue
+		case "-- pg:begin":
+			open = "pg"
+			continue
+		case "-- pg:end":
+			open = ""
+			continue
+		}
+		if open != "" && open != want {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func NowMS() int64 { return time.Now().UnixMilli() }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { WIFI_STORAGE_KEY as WIFI_KEY } from '../api/client';
+import { dialectOf } from '../dialects';
 import type { DeviceCredentials } from '../types';
 import { useToast } from './Toast';
 
@@ -21,6 +22,10 @@ export function CredsModal({
 }) {
   const toast = useToast();
   const user = creds.username || creds.client_id;
+  const dialect = dialectOf(creds.topic_style);
+  const isSecret = dialect.credential === 'secret';
+  const isToken = dialect.credential === 'token';
+  const secret = creds.device_secret || creds.access_token;
   const [wifi, setWifi] = useState(loadWifi);
   const [copied, setCopied] = useState('');
 
@@ -41,7 +46,7 @@ export function CredsModal({
         ws_port: base?.ws_port ?? creds.broker_ws_port ?? undefined,
         token: base?.token || creds.access_token,
         tls: base?.tls ?? false,
-        topic_short: base?.topic_short ?? creds.topic_style !== 'full',
+        topic_short: base?.topic_short ?? dialect.shortTopics,
       },
     };
   }, [creds, wifi]);
@@ -87,8 +92,12 @@ export function CredsModal({
 
   const snippetText = useMemo(
     () =>
-      `broker:      mqtt://${creds.broker_host}:${creds.broker_port}\nwebsocket:  ${creds.broker_ws_url || '(off)'}\nclient_id:   ${creds.client_id}\nusername:    ${user}\npassword:    ${creds.access_token}\ntopics:      auto (v1/me/… or iot/v1/… — detected on connect)\n\n${creds.snippet || ''}`,
-    [creds, user],
+      isSecret
+        ? `broker:       mqtt://${creds.broker_host}:${creds.broker_port}\nproductKey:   ${creds.product_id}\ndeviceName:   ${creds.device_id}\ndeviceSecret: ${secret}\n\nFirmware derives username ${creds.device_id}&${creds.product_id}, client_id and\nthe HMAC-SHA256 password from the triple above (Alibaba Cloud Alink).\n\n${creds.snippet || ''}`
+        : isToken
+          ? `broker:      mqtt://${creds.broker_host}:${creds.broker_port}\nusername:    ${user} (access token)\npassword:    (none)\ntelemetry:   v1/devices/me/telemetry\nattributes: v1/devices/me/attributes\n\n${creds.snippet || ''}`
+          : `broker:      mqtt://${creds.broker_host}:${creds.broker_port}\nwebsocket:  ${creds.broker_ws_url || '(off)'}\nclient_id:   ${creds.client_id}\nusername:    ${user}\npassword:    ${creds.access_token}\ntopics:      auto (v1/me/… or iot/v1/… — detected on connect)\n\n${creds.snippet || ''}`,
+    [creds, user, isSecret, isToken, secret],
   );
 
   const download = () => {
@@ -111,11 +120,25 @@ export function CredsModal({
               <button type="button" className="btn-close btn-close-white" onClick={onClose} />
             </div>
             <div className="modal-body">
-              <p className="text-danger small mb-2">Shown once — copy now. Token cannot be retrieved later.</p>
-              <p className="muted small">
-                MQTT: <span className="mono">username = {'{product}.{device}'}</span>,{' '}
-                <span className="mono">password = access_token</span>
+              <p className="text-danger small mb-2">
+                {isSecret ? 'Shown once — copy now. deviceSecret cannot be retrieved later.' : 'Shown once — copy now. Token cannot be retrieved later.'}
               </p>
+              {isSecret ? (
+                <p className="muted small">
+                  Alink: <span className="mono">username = {'{device}&{product}'}</span> · password ={' '}
+                  <span className="mono">HMAC-SHA256(deviceSecret)</span> — computed by the firmware
+                </p>
+              ) : isToken ? (
+                <p className="muted small">
+                  ThingsBoard: <span className="mono">username = access token</span> ·{' '}
+                  <span className="mono">no password</span>
+                </p>
+              ) : (
+                <p className="muted small">
+                  MQTT: <span className="mono">username = {'{product}.{device}'}</span>,{' '}
+                  <span className="mono">password = access_token</span>
+                </p>
+              )}
 
               <div className="row g-2 mb-3">
                 <div className="col-md-6">
@@ -150,8 +173,8 @@ export function CredsModal({
                 <button type="button" className="btn btn-outline-secondary btn-sm" onClick={download}>
                   Download .json
                 </button>
-                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => void copy('token', creds.access_token)}>
-                  {copied === 'token' ? 'Copied token' : 'Copy token'}
+                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => void copy('token', secret)}>
+                  {copied === 'token' ? (isSecret ? 'Copied deviceSecret' : 'Copied token') : isSecret ? 'Copy deviceSecret' : 'Copy token'}
                 </button>
               </div>
 

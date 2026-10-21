@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
+import { DIALECT_IDS, dialectOf } from '../dialects';
 import { MethodEditor, PRESET_METRICS, isReservedMethodName } from '../components/MethodEditor';
 import { errorMsg, useToast } from '../components/Toast';
 import { useT } from '../i18n/I18nContext';
@@ -10,6 +11,7 @@ type Draft = {
   name: string;
   description: string;
   auto_ota: boolean;
+  topic_style_default: string;
   methods: ProductMethod[];
   metrics: ProductMetric[];
   attributes: ProductAttribute[];
@@ -41,6 +43,7 @@ export function ProductDetailPage() {
       name: pr.name,
       description: pr.description || '',
       auto_ota: !!pr.auto_ota,
+      topic_style_default: pr.topic_style_default || 'short',
       methods: pr.methods || [],
       metrics: pr.metrics || [],
       attributes: pr.attributes || [],
@@ -83,6 +86,7 @@ export function ProductDetailPage() {
             name: payload.name,
             description: payload.description,
             auto_ota: payload.auto_ota,
+            topic_style_default: payload.topic_style_default,
             methods: payload.methods,
             metrics: payload.metrics,
             attributes: payload.attributes,
@@ -104,7 +108,7 @@ export function ProductDetailPage() {
 
   if (!p || !draft) return <p className="muted">Loading…</p>;
 
-  const { name, description, auto_ota, methods, metrics, attributes } = draft;
+  const { name, description, auto_ota, topic_style_default, methods, metrics, attributes } = draft;
 
   return (
     <div>
@@ -152,13 +156,28 @@ export function ProductDetailPage() {
 
       <div className="panel">
         <div className="row g-2">
-          <div className="col-md-4">
+          <div className="col-md-3">
             <label className="form-label small muted">{t('common.name')}</label>
             <input className="form-control" value={name} onChange={(e) => patchDraft({ name: e.target.value })} />
           </div>
-          <div className="col-md-6">
+          <div className="col-md-4">
             <label className="form-label small muted">Description</label>
             <input className="form-control" value={description} onChange={(e) => patchDraft({ description: e.target.value })} />
+          </div>
+          <div className="col-md-3">
+            <label className="form-label small muted">{t('products.topicStyleDefault')}</label>
+            <select
+              className="form-select"
+              value={topic_style_default}
+              onChange={(e) => patchDraft({ topic_style_default: e.target.value })}
+              aria-label={t('products.topicStyleDefault')}
+            >
+              {DIALECT_IDS.map((s) => (
+                <option key={s} value={s}>
+                  {t(dialectOf(s).labelKey)}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="col-md-2 d-flex align-items-end">
             <div className="form-check mb-2">
