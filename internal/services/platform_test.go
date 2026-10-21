@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"cogitor-iot-platform/internal/protocol"
 )
 
 func TestValidateIDs(t *testing.T) {
@@ -137,7 +139,8 @@ func TestNullInt64(t *testing.T) {
 }
 
 func TestSnippet(t *testing.T) {
-	got := snippet("myProduct", "myDevice", "mqtt.example.com", "token123")
+	dl := protocol.DialectFor(protocol.StyleShort)
+	got := dl.Snippet("myProduct", "myDevice", "mqtt.example.com", "token123")
 	if got == "" {
 		t.Error("snippet should not be empty")
 	}

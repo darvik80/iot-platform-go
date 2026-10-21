@@ -1,9 +1,14 @@
 package db
 
 import (
+	"database/sql"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestConvertPlaceholders_SQLite(t *testing.T) {
@@ -148,10 +153,10 @@ func TestHasReturning(t *testing.T) {
 }
 
 func TestAdaptSQL_SQLite(t *testing.T) {
-	// SQLite should not modify the SQL
+	// SQLite must not transform SQL (directive parsing only re-joins lines)
 	input := "INSERT OR IGNORE INTO t VALUES (1); PRAGMA foreign_keys = ON;"
 	result := adaptSQL(input, DialectSQLite)
-	if result != input {
+	if strings.TrimRight(result, "\n") != input {
 		t.Errorf("SQLite should not modify SQL, got: %s", result)
 	}
 }
@@ -235,5 +240,216 @@ func TestNowMS(t *testing.T) {
 	expectedMin := time.Now().UnixMilli() - 60000
 	if now < expectedMin {
 		t.Errorf("NowMS() = %d, expected >= %d", now, expectedMin)
+	}
+}
+
+func TestApplyDirectives(t *testing.T) {
+	input := `-- shared comment
+CREATE TABLE t (id INTEGER);
+-- sqlite:begin
+PRAGMA foreign_keys=OFF;
+CREATE TABLE t2 (a INTEGER);
+-- sqlite:end
+-- pg:begin
+ALTER TABLE t ADD COLUMN b INTEGER;
+-- pg:end
+CREATE INDEX idx ON t(id);
+`
+	sqliteOut := applyDirectives(input, DialectSQLite)
+	if strings.Contains(sqliteOut, "ALTER TABLE t ADD COLUMN") {
+		t.Errorf("sqlite output must not contain pg block: %s", sqliteOut)
+	}
+	if !strings.Contains(sqliteOut, "PRAGMA foreign_keys=OFF") || !strings.Contains(sqliteOut, "CREATE TABLE t2") {
+		t.Errorf("sqlite output must keep sqlite block: %s", sqliteOut)
+	}
+	if !strings.Contains(sqliteOut, "CREATE TABLE t (id INTEGER)") || !strings.Contains(sqliteOut, "CREATE INDEX idx") {
+		t.Errorf("sqlite output must keep shared content: %s", sqliteOut)
+	}
+
+	pgOut := applyDirectives(input, DialectPostgres)
+	if strings.Contains(pgOut, "PRAGMA") || strings.Contains(pgOut, "CREATE TABLE t2") {
+		t.Errorf("pg output must not contain sqlite block: %s", pgOut)
+	}
+	if !strings.Contains(pgOut, "ALTER TABLE t ADD COLUMN") {
+		t.Errorf("pg output must keep pg block: %s", pgOut)
+	}
+}
+
+// TestMigrateAlinkRebuild verifies 002_alink on SQLite: pre-existing rows
+// survive the devices/products table rebuild, the CHECK accepts 'alink',
+// alink_secret exists, indexes are recreated, and foreign keys are
+// re-enabled afterwards.
+func TestMigrateAlinkRebuild(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rebuild.db")
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", filepath.ToSlash(path))
+	raw, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	raw.SetMaxOpenConns(1)
+
+	// Apply 001 only, then insert data the rebuild must preserve.
+	body001, err := migrationFS.ReadFile("migrations/001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(adaptSQL(string(body001), DialectSQLite)); err != nil {
+		t.Fatalf("apply 001: %v", err)
+	}
+	now := NowMS()
+	if _, err := raw.Exec(`INSERT INTO accounts(id, slug, name, status, created_at, updated_at) VALUES(1,'acc','acc','active',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO products(id, account_id, product_id, name, topic_style_default, created_at, updated_at) VALUES(1,1,'pk1','p1','full',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO devices(id, product_pk, device_id, name, topic_style, fw_version, status, created_at, updated_at) VALUES(1,1,'dev1','d1','short','1.0.0','online',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, ts, ingested_at) VALUES(1,1,'temp',21.5,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run pending migrations (002) with data present.
+	if err := migrate(raw, DialectSQLite); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var fw, style, status string
+	var lastSeen sql.NullInt64
+	if err := raw.QueryRow(`SELECT fw_version, topic_style, status, last_seen_at FROM devices WHERE id=1`).Scan(&fw, &style, &status, &lastSeen); err != nil {
+		t.Fatalf("device row lost after rebuild: %v", err)
+	}
+	if fw != "1.0.0" || style != "short" || status != "online" || lastSeen.Valid {
+		t.Errorf("device row mutated: fw=%q style=%q status=%q last_seen=%+v", fw, style, status, lastSeen)
+	}
+	var n int
+	if err := raw.QueryRow(`SELECT COUNT(1) FROM telemetry_samples WHERE device_pk=1`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("telemetry rows after rebuild: n=%d err=%v", n, err)
+	}
+
+	// New columns and CHECK values.
+	if _, err := raw.Exec(`UPDATE devices SET topic_style='alink', alink_secret='sec' WHERE id=1`); err != nil {
+		t.Errorf("alink style/secret rejected: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE products SET topic_style_default='alink' WHERE id=1`); err != nil {
+		t.Errorf("products alink default rejected: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE devices SET topic_style='bogus' WHERE id=1`); err == nil {
+		t.Error("bogus topic_style accepted")
+	}
+
+	// Indexes recreated by the rebuild.
+	for _, idx := range []string{"idx_devices_status", "idx_devices_token_prefix", "idx_products_account"} {
+		if err := raw.QueryRow(`SELECT COUNT(1) FROM sqlite_master WHERE type='index' AND name=?`, idx).Scan(&n); err != nil || n != 1 {
+			t.Errorf("index %s missing after rebuild (n=%d err=%v)", idx, n, err)
+		}
+	}
+
+	// Foreign keys re-enabled: child insert with bogus parent must fail.
+	if _, err := raw.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, ts, ingested_at) VALUES(999,1,'x',1,?,?)`, now, now); err == nil {
+		t.Error("FK not enforced after migration (foreign_keys not restored)")
+	}
+}
+
+// TestMigrateFreshAlink verifies a fresh database (001+002 together) accepts
+// the alink dialect end-to-end.
+func TestMigrateFreshAlink(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fresh.db")
+	database, err := Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	now := NowMS()
+	if _, err := database.Exec(`INSERT INTO accounts(id, slug, name, status, created_at, updated_at) VALUES(1,'acc','acc','active',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`INSERT INTO products(account_id, product_id, name, topic_style_default, created_at, updated_at) VALUES(1,'pk1','p1','alink',?,?)`, now, now); err != nil {
+		t.Fatalf("fresh install must accept topic_style_default='alink': %v", err)
+	}
+	res, err := database.Exec(`INSERT INTO devices(product_pk, device_id, topic_style, alink_secret, created_at, updated_at) VALUES(1,'dev1','alink','s3cr3t',?,?)`, now, now)
+	if err != nil {
+		t.Fatalf("fresh install must accept topic_style='alink': %v", err)
+	}
+	if _, err := res.LastInsertId(); err != nil {
+		t.Errorf("LastInsertId after rebuild: %v", err)
+	}
+	var secret string
+	if err := database.QueryRow(`SELECT alink_secret FROM devices WHERE product_pk=1 AND device_id='dev1'`).Scan(&secret); err != nil || secret != "s3cr3t" {
+		t.Errorf("alink_secret roundtrip: %q err=%v", secret, err)
+	}
+}
+
+// TestMigrateThingsBoardRebuild verifies 003_thingsboard on SQLite: rows
+// survive the devices/products rebuild (after 002 already ran), the CHECK
+// accepts 'thingsboard', and foreign keys are re-enabled afterwards.
+func TestMigrateThingsBoardRebuild(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rebuild.db")
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", filepath.ToSlash(path))
+	raw, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	raw.SetMaxOpenConns(1)
+
+	// Apply 001 only, then insert data both rebuilds must preserve.
+	body001, err := migrationFS.ReadFile("migrations/001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(adaptSQL(string(body001), DialectSQLite)); err != nil {
+		t.Fatalf("apply 001: %v", err)
+	}
+	now := NowMS()
+	if _, err := raw.Exec(`INSERT INTO accounts(id, slug, name, status, created_at, updated_at) VALUES(1,'acc','acc','active',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO products(id, account_id, product_id, name, topic_style_default, created_at, updated_at) VALUES(1,1,'pk1','p1','full',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO devices(id, product_pk, device_id, name, topic_style, fw_version, status, created_at, updated_at) VALUES(1,1,'dev1','d1','short','1.0.0','online',?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, ts, ingested_at) VALUES(1,1,'temp',21.5,?,?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run pending migrations (002+003) with data present.
+	if err := migrate(raw, DialectSQLite); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var fw, style, status string
+	if err := raw.QueryRow(`SELECT fw_version, topic_style, status FROM devices WHERE id=1`).Scan(&fw, &style, &status); err != nil {
+		t.Fatalf("device row lost after rebuild: %v", err)
+	}
+	if fw != "1.0.0" || style != "short" || status != "online" {
+		t.Errorf("device row mutated: fw=%q style=%q status=%q", fw, style, status)
+	}
+	var n int
+	if err := raw.QueryRow(`SELECT COUNT(1) FROM telemetry_samples WHERE device_pk=1`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("telemetry rows after rebuild: n=%d err=%v", n, err)
+	}
+
+	// The CHECK now accepts 'thingsboard' on both tables.
+	if _, err := raw.Exec(`UPDATE devices SET topic_style='thingsboard' WHERE id=1`); err != nil {
+		t.Errorf("thingsboard style rejected: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE products SET topic_style_default='thingsboard' WHERE id=1`); err != nil {
+		t.Errorf("products thingsboard default rejected: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE devices SET topic_style='bogus' WHERE id=1`); err == nil {
+		t.Error("bogus topic_style accepted")
+	}
+
+	// Foreign keys re-enabled: child insert with bogus parent must fail.
+	if _, err := raw.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, ts, ingested_at) VALUES(999,1,'x',1,?,?)`, now, now); err == nil {
+		t.Error("FK not enforced after migration (foreign_keys not restored)")
 	}
 }

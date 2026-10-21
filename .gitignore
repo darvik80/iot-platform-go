@@ -22,3 +22,4 @@ internal/webui/dist
 dist/
 
 ci-templates
+mail.md

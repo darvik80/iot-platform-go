@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,16 +30,18 @@ type Publisher interface {
 	Connected() bool
 }
 
-// DevicePublisher delivers a packet only to the sessions of one MQTT username.
-// Short-style downlink topics (v1/me/...) are shared by every device, so they
-// must never be published to the topic tree.
+// DevicePublisher delivers a packet only to the sessions of one MQTT username
+// or of one device. Short-style downlink topics (v1/me/...) and ThingsBoard
+// topics (v1/devices/me/...) are shared by every device, so they must never be
+// published to the topic tree.
 type DevicePublisher interface {
 	PublishToUser(username, topic string, qos byte, payload []byte) error
+	PublishToDevice(devicePK int64, topic string, qos byte, payload []byte) error
 }
 
 // MQTTSession drops live broker sessions and exposes connection status.
 type MQTTSession interface {
-	DropUsername(username string)
+	DropDevice(devicePK int64)
 	Status() models.MQTTStatus
 }
 
@@ -86,12 +89,13 @@ func (p *Platform) SetHub(h Hub)                 { p.Hub = h }
 
 const deviceSelect = `SELECT d.id, d.product_pk, pr.product_id, d.device_id, d.name, d.description, d.tags,
 	       d.access_token_hash, d.token_prefix, d.status, d.last_seen_at, d.last_ip, d.fw_version,
-	       d.topic_style, COALESCE(d.auto_ota,1), d.enabled, COALESCE(pr.account_id,0), COALESCE(a.slug,''),
+	       d.topic_style, d.alink_secret, COALESCE(d.auto_ota,1), d.enabled, COALESCE(pr.account_id,0), COALESCE(a.slug,''),
 	       d.created_at, d.updated_at
 	FROM devices d JOIN products pr ON pr.id = d.product_pk LEFT JOIN accounts a ON a.id = pr.account_id`
 
 func (p *Platform) ReloadDeviceMaps() error {
-	rows, err := p.DB.Query(deviceSelect + ` WHERE d.enabled = 1 AND d.access_token_hash IS NOT NULL`)
+	rows, err := p.DB.Query(deviceSelect + ` WHERE d.enabled = 1 AND (d.access_token_hash IS NOT NULL
+		OR (d.topic_style='alink' AND d.alink_secret IS NOT NULL AND d.alink_secret != ''))`)
 	if err != nil {
 		return err
 	}
@@ -103,7 +107,9 @@ func (p *Platform) ReloadDeviceMaps() error {
 		if err != nil {
 			return err
 		}
-		byClient[d.ProductID+"."+d.DeviceID] = d
+		for _, u := range protocol.DialectFor(d.TopicStyle).Usernames(d) {
+			byClient[u] = d
+		}
 		if d.AccessTokenHash != "" {
 			byToken[d.AccessTokenHash] = d
 		}
@@ -206,6 +212,13 @@ func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
 	if d.TopicStyle == style {
 		return
 	}
+	// Pinned dialects are provisioned, not detected: the style carries the
+	// credential model (e.g. an HMAC secret instead of a token hash), so a
+	// foreign-dialect Will or filter must not auto-flip the device into a
+	// style it can no longer authenticate in — in either direction.
+	if protocol.DialectFor(d.TopicStyle).Pinned() || protocol.DialectFor(style).Pinned() {
+		return
+	}
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET topic_style=?, updated_at=? WHERE id=?`, style, now, d.ID)
 	d.TopicStyle = style
@@ -217,24 +230,31 @@ func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
 	})
 }
 
-func (p *Platform) DownTopic(d *models.Device, capability, operation string) string {
-	return protocol.DownTopic(d.TopicStyle, d.ProductID, d.DeviceID, capability, operation)
-}
-
 // publishDown sends a downlink to exactly one device (QoS 1, not retained).
 func (p *Platform) publishDown(d *models.Device, capability, operation string, payload []byte) error {
 	if p.Pub == nil {
 		return errors.New("mqtt publisher not ready")
 	}
-	topic := p.DownTopic(d, capability, operation)
-	if d.TopicStyle == protocol.StyleFull {
-		return p.Pub.Publish(topic, 1, false, payload)
+	dl := protocol.DialectFor(d.TopicStyle)
+	topic, body, err := dl.Downlink(d, capability, operation, strconv.FormatInt(db.NowMS(), 10), payload)
+	if err != nil {
+		return err
 	}
-	dp, ok := p.Pub.(DevicePublisher)
-	if !ok {
-		return errors.New("publisher cannot address a single device")
+	if dl.DownViaDevice(d) {
+		dp, ok := p.Pub.(DevicePublisher)
+		if !ok {
+			return errors.New("publisher cannot address a single device")
+		}
+		return dp.PublishToDevice(d.ID, topic, 1, body)
 	}
-	return dp.PublishToUser(d.ProductID+"."+d.DeviceID, topic, 1, payload)
+	if target := dl.DownTarget(d); target != "" {
+		dp, ok := p.Pub.(DevicePublisher)
+		if !ok {
+			return errors.New("publisher cannot address a single device")
+		}
+		return dp.PublishToUser(target, topic, 1, body)
+	}
+	return p.Pub.Publish(topic, 1, false, body)
 }
 
 func ValidateIDs(productID, deviceID string) error {
@@ -360,10 +380,6 @@ func (p *Platform) runRetention() {
 	_, _ = p.DB.Exec(`DELETE FROM attribute_history WHERE updated_at < ?`, cutoff)
 }
 
-func snippet(product, device, host, token string) string {
-	return fmt.Sprintf(`CogitorCredentials::createAccessToken("%s", "%s", "%s", "%s");`, product, device, host, token)
-}
-
 func nullInt64(n sql.NullInt64) *int64 {
 	if !n.Valid {
 		return nil
@@ -396,16 +412,18 @@ func scanDevice(row interface{ Scan(dest ...any) error }) (*models.Device, error
 	var d models.Device
 	var tags string
 	var tokenHash sql.NullString
+	var alinkSecret sql.NullString
 	var lastSeen sql.NullInt64
 	var enabled, autoOTA int
 	err := row.Scan(&d.ID, &d.ProductPK, &d.ProductID, &d.DeviceID, &d.Name, &d.Description, &tags,
-		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &autoOTA, &enabled,
+		&tokenHash, &d.TokenPrefix, &d.Status, &lastSeen, &d.LastIP, &d.FwVersion, &d.TopicStyle, &alinkSecret, &autoOTA, &enabled,
 		&d.AccountID, &d.AccountSlug, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	d.Tags = parseTags(tags)
 	d.AccessTokenHash = tokenHash.String
+	d.AlinkSecret = alinkSecret.String
 	d.LastSeenAt = nullInt64(lastSeen)
 	d.AutoOTA = autoOTA == 1
 	d.Enabled = enabled == 1

@@ -28,6 +28,7 @@ type Device struct {
 	LastIP          string   `json:"last_ip"`
 	FwVersion       string   `json:"fw_version"`
 	TopicStyle      string   `json:"topic_style"`
+	AlinkSecret     string   `json:"alink_secret,omitempty"`
 	AutoOTA         bool     `json:"auto_ota"`
 	Enabled         bool     `json:"enabled"`
 	AccountID       int64    `json:"account_id"`
@@ -62,7 +63,8 @@ type DeviceCredentials struct {
 	ProductID    string           `json:"product_id"`
 	DeviceID     string           `json:"device_id"`
 	AccessToken  string           `json:"access_token"`
-	Username     string           `json:"username"` // MQTT user = {product}.{device}
+	DeviceSecret string           `json:"device_secret,omitempty"` // alink style: the HMAC secret (password equivalent)
+	Username     string           `json:"username"` // MQTT user = {product}.{device}, alink = {device}&{product}
 	ClientID     string           `json:"client_id"`
 	BrokerHost   string           `json:"broker_host"`
 	BrokerPort   int              `json:"broker_port"`

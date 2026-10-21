@@ -125,6 +125,7 @@ export interface DeviceCredentials {
   product_id: string;
   device_id: string;
   access_token: string;
+  device_secret?: string;
   username?: string;
   client_id: string;
   broker_host: string;

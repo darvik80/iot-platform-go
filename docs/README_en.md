@@ -9,7 +9,7 @@
 | [Product Requirements (PRD)](en/01-prd.md) | Product vision, features, acceptance criteria |
 | [REST API](en/02-api.md) | Full REST API reference (`/api/v1`) |
 | [Auth & Users](en/03-auth.md) | Authentication, registration, roles, Google OAuth |
-| [MQTT Protocol](en/04-mqtt.md) | Device MQTT contract, topic styles, downlink |
+| [MQTT Protocol](en/04-mqtt.md) | Device MQTT contract, topic styles (native, alink, thingsboard), downlink |
 | [MQTT over TLS](en/05-mqtt-tls.md) | TLS setup, certificate generation |
 | [Automation / Node-RED](en/06-automation.md) | Rules bus, Node-RED connected as an external plugin |
 | [Internal Plugins](en/07-internal-plugins.md) | In-process plugins, builtin catalog, lifecycle, RPC |

@@ -15,6 +15,8 @@
 
 После CONNECT платформа определяет устройство по username и проверяет токен (SHA-256 хранится в базе данных). ACL: в полном формате устройство может публиковать только в свои `iot/v1/{product_id}/{device_id}/up/…` и подписываться только на свои `…/down/…`; короткие топики (`v1/…`) разрешены и привязываются к устройству по username сессии.
 
+Это параметры нативного протокола (стили `short` / `full`). Диалекты **alink** и **ThingsBoard** используют другие параметры CONNECT — см. [Стили устройств (диалекты)](#стили-устройств-диалекты).
+
 ---
 
 ## Адресация
@@ -68,6 +70,131 @@ v1/me/{mnemonic}
 | `…/up/logs/report` | `v1/me/l` | ↑ устройство | Логи устройства |
 
 Полный топик: `iot/v1/{product_id}/{device_id}/{up|down}/…`. В колонке «Полный топик» показано окончание после `up/` или `down/`.
+
+---
+
+## Стили устройств (диалекты)
+
+Платформа поддерживает четыре диалекта MQTT-протокола. Стиль (`topic_style`) задаётся устройству при создании или наследуется из поля **«Стиль топиков по умолчанию»** продукта; смотреть и менять его можно в карточке устройства.
+
+| Диалект (`topic_style`) | Совместимость | Аутентификация | Топики |
+|---|---|---|---|
+| `short` (по умолчанию) | нативный | `username={product}.{device}`, `password=token` | `v1/me/…` + полный |
+| `full` | нативный | `username={product}.{device}`, `password=token` | `iot/v1/…` + короткие |
+| `alink` | Alibaba Cloud IoT (Alink) | HMAC-подпись deviceSecret | `/sys/…`, `/ext/ntp/…`, `/ota/device/…` |
+| `thingsboard` | ThingsBoard MQTT Device API | `username=access token`, без пароля | `v1/devices/me/…` |
+
+Правила выбора стиля:
+
+- **Автоопределение** работает только между `short` и `full`: Will-топик, подписка или первый пакет с чужим префиксом переключает стиль устройства.
+- **`alink` и `thingsboard` закреплены**: автоопределением не включаются и не выключаются, потому что стиль определяет модель аутентификации (секрет/токен). Их выбирают явно при создании устройства — или ставят дефолт продукта.
+- Даунлинк (RPC, desired-атрибуты, OTA) платформа всегда отправляет в формате диалекта устройства; аплинк транслируется во внутренний формат, поэтому дашборд, автоматизация и плагины работают одинаково для всех диалектов.
+
+В разделах ниже описан нативный протокол (`short` / `full`); специфика диалектов — в [alink](#диалект-alink-alibaba-cloud-iot) и [thingsboard](#диалект-thingsboard).
+
+### Диалект Alink (Alibaba Cloud IoT)
+
+Для прошивок, собранных под протокол Alink (Alicloud IoT embed-компонент). При создании/ротации платформа генерирует **deviceSecret** — HMAC-ключ, показывается один раз.
+
+Подключение:
+
+| Параметр | Значение |
+|----------|----------|
+| Username | `{deviceName}&{productKey}` (также принимается нативный `{product}.{device}`) |
+| Password | HMAC-SHA256 от `clientId{username}deviceName{dn}productKey{pk}timestamp{ts}` с ключом deviceSecret, hex в верхнем регистре |
+| Client ID | `{deviceName}&{productKey}\|timestamp=…,ext=…\|`; timestamp из KV-секции, по умолчанию `2524608000000` |
+
+Топики:
+
+| Топик | Напр. | Назначение |
+|---|---|---|
+| `/sys/{pk}/{dn}/thing/event/property/post` | ↑ | Телеметрия |
+| `/sys/{pk}/{dn}/thing/event/{eventId}/post` | ↑ | Событие |
+| `/sys/{pk}/{dn}/thing/property/desired/get` | ↑ | Запрос desired-атрибутов |
+| `/sys/{pk}/{dn}/thing/property/desired/delete` | ↑ | Удаление desired-атрибутов |
+| `/sys/{pk}/{dn}/thing/service/property/set_reply` | ↑ | Ответ на property/set |
+| `/sys/{pk}/{dn}/thing/service/{method}/_reply` | ↑ | Ответ на RPC |
+| `/sys/{pk}/{dn}/thing/ota/firmware/get` | ↑ | Запрос OTA (pull) |
+| `/sys/{pk}/{dn}/thing/log/post` | ↑ | Логи устройства |
+| `/ota/device/inform/{pk}/{dn}` | ↑ | Версия прошивки |
+| `/ota/device/progress/{pk}/{dn}` | ↑ | Прогресс OTA |
+| `/ext/ntp/{pk}/{dn}/request` | ↑ | Запрос времени (NTP) |
+| `/sys/{pk}/{dn}/thing/service/property/set` | ↓ | Обновление desired-атрибутов |
+| `/sys/{pk}/{dn}/thing/property/desired/{get,delete}_reply` | ↓ | Ответ на запрос/удаление desired |
+| `/sys/{pk}/{dn}/thing/service/{method}` | ↓ | RPC-вызов платформы |
+| `/ota/device/upgrade/{pk}/{dn}` | ↓ | Команда OTA (и отмена) |
+| `/ext/ntp/{pk}/{dn}/response` | ↓ | Ответ времени |
+
+Примеры payload. Телеметрия — значения с опциональной меткой времени:
+```json
+{"id": "1", "version": "1.0", "params": {"temperature": {"value": 23.5, "time": 1710000000000}}}
+```
+
+RPC-вызов платформы (id — строка):
+```json
+{"id": "1", "version": "1.0", "method": "thing.service.reboot", "params": {"delay": 5}}
+```
+Устройство отвечает на `/sys/{pk}/{dn}/thing/service/reboot/_reply`; код `200` — успех:
+```json
+{"id": "1", "code": 200, "message": "success", "data": {}}
+```
+
+Обновление desired-атрибутов — все значения params передаются строками (прошивка читает только строки):
+```json
+{"id": "2", "version": "1.0", "method": "thing.service.property.set", "params": {"interval": "30"}}
+```
+
+OTA-команда (`code: "1000"` — обновление, `"-1"` — отмена):
+```json
+{"code": "1000", "data": {"url": "https://…/ota/fw/{token}.bin", "version": "1.3.0", "module": "main", "size": 524288}}
+```
+
+Логи — батч до 40 записей; `utcTime` — epoch-ms или ISO-строка `yyyy-MM-ddTHH:mm:ss.SSSZ`, `traceContext` необязателен:
+```json
+{"id": "1", "version": "1.0", "method": "thing.log.post", "params": [{"utcTime": "2024-01-02T03:04:05.678Z", "logLevel": "ERROR", "module": "wifi", "code": "E_TIMEOUT", "traceContext": "trace-42", "logContent": "Read timeout"}]}
+```
+
+Недоступны в alink-стиле: статус LWT, отчёт reported-атрибутов, RPC от устройства к платформе. Телеметрия, события, логи, desired-атрибуты, NTP и OTA работают как в нативном стиле.
+
+### Диалект ThingsBoard
+
+Для прошивок, собранных под MQTT Device API ThingsBoard (JSON, v1; protobuf-формы v2 RPC и `v2/fw/…` не поддерживаются). Аутентификация: **MQTT username = access token устройства**, пароль не используется. Токен генерируется при создании/ротации и показывается один раз.
+
+Топики:
+
+| Топик | Напр. | Назначение |
+|---|---|---|
+| `v1/devices/me/telemetry` | ↑ | Телеметрия (те же форматы payload, что в нативном стиле) |
+| `v1/devices/me/attributes` | ↑ | Отчёт об атрибутах |
+| `v1/devices/me/attributes/request/{id}` | ↑ | Запрос атрибутов |
+| `v1/devices/me/attributes/response/{id}` | ↓ | Ответ на запрос атрибутов |
+| `v1/devices/me/rpc/request/{id}` | ↓ | RPC-вызов платформы |
+| `v1/devices/me/rpc/response/{id}` | ↑ | Ответ на RPC |
+| `v2/devices/me/rpc/response/{id}` | ↑ | Ответ на RPC (v2-форма топика) |
+
+Устройство подписывается на `v1/devices/me/attributes` (desired-обновления приходят плоским объектом) и `v1/devices/me/rpc/request/+`.
+
+Примеры payload. RPC-вызов платформы — id в топике, а не в теле:
+```json
+{"method": "reboot", "params": {"delay": 5}}
+```
+Устройство отвечает на `v1/devices/me/rpc/response/1` произвольным JSON:
+```json
+{"status": "ok"}
+```
+
+Запрос атрибутов: `sharedKeys` — desired (серверные), `clientKeys` — reported (клиентские); допустимы JSON-массив и строка `"a,b"`:
+```json
+{"sharedKeys": "interval", "clientKeys": "fw"}
+```
+Ответ придёт на `v1/devices/me/attributes/response/1`:
+```json
+{"client": {"fw": "1.2.3"}, "shared": {"interval": 30}}
+```
+
+Недоступны в thingsboard-стиле: статус LWT, события, логи, NTP, OTA-обмен с устройством, RPC от устройства к платформе. Телеметрия и атрибуты работают как в нативном стиле.
+
+> Даунлинк-топики thingsboard (`v1/devices/me/…`) у всех устройств одинаковые — платформа доставляет каждое сообщение напрямую в сессию целевого устройства, как и в коротком нативном стиле.
 
 ---
 
@@ -276,6 +403,8 @@ v1/me/{mnemonic}
 2. MQTT CONNECT: `username={product}.{device}`, `password=token`
 3. Ротация токена → новый хеш в базе; активная сессия отключается
 4. Отключение / удаление устройства → сессия отключена, переподключение невозможно
+
+Это нативная модель. Устройства стиля `alink` аутентифицируются HMAC-подписью deviceSecret, устройства `thingsboard` — access token в username без пароля (см. [Стили устройств (диалекты)](#стили-устройств-диалекты)).
 
 ## Мониторинг
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { platformWS } from '../api/ws';
+import { dialectOf } from '../dialects';
 import { AttrForm } from '../components/AttrForm';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CredsModal } from '../components/CredsModal';
@@ -87,6 +88,8 @@ export function DeviceDetailPage() {
 
   const d = detail.device;
   const c = detail.connection;
+  const connDialect = dialectOf(c.topic_style);
+  const devDialect = dialectOf(d.topic_style);
 
   return (
     <div>
@@ -124,8 +127,13 @@ export function DeviceDetailPage() {
           <div className="panel">
             <h2 className="h6 text-uppercase muted">{t('device.connection')}</h2>
             <div className="mono small">
-              <div>client_id: {c.client_id}</div>
-              <div>username: {c.username || c.client_id}</div>
+              {c.client_id ? <div>client_id: {c.client_id}</div> : null}
+              <div>
+                username:{' '}
+                {connDialect.credential === 'token'
+                  ? `${c.token_prefix}… (${t('devices.usernameToken')})`
+                  : c.username || c.client_id}
+              </div>
               <div>
                 broker: {c.broker_host}:{c.broker_port}
               </div>
@@ -134,8 +142,10 @@ export function DeviceDetailPage() {
                   websocket: {c.broker_ws_url}
                 </div>
               ) : null}
-              <div>topics: {c.topic_style || 'auto'} (detected from MQTT prefix)</div>
-              <div>token_prefix: {c.token_prefix}…</div>
+              <div>topics: {t(connDialect.topicsKey)}</div>
+              {connDialect.credential === 'native' && (
+                <div>token_prefix: {c.token_prefix}…</div>
+              )}
               <div>
                 mqtt session:{' '}
                 {c.mqtt_session ? (
@@ -155,7 +165,7 @@ export function DeviceDetailPage() {
                 className="btn btn-primary btn-sm"
                 onClick={() => setConfirmAction('rotateToken')}
               >
-                {t('device.rotateToken')}
+                {devDialect.credential === 'secret' ? t('device.rotateSecret') : t('device.rotateToken')}
               </button>
               <button
                 type="button"
@@ -362,7 +372,7 @@ export function DeviceDetailPage() {
 
       {confirmAction === 'rotateToken' && (
         <ConfirmModal
-          message={t('device.rotateTokenConfirm')}
+          message={devDialect.credential === 'secret' ? t('device.rotateSecretConfirm') : t('device.rotateTokenConfirm')}
           danger={false}
           onConfirm={async () => {
             setConfirmAction(null);

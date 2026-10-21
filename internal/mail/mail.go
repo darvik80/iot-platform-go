@@ -1,8 +1,10 @@
 package mail
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/smtp"
 	"strings"
 
@@ -43,7 +45,58 @@ func (s *Sender) Send(to, subject, body string) error {
 	if s.Cfg.Email.SMTPUser != "" {
 		auth = smtp.PlainAuth("", s.Cfg.Email.SMTPUser, s.Cfg.Email.SMTPPass, s.Cfg.Email.SMTPHost)
 	}
+
+	// Port 465 requires implicit SSL; other ports use STARTTLS via smtp.SendMail.
+	if s.Cfg.Email.SMTPPort == 465 {
+		return sendMailSSL(addr, from, auth, []string{to}, []byte(msg))
+	}
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+}
+
+// sendMailSSL sends email via implicit SSL (port 465).
+func sendMailSSL(addr, from string, auth smtp.Auth, to []string, msg []byte) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	tlsConfig := &tls.Config{ServerName: host}
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range to {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(msg)
+	if err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func (s *Sender) SendVerification(to, login, verifyURL string) error {

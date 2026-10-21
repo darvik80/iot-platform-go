@@ -118,7 +118,7 @@ func TestExternalPluginsScopedToAccount(t *testing.T) {
 
 type fakeMQTT struct{ st models.MQTTStatus }
 
-func (f fakeMQTT) DropUsername(string)       {}
+func (f fakeMQTT) DropDevice(int64)          {}
 func (f fakeMQTT) Status() models.MQTTStatus { return f.st }
 
 func TestMQTTStatusScopedToAccount(t *testing.T) {

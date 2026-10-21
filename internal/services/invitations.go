@@ -136,9 +136,9 @@ func (p *Platform) AcceptInvitation(token string, userID int64) (*models.Account
 	now := db.NowMS()
 
 	var inv models.AccountInvitation
-	err := p.DB.QueryRow(`SELECT id, account_id, email, role, status, expires_at
+	err := p.DB.QueryRow(`SELECT id, account_id, email, role, status, expires_at, invited_by
 		FROM account_invitations WHERE token_hash=?`, h).Scan(
-		&inv.ID, &inv.AccountID, &inv.Email, &inv.Role, &inv.Status, &inv.ExpiresAt)
+		&inv.ID, &inv.AccountID, &inv.Email, &inv.Role, &inv.Status, &inv.ExpiresAt, &inv.InvitedBy)
 	if err != nil {
 		return nil, errors.New("invitation not found")
 	}
@@ -155,7 +155,7 @@ func (p *Platform) AcceptInvitation(token string, userID int64) (*models.Account
 	if err != nil {
 		return nil, err
 	}
-	if strings.ToLower(u.Email) != inv.Email {
+	if strings.ToLower(strings.TrimSpace(u.Email)) != inv.Email {
 		return nil, errors.New("email does not match invitation")
 	}
 
@@ -186,6 +186,127 @@ func (p *Platform) AcceptInvitation(token string, userID int64) (*models.Account
 		JoinedAt:  now,
 		InvitedBy: &inv.InvitedBy,
 	}, nil
+}
+
+// InviteRegisterInput is the account-setup form for a person holding an
+// invitation link. Email is not accepted here — it always comes from the
+// invitation, so a typo can never strand the acceptance.
+type InviteRegisterInput struct {
+	Login       string `json:"login"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+
+// RegisterInvitedUser creates the invited user (email fixed by the invitation,
+// password chosen by them), adds the membership, marks the invitation
+// accepted and returns a session token. Works even when public registration is
+// disabled: an invitation is an explicit admin grant.
+func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*models.User, string, error) {
+	in.Login = strings.ToLower(strings.TrimSpace(in.Login))
+	in.DisplayName = strings.TrimSpace(in.DisplayName)
+	if !loginRe.MatchString(in.Login) {
+		return nil, "", errors.New("invalid login: 3-32 chars, start with letter, [a-zA-Z0-9._-]")
+	}
+	if len(in.Password) < 8 {
+		return nil, "", errors.New("password must be at least 8 characters")
+	}
+	hasLetter, hasDigit := false, false
+	for _, r := range in.Password {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			hasLetter = true
+		}
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return nil, "", errors.New("password must contain at least one letter and one digit")
+	}
+
+	h := hashInviteToken(strings.TrimSpace(token))
+	// Resolve everything outside the tx: SQLite runs on a single pooled
+	// connection, so p.DB queries inside a tx would deadlock.
+	var inv models.AccountInvitation
+	err := p.DB.QueryRow(`SELECT id, account_id, email, role, status, expires_at, invited_by
+		FROM account_invitations WHERE token_hash=?`, h).Scan(
+		&inv.ID, &inv.AccountID, &inv.Email, &inv.Role, &inv.Status, &inv.ExpiresAt, &inv.InvitedBy)
+	if err != nil {
+		return nil, "", errors.New("invitation not found")
+	}
+	if inv.Status != "pending" {
+		return nil, "", errors.New("invitation no longer pending")
+	}
+	now := db.NowMS()
+	if inv.ExpiresAt < now {
+		_, _ = p.DB.Exec(`UPDATE account_invitations SET status='expired', updated_at=? WHERE id=?`, now, inv.ID)
+		return nil, "", errors.New("invitation expired")
+	}
+	var existing int
+	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE lower(email)=?`, inv.Email).Scan(&existing)
+	if existing > 0 {
+		return nil, "", errors.New("an account with this email already exists — sign in to accept the invitation")
+	}
+
+	if in.DisplayName == "" {
+		in.DisplayName = in.Login
+	}
+	hash, err := auth.HashPassword(in.Password)
+	if err != nil {
+		return nil, "", err
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?)`,
+		inv.Email, hash, inv.Role, in.Login, in.DisplayName, 1, now, now)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, "", errors.New("login already taken")
+		}
+		return nil, "", err
+	}
+	userID, _ := res.LastInsertId()
+
+	_, err = tx.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at, invited_by)
+		VALUES(?,?,?,?,?,?)`,
+		userID, inv.AccountID, inv.Role, "active", now, inv.InvitedBy)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Guard the pending→accepted transition inside the tx: a concurrent
+	// accept or revoke makes this UPDATE a no-op and we roll back.
+	ures, err := tx.Exec(`UPDATE account_invitations SET status='accepted', updated_at=? WHERE id=? AND status='pending'`,
+		now, inv.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if n, _ := ures.RowsAffected(); n == 0 {
+		return nil, "", errors.New("invitation no longer pending")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, "", err
+	}
+
+	u, err := p.GetUser(userID)
+	if err != nil {
+		return nil, "", err
+	}
+	refs, _, err := p.LoadAccountRefs(userID)
+	if err != nil {
+		return nil, "", err
+	}
+	jwt, err := auth.IssueJWT(p.Cfg.Auth.JWTSecret, *u, refs, inv.AccountID, 24*time.Hour)
+	if err != nil {
+		return nil, "", err
+	}
+	return u, jwt, nil
 }
 
 // ResendInvitation generates a new token for an existing invitation and revokes the old one.
