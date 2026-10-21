@@ -47,10 +47,18 @@ func (s *Sender) Send(to, subject, body string) error {
 	}
 
 	// Port 465 requires implicit SSL; other ports use STARTTLS via smtp.SendMail.
+	var err error
 	if s.Cfg.Email.SMTPPort == 465 {
-		return sendMailSSL(addr, from, auth, []string{to}, []byte(msg))
+		err = sendMailSSL(addr, from, auth, []string{to}, []byte(msg))
+	} else {
+		err = smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 	}
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	if err != nil {
+		s.Log.Error("email send failed", "to", to, "subject", subject, "err", err)
+		return err
+	}
+	s.Log.Info("email sent", "to", to, "subject", subject)
+	return nil
 }
 
 // sendMailSSL sends email via implicit SSL (port 465).
