@@ -16,6 +16,7 @@ on:
 jobs:
   # ── 1. Build ────────────────────────────────────────────────────────
   build:
+    runs-on: ubuntu-latest
     name: Build .deb
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -53,6 +54,7 @@ jobs:
 
   # ── 2. Deploy to VDS (master only) ─────────────────────────────────
   deploy-vds:
+    runs-on: ubuntu-latest
     name: Deploy to VDS
     needs: build
     if: github.ref == 'refs/heads/master'
@@ -88,6 +90,7 @@ jobs:
 
   # ── 3. Publish to cogitor-products ─────────────────────────────────
   publish:
+    runs-on: ubuntu-latest
     name: Publish to cogitor-products
     needs: build
     steps:
@@ -119,6 +122,7 @@ jobs:
 
   # ── 4. Gitea Release (version tags only) ───────────────────────────
   release:
+    runs-on: ubuntu-latest
     name: Create Gitea Release
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
