@@ -181,7 +181,7 @@ export function InviteAcceptPage() {
         {view === 'chooseExists' && (
           <div>
             <div className="alert alert-danger py-2 px-3 small text-start mb-3">{actionError}</div>
-            <p className="small muted">{t('invite.signInToAccept')}</p>
+            <p className="small muted">{t('invite.signInToAcceptExists')}</p>
             <Link to={redirectUrl} className="btn btn-primary">{t('common.signIn')}</Link>
           </div>
         )}

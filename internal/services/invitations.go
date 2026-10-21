@@ -241,9 +241,16 @@ func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*m
 		_, _ = p.DB.Exec(`UPDATE account_invitations SET status='expired', updated_at=? WHERE id=?`, now, inv.ID)
 		return nil, "", errors.New("invitation expired")
 	}
-	var existing int
-	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE lower(email)=?`, inv.Email).Scan(&existing)
-	if existing > 0 {
+
+	// Check for existing user with this email.
+	// - Active user  → block (must sign in to accept)
+	// - Disabled user → reactivate via invitation (account recovery)
+	// - No user       → create new
+	var existingID int64
+	var existingDisabled int
+	err = p.DB.QueryRow(`SELECT id, COALESCE(disabled,0) FROM users WHERE lower(email)=?`, inv.Email).
+		Scan(&existingID, &existingDisabled)
+	if err == nil && existingDisabled == 0 {
 		return nil, "", errors.New("an account with this email already exists — sign in to accept the invitation")
 	}
 
@@ -261,16 +268,27 @@ func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*m
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?)`,
-		inv.Email, hash, inv.Role, in.Login, in.DisplayName, 1, now, now)
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return nil, "", errors.New("login already taken")
+	var userID int64
+	if err == nil && existingDisabled == 1 {
+		// Reactivate disabled user: reset password, login, role, enable.
+		_, err = tx.Exec(`UPDATE users SET password_hash=?, login=?, display_name=?, role=?, disabled=0, email_verified=1, updated_at=? WHERE id=?`,
+			hash, in.Login, in.DisplayName, inv.Role, now, existingID)
+		if err != nil {
+			return nil, "", err
 		}
-		return nil, "", err
+		userID = existingID
+	} else {
+		res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
+			VALUES(?,?,?,?,?,?,?,?)`,
+			inv.Email, hash, inv.Role, in.Login, in.DisplayName, 1, now, now)
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return nil, "", errors.New("login already taken")
+			}
+			return nil, "", err
+		}
+		userID, _ = res.LastInsertId()
 	}
-	userID, _ := res.LastInsertId()
 
 	_, err = tx.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at, invited_by)
 		VALUES(?,?,?,?,?,?)`,

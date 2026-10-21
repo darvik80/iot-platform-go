@@ -1,6 +1,7 @@
 package services
 
 import (
+	"log/slog"
 	"path/filepath"
 	"testing"
 
@@ -38,5 +39,6 @@ func newTestPlatform(t *testing.T, cfg config.Config) *Platform {
 		cfg.Database.DSN = dbPath
 	}
 
-	return New(database, cfg, nil)
+	log := slog.New(slog.DiscardHandler)
+	return New(database, cfg, log)
 }
