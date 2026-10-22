@@ -243,15 +243,28 @@ func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*m
 	}
 
 	// Check for existing user with this email.
-	// - Active user  → block (must sign in to accept)
-	// - Disabled user → reactivate via invitation (account recovery)
-	// - No user       → create new
+	// - Active user, already member of target account → block
+	// - Active user, NOT member of target account   → add membership (accept invite)
+	// - Disabled user                                → reactivate + add membership
+	// - No user                                      → create new + add membership
 	var existingID int64
 	var existingDisabled int
-	err = p.DB.QueryRow(`SELECT id, COALESCE(disabled,0) FROM users WHERE lower(email)=?`, inv.Email).
-		Scan(&existingID, &existingDisabled)
-	if err == nil && existingDisabled == 0 {
-		return nil, "", errors.New("an account with this email already exists — sign in to accept the invitation")
+	var userFound bool
+	if err := p.DB.QueryRow(`SELECT id, COALESCE(disabled,0) FROM users WHERE lower(email)=?`, inv.Email).
+		Scan(&existingID, &existingDisabled); err == nil {
+		userFound = true
+	}
+
+	if userFound && existingDisabled == 0 {
+		// Active user exists — check if already a member of this account
+		var memberCount int
+		_ = p.DB.QueryRow(`SELECT COUNT(1) FROM account_memberships WHERE user_id=? AND account_id=?`,
+			existingID, inv.AccountID).Scan(&memberCount)
+		if memberCount > 0 {
+			return nil, "", errors.New("an account with this email already exists — sign in to accept the invitation")
+		}
+		// Not a member yet — fall through to add membership below.
+		// Password/login update is skipped: existing user keeps their credentials.
 	}
 
 	if in.DisplayName == "" {
@@ -269,7 +282,7 @@ func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*m
 	defer tx.Rollback()
 
 	var userID int64
-	if err == nil && existingDisabled == 1 {
+	if userFound && existingDisabled == 1 {
 		// Reactivate disabled user: reset password, login, role, enable.
 		_, err = tx.Exec(`UPDATE users SET password_hash=?, login=?, display_name=?, role=?, disabled=0, email_verified=1, updated_at=? WHERE id=?`,
 			hash, in.Login, in.DisplayName, inv.Role, now, existingID)
@@ -277,6 +290,10 @@ func (p *Platform) RegisterInvitedUser(token string, in InviteRegisterInput) (*m
 			return nil, "", err
 		}
 		userID = existingID
+	} else if userFound && existingDisabled == 0 {
+		// Active user, not a member — keep existing credentials, just ensure email_verified.
+		userID = existingID
+		_, _ = tx.Exec(`UPDATE users SET email_verified=1, updated_at=? WHERE id=?`, now, userID)
 	} else {
 		res, err := tx.Exec(`INSERT INTO users(email, password_hash, role, login, display_name, email_verified, created_at, updated_at)
 			VALUES(?,?,?,?,?,?,?,?)`,

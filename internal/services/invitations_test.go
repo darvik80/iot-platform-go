@@ -125,17 +125,28 @@ func TestRegisterInvitedUser(t *testing.T) {
 }
 
 func TestRegisterInvitedUserEmailTaken(t *testing.T) {
+	// User exists but is NOT a member of the target account.
+	// New behavior: add membership instead of blocking.
 	p := newTestPlatform(t, config.Config{})
 	inviter := newAccountAdmin(t, p, "owner@example.com", "owner")
-	newPlainUser(t, p, "taken@example.com", "taken")
+	existingUser := newPlainUser(t, p, "taken@example.com", "taken")
 
 	_, inviteURL, err := p.CreateInvitation(1, inviter, "taken@example.com", "viewer", "link")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = p.RegisterInvitedUser(inviteTokenFromURL(t, inviteURL), InviteRegisterInput{Login: "dup", Password: "passw0rd1"})
-	if err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("err=%v want already-exists", err)
+	user, _, err := p.RegisterInvitedUser(inviteTokenFromURL(t, inviteURL), InviteRegisterInput{Login: "dup", Password: "passw0rd1"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if user.ID != existingUser {
+		t.Fatalf("expected existing user id=%d, got %d", existingUser, user.ID)
+	}
+	// Verify membership was added
+	var count int
+	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM account_memberships WHERE user_id=? AND account_id=1`, existingUser).Scan(&count)
+	if count != 1 {
+		t.Fatal("expected membership to be added")
 	}
 }
 
@@ -510,9 +521,8 @@ func TestRegisterInvitedUserLoginTaken(t *testing.T) {
 }
 
 func TestRegisterInvitedUserEmailTakenDifferentAccount(t *testing.T) {
-	// User exists in a DIFFERENT account — register must still fail because
-	// the email is globally unique. This is the "user exists but not under
-	// this account" scenario.
+	// User exists in account 1, gets invited to account 2.
+	// New behavior: add membership to account 2 instead of blocking.
 	p := newTestPlatform(t, config.Config{})
 
 	// create second account
@@ -526,9 +536,8 @@ func TestRegisterInvitedUserEmailTakenDifferentAccount(t *testing.T) {
 	if _, err := p.DB.Exec(`INSERT INTO account_memberships(user_id, account_id, role, status, joined_at) VALUES(?,2,'admin','active',?)`, inviter, now); err != nil {
 		t.Fatal(err)
 	}
-	// user exists globally with this email (in account 1 as admin)
+	// user exists in account 1 with this email
 	existingUser := newAccountAdmin(t, p, "conflict@example.com", "conflict")
-	_ = existingUser // just need the user row to exist
 
 	_, inviteURL, err := p.CreateInvitation(2, inviter, "conflict@example.com", "viewer", "link")
 	if err != nil {
@@ -536,8 +545,18 @@ func TestRegisterInvitedUserEmailTakenDifferentAccount(t *testing.T) {
 	}
 	token := inviteTokenFromURL(t, inviteURL)
 
-	if _, _, err := p.RegisterInvitedUser(token, InviteRegisterInput{Login: "newbie", Password: "passw0rd1"}); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("err=%v want already-exists (email is global)", err)
+	user, _, err := p.RegisterInvitedUser(token, InviteRegisterInput{Login: "newbie", Password: "passw0rd1"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if user.ID != existingUser {
+		t.Fatalf("expected existing user id=%d, got %d", existingUser, user.ID)
+	}
+	// Verify membership in account 2 was added
+	var count int
+	_ = p.DB.QueryRow(`SELECT COUNT(1) FROM account_memberships WHERE user_id=? AND account_id=2`, existingUser).Scan(&count)
+	if count != 1 {
+		t.Fatal("expected membership in account 2 to be added")
 	}
 }
 
