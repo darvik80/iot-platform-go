@@ -1,12 +1,20 @@
 package mail
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"strings"
+	"time"
+	"unicode"
 
 	"cogitor-iot-platform/internal/config"
 )
@@ -17,27 +25,46 @@ type Sender struct {
 }
 
 func (s *Sender) Send(to, subject, body string) error {
-	from := s.Cfg.Email.SMTPFrom
-	if from == "" {
-		from = "noreply@cogitor.local"
+	return s.sendMIME(to, subject, body, "")
+}
+
+func (s *Sender) SendVerification(to, login, verifyURL string) error {
+	text, html, err := verificationContent(login, verifyURL)
+	if err != nil {
+		return err
 	}
-	msg := strings.Join([]string{
-		"From: " + from,
-		"To: " + to,
-		"Subject: " + subject,
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"",
-		body,
-	}, "\r\n")
+	return s.sendMIME(to, "Confirm your Cogitor IoT account", text, html)
+}
+
+func (s *Sender) SendInvitation(to, accountName, role, inviteURL string) error {
+	text, html, err := invitationContent(accountName, role, inviteURL)
+	if err != nil {
+		return err
+	}
+	return s.sendMIME(to, fmt.Sprintf("Invitation to join %s", strings.TrimSpace(accountName)), text, html)
+}
+
+func (s *Sender) sendMIME(to, subject, text, html string) error {
+	fromAddr := s.Cfg.Email.SMTPFrom
+	if fromAddr == "" {
+		fromAddr = "noreply@cogitor.local"
+	}
+	from := formatFrom(fromAddr)
 
 	mode := s.Cfg.Email.Mode
 	if mode == "" || (mode == "smtp" && s.Cfg.Email.SMTPHost == "") {
 		mode = "log"
 	}
 	if mode == "log" {
-		s.Log.Info("email (log mode)", "to", to, "subject", subject, "body", body)
+		if s.Log != nil {
+			s.Log.Info("email (log mode)", "to", to, "subject", subject, "body", text)
+		}
 		return nil
+	}
+
+	msg, err := buildMessage(from, to, subject, text, html)
+	if err != nil {
+		return err
 	}
 
 	addr := fmt.Sprintf("%s:%d", s.Cfg.Email.SMTPHost, s.Cfg.Email.SMTPPort)
@@ -48,9 +75,108 @@ func (s *Sender) Send(to, subject, body string) error {
 
 	// Port 465 requires implicit SSL; other ports use STARTTLS via smtp.SendMail.
 	if s.Cfg.Email.SMTPPort == 465 {
-		return sendMailSSL(addr, from, auth, []string{to}, []byte(msg))
+		return sendMailSSL(addr, fromAddr, auth, []string{to}, msg)
 	}
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	return smtp.SendMail(addr, auth, fromAddr, []string{to}, msg)
+}
+
+func formatFrom(addr string) string {
+	if strings.Contains(addr, "<") {
+		return addr
+	}
+	return `"Cogitor IoT" <` + addr + `>`
+}
+
+func encodeHeader(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\r", ""), "\n", "")
+	for _, r := range s {
+		if r > unicode.MaxASCII {
+			return mime.QEncoding.Encode("UTF-8", s)
+		}
+	}
+	return s
+}
+
+func buildMessage(from, to, subject, text, html string) ([]byte, error) {
+	var body bytes.Buffer
+	related := multipart.NewWriter(&body)
+
+	if html != "" {
+		var altBuf bytes.Buffer
+		alt := multipart.NewWriter(&altBuf)
+		if err := writePart(alt, "text/plain; charset=UTF-8", text); err != nil {
+			return nil, err
+		}
+		if err := writePart(alt, "text/html; charset=UTF-8", html); err != nil {
+			return nil, err
+		}
+		if err := alt.Close(); err != nil {
+			return nil, err
+		}
+		ah := textproto.MIMEHeader{}
+		ah.Set("Content-Type", `multipart/alternative; boundary="`+alt.Boundary()+`"`)
+		ap, err := related.CreatePart(ah)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ap.Write(altBuf.Bytes()); err != nil {
+			return nil, err
+		}
+		if err := writeLogo(related); err != nil {
+			return nil, err
+		}
+	} else if err := writePart(related, "text/plain; charset=UTF-8", text); err != nil {
+		return nil, err
+	}
+	if err := related.Close(); err != nil {
+		return nil, err
+	}
+
+	var msg bytes.Buffer
+	ctype := "multipart/related"
+	if html != "" {
+		ctype += `; type="multipart/alternative"`
+	}
+	fmt.Fprintf(&msg, "From: %s\r\n", from)
+	fmt.Fprintf(&msg, "To: %s\r\n", to)
+	fmt.Fprintf(&msg, "Subject: %s\r\n", encodeHeader(subject))
+	fmt.Fprintf(&msg, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&msg, "Content-Type: %s; boundary=\"%s\"\r\n\r\n", ctype, related.Boundary())
+	msg.Write(body.Bytes())
+	return msg.Bytes(), nil
+}
+
+func writePart(w *multipart.Writer, contentType, body string) error {
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Transfer-Encoding", "quoted-printable")
+	p, err := w.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	qp := quotedprintable.NewWriter(p)
+	if _, err := qp.Write([]byte(body)); err != nil {
+		return err
+	}
+	return qp.Close()
+}
+
+func writeLogo(w *multipart.Writer) error {
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Type", "image/png")
+	h.Set("Content-Transfer-Encoding", "base64")
+	h.Set("Content-Disposition", `inline; filename="logo.png"`)
+	h.Set("Content-Id", "<cogitor-logo>")
+	p, err := w.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	enc := base64.NewEncoder(base64.StdEncoding, p)
+	if _, err := enc.Write(logoPNG); err != nil {
+		return err
+	}
+	return enc.Close()
 }
 
 // sendMailSSL sends email via implicit SSL (port 465).
@@ -97,20 +223,4 @@ func sendMailSSL(addr, from string, auth smtp.Auth, to []string, msg []byte) err
 		return err
 	}
 	return client.Quit()
-}
-
-func (s *Sender) SendVerification(to, login, verifyURL string) error {
-	body := fmt.Sprintf(
-		"Hello %s,\n\nConfirm your Cogitor IoT account by opening this link:\n%s\n\nIf you did not register, ignore this email.\n",
-		login, verifyURL,
-	)
-	return s.Send(to, "Confirm your Cogitor IoT account", body)
-}
-
-func (s *Sender) SendInvitation(to, accountName, role, inviteURL string) error {
-	body := fmt.Sprintf(
-		"You have been invited to join %s as %s.\n\nAccept the invitation by opening this link:\n%s\n\nIf you did not expect this, ignore this email.\n",
-		accountName, role, inviteURL,
-	)
-	return s.Send(to, fmt.Sprintf("Invitation to join %s", accountName), body)
 }
