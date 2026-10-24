@@ -45,7 +45,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Use(securityHeaders)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: s.corsOrigins(),
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{
 			"Accept", "Authorization", "Content-Type",
@@ -1104,4 +1104,15 @@ func securityHeaders(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) corsOrigins() []string {
+	if s.Plat == nil {
+		return []string{"http://localhost:*", "http://127.0.0.1:*"}
+	}
+	base := strings.TrimRight(s.Plat.Cfg.Platform.PublicBaseURL, "/")
+	if base == "" {
+		return []string{"*"}
+	}
+	return []string{base}
 }
