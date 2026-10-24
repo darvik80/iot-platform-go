@@ -241,7 +241,15 @@ func (p *Platform) GetAttributes(devicePK int64) (reported, desired map[string]a
 }
 
 func (p *Platform) loadAttrs(table string, devicePK int64) (map[string]any, error) {
-	rows, err := p.DB.Query(fmt.Sprintf(`SELECT key, value_json FROM %s WHERE device_pk=?`, table), devicePK)
+	// Whitelist of allowed table names to prevent SQL injection
+	allowedTables := map[string]bool{
+		"device_attributes_reported": true,
+		"device_attributes_desired":  true,
+	}
+	if !allowedTables[table] {
+		return nil, fmt.Errorf("invalid table name: %s", table)
+	}
+	rows, err := p.DB.Query(`SELECT key, value_json FROM `+table+` WHERE device_pk=?`, devicePK)
 	if err != nil {
 		return nil, err
 	}

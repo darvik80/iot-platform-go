@@ -42,7 +42,13 @@ func initConfig() (config.Config, *slog.Logger) {
 	loaded, errs := config.LoadFiles(false)
 	cfg := config.Load()
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
+	var log *slog.Logger
+	opts := &slog.HandlerOptions{Level: cfg.SlogLevel()}
+	if cfg.LogFormat == "json" {
+		log = slog.New(slog.NewJSONHandler(os.Stdout, opts))
+	} else {
+		log = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	}
 	slog.SetDefault(log)
 
 	for _, err := range errs {
