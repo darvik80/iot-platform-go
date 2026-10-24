@@ -138,7 +138,22 @@ func (b *Broker) Start() error {
 	}
 	b.ok.Store(true)
 	b.log.Info("mqtt broker listening", "addr", b.listenAddr, "ws", b.cfg.MQTT.WSAddr, "tls", b.tlsListenAddr)
+
+	// Start stale session cleanup loop
+	go b.sessionCleanupLoop()
+
 	return nil
+}
+
+func (b *Broker) sessionCleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	const maxAge = 10 * time.Minute // sessions inactive for 10 minutes are stale
+	for range ticker.C {
+		if swept := b.sweepStaleSessions(int64(maxAge.Milliseconds())); swept > 0 {
+			b.log.Info("swept stale MQTT sessions", "count", swept)
+		}
+	}
 }
 
 // loadTLSConfig builds a tls.Config from the configured cert/key files.

@@ -150,6 +150,7 @@ The dashboard is a React SPA embedded into the Go binary. It provides a dark-the
 | **MQTT** | Live broker sessions, connected clients (device / Node-RED / service), real-time broker event trail |
 | **Products** | Device archetypes — create products, define RPC methods, telemetry metrics, attributes |
 | **Devices** | All registered devices with status, firmware version, last seen. Search and filter. |
+| **Monitoring** | Account dashboards, chart wizard, threshold/no-data/offline alerts, Telegram/email channels and delivery history |
 | **Device Detail** | Connection info, telemetry metrics, desired attributes, OTA panel, plugins, RPC console, events |
 | **Events** | Device events filtered by severity, device, time range |
 | **Logs** | Device log messages from MQTT `v1/me/l` uplink |
@@ -681,6 +682,16 @@ Full-style topics are prefixed with `iot/v1/{product}/{device}/` (shown below as
 
 ### Monitoring
 
+Since **v1.9.0**, the **Monitoring** page provides account-wide dashboards and alerts:
+- A widget wizard for line/bar charts, stat, gauge and table views using received device metrics; layouts are saved in the account's database records.
+- Threshold, no-data and offline rules with sustain duration and repeat-notification intervals.
+- Telegram and email channels, explicit test messages, event and delivery history.
+- Admin/operator dashboard editing; admin-only rule and channel management; read-only access for viewers (channels excluded).
+
+See the [monitoring guide](docs/en/11-operations.md#monitoring) for setup, timing, permissions and troubleshooting, or [API examples](docs/en/02-api.md#monitoring). In the portal, open **Documentation → Monitoring and alerts** or the help link on the Monitoring page. This feature is separate from the per-device `metrics-dashboard` plugin.
+
+### MQTT diagnostics
+
 The **MQTT** page shows:
 - Broker status (listening / down)
 - Connected clients (kind, username, remote IP, subscriptions)
@@ -707,6 +718,7 @@ See [docs/README_en.md](docs/README_en.md) for the full index.
 | Product Schema | [09-product-schema.md](docs/en/09-product-schema.md) | [09-product-schema.md](docs/ru/09-product-schema.md) |
 | MCP (LLM Tools) | [10-mcp.md](docs/en/10-mcp.md) | [10-mcp.md](docs/ru/10-mcp.md) |
 | Operations | [11-operations.md](docs/en/11-operations.md) | [11-operations.md](docs/ru/11-operations.md) |
+| Monitoring and alerts (v1.9.0) | [Guide](docs/en/11-operations.md#monitoring) · [API](docs/en/02-api.md#monitoring) | [Guide](docs/ru/11-operations.md#monitoring) · [API](docs/ru/02-api.md#monitoring) |
 | Deploy VDS | [12-deploy-vds.md](docs/en/12-deploy-vds.md) | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) |
 | Deploy Docker | [13-deploy-docker.md](docs/en/13-deploy-docker.md) | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) |
 | Diagrams | [14-diagrams.md](docs/en/14-diagrams.md) | [14-diagrams.md](docs/ru/14-diagrams.md) |

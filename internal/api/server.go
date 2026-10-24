@@ -43,8 +43,11 @@ func (s *Server) Router() http.Handler {
 	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+	r.Use(requestIDLogContext)
+	r.Use(securityHeaders)
+	r.Use(middleware.Compress(5, "text/html", "application/json", "text/plain", "text/css", "application/javascript"))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: s.corsOrigins(),
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{
 			"Accept", "Authorization", "Content-Type",
@@ -81,12 +84,6 @@ func (s *Server) Router() http.Handler {
 			"mqtt_addr":    s.Plat.Cfg.MQTT.Addr,
 			"mqtt_clients": st.ClientCount,
 		})
-	})
-
-	// Prometheus metrics endpoint (public, no auth)
-	r.Get("/metrics", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		_, _ = w.Write([]byte(plugins.RenderMetrics()))
 	})
 
 	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
@@ -147,10 +144,13 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/overview", s.overview)
 				r.Get("/mqtt", s.mqttStatus)
+				s.monitoringRoutes(r)
 
 				r.Get("/users", s.requirePlatformAdmin(s.listUsers))
 				r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
 				r.Delete("/users/{id}", s.requirePlatformAdmin(s.deleteUser))
+
+				r.Get("/metrics", s.requirePlatformAdmin(s.getMetrics))
 
 				r.Get("/products", s.listProducts)
 				r.Post("/products", s.requireWrite(s.createProduct))
@@ -307,7 +307,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		tok := auth.Bearer(r)
-		if tok == "" {
+		if tok == "" && strings.HasSuffix(r.URL.Path, "/ws") {
 			tok = r.URL.Query().Get("token")
 		}
 		if tok == "" {
@@ -1091,4 +1091,46 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"version":                  s.Version,
 		"commit":                   s.Commit,
 	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		if r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requestIDLogContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if reqID := middleware.GetReqID(r.Context()); reqID != "" {
+			w.Header().Set("X-Request-ID", reqID)
+			r = r.WithContext(context.WithValue(r.Context(), requestIDKey, reqID))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
+func (s *Server) corsOrigins() []string {
+	if s.Plat == nil {
+		return []string{"http://localhost:*", "http://127.0.0.1:*"}
+	}
+	base := strings.TrimRight(s.Plat.Cfg.Platform.PublicBaseURL, "/")
+	if base == "" {
+		return []string{"*"}
+	}
+	return []string{base}
+}
+
+func (s *Server) getMetrics(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(plugins.RenderMetrics()))
 }

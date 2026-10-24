@@ -42,7 +42,13 @@ func initConfig() (config.Config, *slog.Logger) {
 	loaded, errs := config.LoadFiles(false)
 	cfg := config.Load()
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
+	var log *slog.Logger
+	opts := &slog.HandlerOptions{Level: cfg.SlogLevel()}
+	if cfg.LogFormat == "json" {
+		log = slog.New(slog.NewJSONHandler(os.Stdout, opts))
+	} else {
+		log = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	}
 	slog.SetDefault(log)
 
 	for _, err := range errs {
@@ -213,11 +219,15 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		log.Error("mqtt broker failed", "addr", cfg.MQTT.Addr, "err", err)
 		os.Exit(1)
 	}
-	defer brk.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go plat.RetentionLoop(ctx)
+	monitoringDone := make(chan struct{})
+	go func() {
+		defer close(monitoringDone)
+		plat.MonitoringLoop(ctx)
+	}()
 	plat.StartPlugins(ctx)
 
 	var spa fs.FS
@@ -233,7 +243,13 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		hub.AllowedHosts = append(hub.AllowedHosts, u.Host)
 	}
 	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService, Version: Version, Commit: Commit}
-	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
+	httpServer := &http.Server{
+		Addr:         cfg.HTTP.Addr,
+		Handler:      srv.Router(),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
 	go func() {
 		log.Info("platform listening",
@@ -251,9 +267,25 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 	}()
 
 	waitForShutdown()
-	shutdownCtx, c2 := context.WithTimeout(context.Background(), 5*time.Second)
+	log.Info("shutting down...")
+	shutdownCtx, c2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer c2()
+
+	// Stop background workers
+	cancel()
+
+	// Shutdown HTTP server (stops accepting new requests, waits for in-flight)
 	_ = httpServer.Shutdown(shutdownCtx)
+
+	// Close MQTT broker (disconnects all MQTT clients)
+	brk.Close()
+	select {
+	case <-monitoringDone:
+	case <-shutdownCtx.Done():
+		log.Warn("monitoring shutdown timed out")
+	}
+
+	log.Info("shutdown complete")
 }
 
 // waitForShutdown blocks until SIGINT or SIGTERM is received.

@@ -11,6 +11,7 @@ const NAV: [string, string][] = [
   ['/mqtt', 'nav.mqtt'],
   ['/products', 'nav.products'],
   ['/devices', 'nav.devices'],
+  ['/monitoring', 'nav.monitoring'],
   ['/events', 'nav.events'],
   ['/logs', 'nav.logs'],
   ['/ota', 'nav.ota'],

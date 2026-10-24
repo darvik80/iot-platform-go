@@ -103,6 +103,7 @@ type Config struct {
 	Platform  PlatformConfig
 	Timezone  string
 	LogLevel  string
+	LogFormat string // text | json
 	DataDir   string
 	Admin     AdminConfig
 	Bootstrap BootstrapConfig
@@ -220,9 +221,10 @@ func Load() Config {
 			RPCDefaultTimeout:      time.Duration(getenvInt("RPC_DEFAULT_TIMEOUT_MS", 30000, "PLATFORM_RPC_DEFAULT_TIMEOUT_MS")) * time.Millisecond,
 			LabAllowUnknownDevices: getenvBool("LAB_ALLOW_UNKNOWN_DEVICES", false, "PLATFORM_LAB_ALLOW_UNKNOWN_DEVICES"),
 		},
-		Timezone: strings.TrimSpace(getenv("TIMEZONE", "UTC")),
-		LogLevel: strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
-		DataDir:  dataDir,
+		Timezone:  strings.TrimSpace(getenv("TIMEZONE", "UTC")),
+		LogLevel:  strings.ToLower(strings.TrimSpace(getenv("LOG_LEVEL", "info"))),
+		LogFormat: strings.ToLower(strings.TrimSpace(getenv("LOG_FORMAT", "text"))),
+		DataDir:   dataDir,
 		Admin: AdminConfig{
 			Email:    getenv("ADMIN_EMAIL", "admin@cogitor.local"),
 			Password: getenv("ADMIN_PASSWORD", "admin"),

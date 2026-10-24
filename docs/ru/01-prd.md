@@ -443,7 +443,7 @@ make build        # web UI + Go binary → bin/platform.exe
 - **TimescaleDB / InfluxDB**: замена SQLite для высоконагруженной телеметрии
 - **Маркетплейс плагинов**: пользовательские плагины с веб-установкой
 - **Fleet management**: группы, теги, массовые операции
-- **Alerting**: email/webhook при превышении порога (без Node-RED)
+- **Alerting**: пороговые, no-data и offline алерты с email/Telegram реализованы в v1.9.0 без Node-RED; см. [Мониторинг](11-operations.md#monitoring). Доставка через webhook остаётся в планах.
 - **mDNS**: автообнаружение платформы из прошивки
 - ~~**TLS для MQTT**: нативный TLS-слушатель~~ — реализовано (`MQTT_TLS_ADDR`, см. [05-mqtt-tls.md](05-mqtt-tls.md))
 - **Grafana**: экспорт телеметрии

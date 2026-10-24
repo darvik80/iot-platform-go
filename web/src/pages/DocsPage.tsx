@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useT } from '../i18n/I18nContext';
 
@@ -16,6 +17,10 @@ function SectionAnchor({ id }: { id: string }) {
 export function DocsPage() {
   const { activeMembership, settings } = useAuth();
   const t = useT();
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [hash]);
   const accountSlug = activeMembership?.account_slug || '{account_slug}';
   const brokerHost = settings?.broker_host || '{broker_host}';
   const mqttPort = settings?.mqtt_port || 1883;
@@ -61,7 +66,8 @@ export function DocsPage() {
             <li>Create a <Link to="/products">Product</Link> with your device schema (metrics, methods).</li>
             <li>Register a <Link to="/devices">Device</Link> — you'll receive MQTT credentials.</li>
             <li>Connect your device using the provided credentials.</li>
-            <li>Monitor telemetry and events on the <Link to="/overview">Overview</Link> page.</li>
+            <li>Monitor telemetry and events on the <Link to="/">Overview</Link> page.</li>
+            <li><Link to="/monitoring">{t('docs.monitoring.quickStart')}</Link></li>
           </ol>
         </>
       ),
@@ -163,6 +169,64 @@ export function DocsPage() {
             <li><strong>Token Rotate</strong> — generates a new access token, invalidating the previous one.</li>
             <li><strong>OTA Update</strong> — push firmware to the device from the device detail page.</li>
           </ul>
+        </>
+      ),
+    },
+    {
+      id: 'monitoring',
+      title: t('docs.monitoring.title'),
+      icon: '',
+      content: (
+        <>
+          <p>{t('docs.monitoring.intro')}</p>
+          <p><Link to="/monitoring">{t('docs.monitoring.open')}</Link></p>
+          <h4>{t('docs.monitoring.dashboards')}</h4>
+          <ol>
+            <li>{t('docs.monitoring.create')}</li>
+            <li>{t('docs.monitoring.sources')}</li>
+            <li>{t('docs.monitoring.appearance')}</li>
+            <li>{t('docs.monitoring.preview')}</li>
+          </ol>
+          <p>{t('docs.monitoring.values')}</p>
+          <p>{t('docs.monitoring.empty')}</p>
+          <p>{t('docs.monitoring.limits')}</p>
+          <p>{t('docs.monitoring.conflict')}</p>
+          <h4>{t('docs.monitoring.channels')}</h4>
+          <ul>
+            <li>{t('docs.monitoring.email')}</li>
+            <li>{t('docs.monitoring.tls')}</li>
+            <li>{t('docs.monitoring.telegram')}</li>
+            <li>{t('docs.monitoring.secret')}</li>
+          </ul>
+          <p className="alert alert-warning">{t('docs.monitoring.test')}</p>
+          <h4>{t('docs.monitoring.rules')}</h4>
+          <p>{t('docs.monitoring.ruleSetup')}</p>
+          <ul>
+            <li>{t('docs.monitoring.threshold')}</li>
+            <li>{t('docs.monitoring.noData')}</li>
+            <li>{t('docs.monitoring.offline')}</li>
+          </ul>
+          <h4>{t('docs.monitoring.intervals')}</h4>
+          <div className="table-responsive">
+            <table className="table table-sm table-bordered">
+              <thead><tr><th>{t('docs.monitoring.field')}</th><th>{t('docs.monitoring.meaning')}</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">{t('monitoring.missing_seconds')}</th><td>{t('docs.monitoring.missing')}</td></tr>
+                <tr><th scope="row">{t('monitoring.for_seconds')}</th><td>{t('docs.monitoring.hold')}</td></tr>
+                <tr><th scope="row">{t('monitoring.cooldown_seconds')}</th><td>{t('docs.monitoring.cooldown')}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>{t('docs.monitoring.example')}</p>
+          <p>{t('docs.monitoring.freshness')}</p>
+          <p>{t('docs.monitoring.state')}</p>
+          <p>{t('docs.monitoring.disabled')}</p>
+          <h4>{t('docs.monitoring.history')}</h4>
+          <p>{t('docs.monitoring.background')}</p>
+          <p>{t('docs.monitoring.delivery')}</p>
+          <p>{t('docs.monitoring.failures')}</p>
+          <h4>{t('docs.monitoring.permissions')}</h4>
+          <p>{t('docs.monitoring.roles')}</p>
         </>
       ),
     },
@@ -363,7 +427,7 @@ export function DocsPage() {
         {/* Sidebar navigation */}
         <div className="col-md-3">
           <div className="panel">
-            <h2 className="h6 text-uppercase muted mb-2">Contents</h2>
+            <h2 className="h6 text-uppercase muted mb-2">{t('docs.contents')}</h2>
             <nav className="nav flex-column gap-1">
               {sections.map((sec) => (
                 <a key={sec.id} href={`#${sec.id}`} className="nav-link px-2 py-1 small" onClick={(e) => {

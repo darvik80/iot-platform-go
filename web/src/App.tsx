@@ -28,6 +28,7 @@ function lazy<T extends ComponentType<object>>(load: () => Promise<{ default: T 
 }
 
 const OverviewPage = lazy(() => import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })));
+const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then((m) => ({ default: m.MonitoringPage })));
 const MqttPage = lazy(() => import('./pages/MqttPage').then((m) => ({ default: m.MqttPage })));
 const DevicesPage = lazy(() => import('./pages/DevicesPage').then((m) => ({ default: m.DevicesPage })));
 const DeviceDetailPage = lazy(() => import('./pages/DeviceDetailPage').then((m) => ({ default: m.DeviceDetailPage })));
@@ -72,6 +73,7 @@ export default function App() {
           }
         >
           <Route path="/" element={<OverviewPage />} />
+          <Route path="/monitoring" element={<MonitoringPage />} />
           <Route path="/mqtt" element={<MqttPage />} />
           <Route path="/devices" element={<DevicesPage />} />
           <Route path="/devices/:id" element={<DeviceDetailPage />} />

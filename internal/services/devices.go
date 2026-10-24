@@ -209,8 +209,10 @@ func (p *Platform) CreateDevice(accountID int64, in DeviceInput) (*models.Device
 	}
 	id, _ := res.LastInsertId()
 	if !usesSecret {
-		_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
-			id, pr.AccountID, hash, prefix, now)
+		if _, err := p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`,
+			id, pr.AccountID, hash, prefix, now); err != nil && p.Log != nil {
+			p.Log.Warn("failed to insert device credential history", "device_id", id, "err", err)
+		}
 	}
 	_ = p.ReloadDeviceMaps()
 	d, err := p.GetDevice(id)
@@ -247,12 +249,16 @@ func (p *Platform) RotateDeviceToken(id int64) (*models.DeviceCredentials, error
 	} else {
 		hash := auth.HashToken(credential)
 		prefix := auth.TokenPrefix(credential)
-		_, _ = p.DB.Exec(`UPDATE device_credentials SET revoked_at=? WHERE device_pk=? AND revoked_at IS NULL`, now, id)
+		if _, err := p.DB.Exec(`UPDATE device_credentials SET revoked_at=? WHERE device_pk=? AND revoked_at IS NULL`, now, id); err != nil && p.Log != nil {
+			p.Log.Warn("failed to revoke old device credentials", "device_id", id, "err", err)
+		}
 		_, err = p.DB.Exec(`UPDATE devices SET access_token_hash=?, token_prefix=?, updated_at=? WHERE id=?`, hash, prefix, now, id)
 		if err != nil {
 			return nil, err
 		}
-		_, _ = p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`, id, d.AccountID, hash, prefix, now)
+		if _, err := p.DB.Exec(`INSERT INTO device_credentials(device_pk, account_id, token_hash, token_prefix, created_at) VALUES(?,?,?,?,?)`, id, d.AccountID, hash, prefix, now); err != nil && p.Log != nil {
+			p.Log.Warn("failed to insert device credential history", "device_id", id, "err", err)
+		}
 	}
 	_ = p.ReloadDeviceMaps()
 	if p.Log != nil {

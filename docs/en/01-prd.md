@@ -443,7 +443,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 - **TimescaleDB / InfluxDB**: swap SQLite for high-volume telemetry
 - **Plugin marketplace**: user-contributed plugins with web-based install
 - **Fleet management**: groups, tags, bulk operations
-- **Alerting**: email/webhook on threshold crossing (without Node-RED)
+- **Alerting**: threshold, no-data and offline alerts with email/Telegram are implemented in v1.9.0 without Node-RED; see [Monitoring](11-operations.md#monitoring). Webhook delivery remains planned.
 - **mDNS / local discovery**: auto-detect platform from firmware
 - ~~**TLS for MQTT**: native TLS listener~~ — implemented (`MQTT_TLS_ADDR`, see [05-mqtt-tls.md](05-mqtt-tls.md))
 - **Grafana integration**: telemetry export / direct SQLite datasource

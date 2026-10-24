@@ -103,6 +103,111 @@ Common to both:
 
 ---
 
+<a id="monitoring"></a>
+
+## Monitoring (v1.9.0)
+
+Open `/monitoring` in the dashboard: **Dashboards**, **Alerts**, **Channels**, **History**. This is account-wide monitoring across devices, separate from the per-device `metrics-dashboard` plugin. See the [Monitoring API](02-api.md#monitoring) for request examples and limits.
+
+### Access and persistence
+
+- Everything belongs to the **active account**; switch accounts before configuring monitoring. Suspended accounts are denied access.
+- `admin` and `operator` can create, edit, reorder and delete dashboards/widgets; `viewer` can read them.
+- All members can read rules, events and delivery history and query widgets. Only `admin` can change rules or access channels at all (including listing and testing).
+- Layouts, rules, rule state and the notification outbox are stored in the configured SQLite/PostgreSQL database and survive restarts. Widget values are queried from telemetry, not saved as cached snapshots.
+
+### Build a dashboard
+
+1. Create a named dashboard, then open the widget wizard.
+2. Select a device and its **actually received metrics**, not just product-schema declarations. Add up to eight distinct device/metric sources, including sources from different devices in the account.
+3. Choose `line`, `bar`, `stat`, `gauge` or `table`; set the title, labels, colors, time window and aggregation (`avg`, `min`, `max`, `sum`, `last`).
+4. Use numeric metrics for line/bar/gauge and numeric aggregates. `last` also permits boolean/text values in stat/table. For a gauge, set a minimum smaller than its maximum.
+5. Preview, save and arrange widgets; width `6` is half-width and `12` is full-width. Narrow screens stack widgets.
+
+The wizard cannot offer a metric until telemetry has arrived. An empty interval means **no data**, not zero. Numeric aggregates ignore non-numeric samples; `last` selects the latest measurement in each bucket.
+
+| Limit / behavior | Value |
+|------------------|-------|
+| Dashboards per account / widgets per dashboard | 50 / 24 |
+| Sources per widget | 1–8 distinct device/metric pairs |
+| Widget window | 60 seconds–31 days |
+| Series query | Up to 240 points per source, bucketed across the entire requested window |
+| Stat / gauge query | One whole-window aggregate per source when data exists |
+
+Dashboard saves replace the **entire widget list** using the current `version`. If another editor saved first, `409` means reload/refetch the dashboard and reapply your changes; do not blindly retry an old layout. Relevant dashboard, alert and history views refresh about every 15 seconds.
+
+### Alert rules
+
+An admin selects the device, rule kind, timing and optional notification channels. Account limit: **100 rules** and **20 channels**.
+
+| Kind | Condition |
+|------|-----------|
+| `threshold` | Fresh numeric metric crosses `gt` (greater than) or `lt` (less than) threshold; a separate recovery value provides hysteresis |
+| `no_data` | No telemetry received for `missing_seconds`; optionally restrict to one metric, or leave it empty for any device telemetry |
+| `offline` | Device status is offline **or** its `last_seen` is stale for `missing_seconds`; no metric is used |
+
+For example, `gt`, threshold `80`, recovery `75` fires above 80 and resolves at or below 75; `lt` reverses the comparisons (recovery must be at or above the threshold).
+
+| API field | Meaning / default |
+|-----------|-------------------|
+| `for_seconds` | Sustain duration before firing; `0` means the next evaluation can fire immediately |
+| `missing_seconds` | Missing-data/stale-device interval and threshold freshness; default `300`, minimum `1` |
+| `cooldown_seconds` | Repeat-notification interval while firing; default `300`, minimum `60` |
+
+All three durations are capped at `604800` seconds (7 days). The current threshold form hides `missing_seconds`, but the API exposes it; its default still applies. The no-data form requires a received metric; device-wide no-data rules with an empty metric can be configured through the API. Cooldown does not delay the first alert or recovery notification and is independent of delivery retries.
+
+**Offline timing is not a disconnect grace period.** A disconnect can satisfy the condition immediately, regardless of `missing_seconds`. Set `for_seconds` to require sustained offline status before firing.
+
+Threshold evaluation requires both a fresh measurement timestamp and fresh receive time. Stale/missing/non-numeric data does **not** resolve a firing threshold rule or justify a repeat notification. Measurements are ordered by their timestamps so a delayed older recovery sample cannot override a newer alarm sample. `no_data` instead uses receive time.
+
+Rules move through `normal`, `pending`, `firing` and `resolved`. A broken condition, missing threshold data or a sufficiently long evaluation gap resets pending sustain; disabled rules/devices and suspended accounts also reset pending state. State survives restart, but downtime does not prove uninterrupted sustain.
+
+Updating a rule resets its state to `normal`, advances its internal revision and cancels queued deliveries from its previous configuration. Disabled rules/devices and suspended accounts are not evaluated or sent notifications. With **no channels selected**, events are still recorded, but nothing is sent.
+
+### Email channels (SMTP)
+
+Use the platform's **existing email configuration**, via environment variables or the corresponding `email.*` YAML keys; monitoring introduces no separate SMTP mechanism.
+
+| Environment | YAML key | Setting |
+|-------------|----------|---------|
+| `EMAIL_MODE` | `email.mode` | `smtp`, or leave unset with a host configured; explicit `log` disables real delivery |
+| `SMTP_HOST` | `email.smtp_host` | SMTP server hostname; required for sending |
+| `SMTP_PORT` | `email.smtp_port` | Default `587` |
+| `SMTP_FROM` | `email.smtp_from` | Valid sender address accepted by your SMTP provider |
+| `SMTP_USER` / `SMTP_PASS` | `email.smtp_user` / `email.smtp_pass` | Credentials when the server requires authentication |
+
+Port **465** uses implicit TLS. Other ports use STARTTLS; plaintext is permitted only when the **actual connected peer is loopback**, not merely when a hostname looks local. A remote server without STARTTLS fails delivery.
+
+Create an enabled email channel with one recipient address, then explicitly **Test** it. `EMAIL_MODE=log` is a failed notification attempt, **not** a delivered/log-only success; outbox retries eventually become `failed`.
+
+### Telegram channels
+
+1. Obtain a bot token and choose a numeric chat ID (including negative group IDs) or an `@channel` destination.
+2. Make sure the bot can write there: start the bot in a private chat, or add it to the group/channel with the required posting permissions.
+3. An admin creates an enabled Telegram channel with the destination and token, then explicitly tests it with a real message.
+4. Select that channel on the intended alert rule.
+
+The token is encrypted at rest with **AES-GCM**, using a key derived from `JWT_SECRET` and authenticated binding to the account/channel. The API never returns it, only `has_secret`. Leaving the token blank/omitted when updating an existing Telegram channel preserves it.
+
+**Keep `JWT_SECRET` with your backups.** Rotating it makes stored Telegram tokens unreadable: re-enter every Telegram token after rotation; there is no automatic migration. Do not put tokens into screenshots, examples or logs.
+
+Saving a channel alone does **not** send a test, but an enabled rule referencing it may send a notification. The explicit Test action sends a real message; a disabled channel cannot be tested. A channel referenced by a rule must be removed from that rule before deletion.
+
+### Delivery, history and troubleshooting
+
+Rule evaluation runs **server-side every 5 seconds**. A separate notification worker sends messages independently of browser sessions; closing `/monitoring` does not stop alerts, and slow SMTP/Telegram does not block evaluation.
+
+- The persisted outbox uses `pending`, `sending`, `sent`, `failed`, with leased claims and at most **5 attempts**. Retryable failures use backoff; permanent failures can terminate earlier.
+- Older unfinished notifications for the same rule/channel block newer ones until completion or terminal failure, preserving firing/recovery order.
+- Delivery is retried within the attempt limit, **not guaranteed** and not exactly-once: ambiguous transport outcomes or recovery after a crash can produce duplicates. `sent` indicates transport acceptance, not that a person read the message.
+- Rule/channel updates cancel queued work; before sending, the worker rechecks account, device, rule and channel availability. An already accepted external message cannot be recalled.
+- History displays the latest **100** events/deliveries. The API accepts `limit=1..500` (default `100`) and exposes attempts, the sanitized last error and next retry time.
+- Monitoring history is **not** automatically pruned by `TELEMETRY_RETENTION_DAYS`; include it in database capacity planning and backups. Telemetry retention still affects widget queries.
+
+If no message arrives, check the active account, device/rule/channel enabled flags, selected channels, sustain/cooldown, and History delivery status. For SMTP check mode/host/TLS/authentication; for Telegram check destination, bot permissions and whether `JWT_SECRET` changed. Test deliberately after fixing configuration, then observe new rule events.
+
+---
+
 ## Health
 
 | Endpoint | Purpose |
