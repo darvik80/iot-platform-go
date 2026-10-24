@@ -220,7 +220,9 @@ func (p *Platform) ObserveTopicStyle(d *models.Device, style string) {
 		return
 	}
 	now := db.NowMS()
-	_, _ = p.DB.Exec(`UPDATE devices SET topic_style=?, updated_at=? WHERE id=?`, style, now, d.ID)
+	if _, err := p.DB.Exec(`UPDATE devices SET topic_style=?, updated_at=? WHERE id=?`, style, now, d.ID); err != nil && p.Log != nil {
+		p.Log.Warn("failed to update device topic style", "device_id", d.ID, "err", err)
+	}
 	d.TopicStyle = style
 	if p.Log != nil {
 		p.Log.Info("topic style detected", "product", d.ProductID, "device", d.DeviceID, "style", style)
@@ -283,9 +285,11 @@ func (p *Platform) SeenRecently(accountID, devicePK int64, capability string, pa
 	if err == nil && now-seenAt < window.Milliseconds() {
 		return true
 	}
-	_, _ = p.DB.Exec(`INSERT INTO ingest_dedup(device_pk, account_id, capability, fingerprint, seen_at) VALUES(?,?,?,?,?)
+	if _, err := p.DB.Exec(`INSERT INTO ingest_dedup(device_pk, account_id, capability, fingerprint, seen_at) VALUES(?,?,?,?,?)
 		ON CONFLICT(device_pk, capability, fingerprint) DO UPDATE SET seen_at=excluded.seen_at`,
-		devicePK, accountID, capability, fp, now)
+		devicePK, accountID, capability, fp, now); err != nil && p.Log != nil {
+		p.Log.Warn("failed to upsert ingest dedup", "device_pk", devicePK, "err", err)
+	}
 	return false
 }
 
@@ -296,8 +300,10 @@ func (p *Platform) Audit(userID *int64, actorKind, action, entityType, entityID 
 		s := string(b)
 		dj = &s
 	}
-	_, _ = p.DB.Exec(`INSERT INTO audit_log(user_id, actor_kind, action, entity_type, entity_id, detail_json, created_at) VALUES(?,?,?,?,?,?,?)`,
-		userID, actorKind, action, entityType, entityID, dj, db.NowMS())
+	if _, err := p.DB.Exec(`INSERT INTO audit_log(user_id, actor_kind, action, entity_type, entity_id, detail_json, created_at) VALUES(?,?,?,?,?,?,?)`,
+		userID, actorKind, action, entityType, entityID, dj, db.NowMS()); err != nil && p.Log != nil {
+		p.Log.Error("failed to insert audit log", "action", action, "err", err)
+	}
 }
 
 // AuditEntry is a single row from audit_log joined with user login.
@@ -373,11 +379,33 @@ func (p *Platform) runRetention() {
 		return
 	}
 	cutoff := db.NowMS() - int64(days)*24*3600*1000
-	_, _ = p.DB.Exec(`DELETE FROM telemetry_samples WHERE ts < ?`, cutoff)
-	_, _ = p.DB.Exec(`DELETE FROM events WHERE ts < ?`, cutoff)
-	_, _ = p.DB.Exec(`DELETE FROM device_logs WHERE ts < ?`, cutoff)
-	_, _ = p.DB.Exec(`DELETE FROM ingest_dedup WHERE seen_at < ?`, cutoff)
-	_, _ = p.DB.Exec(`DELETE FROM attribute_history WHERE updated_at < ?`, cutoff)
+	for _, table := range []struct{ name, col string }{
+		{"telemetry_samples", "ts"},
+		{"events", "ts"},
+		{"device_logs", "ts"},
+		{"ingest_dedup", "seen_at"},
+		{"attribute_history", "updated_at"},
+	} {
+		p.deleteInBatches(table.name, table.col, cutoff)
+	}
+}
+
+func (p *Platform) deleteInBatches(table, col string, cutoff int64) {
+	const batchSize = 1000
+	for {
+		res, err := p.DB.Exec(`DELETE FROM `+table+` WHERE id IN (SELECT id FROM `+table+` WHERE `+col+` < ? LIMIT ?)`, cutoff, batchSize)
+		if err != nil {
+			if p.Log != nil {
+				p.Log.Warn("retention delete failed", "table", table, "err", err)
+			}
+			return
+		}
+		n, _ := res.RowsAffected()
+		if n < batchSize {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func nullInt64(n sql.NullInt64) *int64 {
@@ -455,7 +483,9 @@ func (p *Platform) getSetting(key, fallback string) string {
 }
 
 func (p *Platform) setSetting(key, val string) {
-	_, _ = p.DB.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, val)
+	if _, err := p.DB.Exec(`INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, val); err != nil && p.Log != nil {
+		p.Log.Warn("failed to set setting", "key", key, "err", err)
+	}
 }
 
 // IsAccountSuspended returns true if the account with the given ID has status "suspended".
