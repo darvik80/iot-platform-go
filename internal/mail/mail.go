@@ -113,50 +113,27 @@ func encodeHeader(s string) string {
 
 func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 	var body bytes.Buffer
-	related := multipart.NewWriter(&body)
-
+	alt := multipart.NewWriter(&body)
+	if err := writePart(alt, "text/plain; charset=UTF-8", "quoted-printable", text); err != nil {
+		return nil, err
+	}
 	if html != "" {
-		var altBuf bytes.Buffer
-		alt := multipart.NewWriter(&altBuf)
-		if err := writePart(alt, "text/plain; charset=UTF-8", "quoted-printable", text); err != nil {
-			return nil, err
-		}
+		// Base64 so a quoted-printable soft break cannot split href.
 		if err := writePart(alt, "text/html; charset=UTF-8", "base64", html); err != nil {
 			return nil, err
 		}
-		if err := alt.Close(); err != nil {
-			return nil, err
-		}
-		ah := textproto.MIMEHeader{}
-		ah.Set("Content-Type", `multipart/alternative; boundary="`+alt.Boundary()+`"`)
-		ap, err := related.CreatePart(ah)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := ap.Write(altBuf.Bytes()); err != nil {
-			return nil, err
-		}
-		if err := writeLogo(related); err != nil {
-			return nil, err
-		}
-	} else if err := writePart(related, "text/plain; charset=UTF-8", "quoted-printable", text); err != nil {
-		return nil, err
 	}
-	if err := related.Close(); err != nil {
+	if err := alt.Close(); err != nil {
 		return nil, err
 	}
 
 	var msg bytes.Buffer
-	ctype := "multipart/related"
-	if html != "" {
-		ctype += `; type="multipart/alternative"`
-	}
 	fmt.Fprintf(&msg, "From: %s\r\n", from)
 	fmt.Fprintf(&msg, "To: %s\r\n", to)
 	fmt.Fprintf(&msg, "Subject: %s\r\n", encodeHeader(subject))
 	fmt.Fprintf(&msg, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	msg.WriteString("MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&msg, "Content-Type: %s; boundary=\"%s\"\r\n\r\n", ctype, related.Boundary())
+	fmt.Fprintf(&msg, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", alt.Boundary())
 	msg.Write(body.Bytes())
 	return msg.Bytes(), nil
 }
@@ -185,23 +162,6 @@ func writePart(w *multipart.Writer, contentType, transferEncoding, body string) 
 		return err
 	}
 	return qp.Close()
-}
-
-func writeLogo(w *multipart.Writer) error {
-	h := textproto.MIMEHeader{}
-	h.Set("Content-Type", "image/png")
-	h.Set("Content-Transfer-Encoding", "base64")
-	h.Set("Content-Disposition", `inline; filename="logo.png"`)
-	h.Set("Content-Id", "<cogitor-logo>")
-	p, err := w.CreatePart(h)
-	if err != nil {
-		return err
-	}
-	enc := base64.NewEncoder(base64.StdEncoding, p)
-	if _, err := enc.Write(logoPNG); err != nil {
-		return err
-	}
-	return enc.Close()
 }
 
 // sendMailSSL sends email via implicit SSL (port 465).

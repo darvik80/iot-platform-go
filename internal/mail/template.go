@@ -11,13 +11,12 @@ import (
 const emailFont = `Arial, Helvetica, sans-serif`
 
 type emailContent struct {
-	Preheader  string
 	Title      string
 	Lead       string
 	Body       string
 	Badge      string
 	ButtonHTML template.HTML
-	URL        string
+	AltHTML    template.HTML
 	FinePrint  string
 }
 
@@ -43,12 +42,26 @@ func safeHTTPURL(raw string) string {
 	return s
 }
 
+func hrefHTML(href, label, style string) template.HTML {
+	label = html.EscapeString(label)
+	if href == "" {
+		return template.HTML(label)
+	}
+	return template.HTML(`<a href="` + html.EscapeString(href) + `" style="` + style + `">` + label + `</a>`)
+}
+
+// buttonHTML is a bulletproof email button: the <a href> IS the coloured
+// control, so a click anywhere on "Accept invitation" follows the invite URL.
 func buttonHTML(href, label string) template.HTML {
 	label = html.EscapeString(label)
 	if href == "" {
-		return template.HTML(`<span style="display:block;padding:12px 22px;font-family:` + emailFont + `;font-size:14px;font-weight:bold;line-height:20px;color:#0f1419;">` + label + `</span>`)
+		return template.HTML(label)
 	}
-	return template.HTML(`<a href="` + html.EscapeString(href) + `" style="display:block;padding:12px 22px;font-family:` + emailFont + `;font-size:14px;font-weight:bold;line-height:20px;color:#0f1419;text-decoration:none;">` + label + `</a>`)
+	return template.HTML(
+		`<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>` +
+			`<td align="center" bgcolor="#3d9cf0" style="border-radius:6px;background-color:#3d9cf0;">` +
+			`<a href="` + html.EscapeString(href) + `" style="display:inline-block;padding:12px 24px;font-family:` + emailFont + `;font-size:16px;font-weight:bold;line-height:20px;color:#0f1419;text-decoration:none;border:1px solid #3d9cf0;border-radius:6px;background-color:#3d9cf0;">` +
+			label + `</a></td></tr></table>`)
 }
 
 var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
@@ -69,9 +82,6 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
           <td style="padding:0 4px 24px 4px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td style="vertical-align:middle;padding-right:10px;">
-                  <img src="cid:cogitor-logo" width="32" height="32" alt="Cogitor IoT" style="display:block;border:0;outline:none;">
-                </td>
                 <td style="vertical-align:middle;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:bold;color:#e6edf3;line-height:1;">
                   Cogitor <span style="color:#3d9cf0;">IoT</span>
                 </td>
@@ -84,15 +94,8 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
             <h1 style="margin:0 0 12px 0;font-family:Arial, Helvetica, sans-serif;font-size:22px;line-height:1.3;font-weight:bold;color:#e6edf3;">{{.Title}}</h1>
             {{if .Lead}}<p style="margin:0 0 16px 0;font-family:Arial, Helvetica, sans-serif;font-size:15px;line-height:1.55;color:#e6edf3;">{{.Lead}}{{if .Badge}} as <span style="display:inline-block;background-color:#1a3348;color:#3d9cf0;border-radius:4px;padding:2px 8px;font-family:Arial, Helvetica, sans-serif;font-size:12px;">{{.Badge}}</span>{{end}}</p>{{end}}
             {{if .Body}}<p style="margin:0 0 24px 0;font-family:Arial, Helvetica, sans-serif;font-size:15px;line-height:1.55;color:#8b9bb0;">{{.Body}}</p>{{end}}
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td bgcolor="#3d9cf0" style="border-radius:6px;background-color:#3d9cf0;">
-                  {{.ButtonHTML}}
-                </td>
-              </tr>
-            </table>
-            {{if .URL}}<p style="margin:20px 0 0 0;font-family:Arial, Helvetica, sans-serif;font-size:12px;line-height:1.5;color:#8b9bb0;">If the button does not open, copy this address:</p>
-            <p style="margin:6px 0 0 0;font-family:Consolas, Courier New, monospace;font-size:12px;line-height:1.5;color:#8b9bb0;word-break:break-all;">{{.URL}}</p>{{end}}
+            {{.ButtonHTML}}
+            {{if .AltHTML}}<p style="margin:20px 0 0 0;font-family:Arial, Helvetica, sans-serif;font-size:12px;line-height:1.5;color:#8b9bb0;">If the button does not open, {{.AltHTML}}.</p>{{end}}
           </td>
         </tr>
         <tr>
@@ -131,7 +134,7 @@ func verificationContent(login, verifyURL string) (text string, htmlOut string, 
 		Lead:       hello,
 		Body:       "Use the button below to confirm this email for your Cogitor IoT account.",
 		ButtonHTML: buttonHTML(safeHTTPURL(verifyURL), "Confirm account"),
-		URL:        link,
+		AltHTML:    hrefHTML(safeHTTPURL(verifyURL), "open this page", "color:#3d9cf0;text-decoration:underline;"),
 		FinePrint:  "If you did not register, you can ignore this email.",
 	})
 	return text, htmlOut, err
@@ -158,7 +161,7 @@ func invitationContent(accountName, role, inviteURL string) (text string, htmlOu
 		Badge:      role,
 		Body:       "Use the button below to accept and join the account.",
 		ButtonHTML: buttonHTML(safeHTTPURL(inviteURL), "Accept invitation"),
-		URL:        link,
+		AltHTML:    hrefHTML(safeHTTPURL(inviteURL), "open this page", "color:#3d9cf0;text-decoration:underline;"),
 		FinePrint:  "If you did not expect this invitation, you can ignore this email.",
 	})
 	return text, htmlOut, err

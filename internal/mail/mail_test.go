@@ -1,7 +1,6 @@
 package mail
 
 import (
-	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -15,7 +14,6 @@ func TestVerificationHTMLMatchesBrand(t *testing.T) {
 		t.Fatalf("plain text missing link: %s", text)
 	}
 	for _, want := range []string{
-		"cid:cogitor-logo",
 		"Cogitor",
 		"#3d9cf0",
 		"#0f1419",
@@ -36,20 +34,15 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(html, `<a href="`+u+`"`) {
-		t.Fatalf("button href missing, html:\n%s", html)
+	if strings.Count(html, `href="`+u+`"`) != 2 {
+		t.Fatalf("want button + fallback href, html:\n%s", html)
 	}
-	if strings.Count(html, `href="`+u+`"`) != 1 {
-		t.Fatalf("href must appear once, got:\n%s", html)
+	if !strings.Contains(html, `href="`+u+`" style="display:inline-block;`) || !strings.Contains(html, `>Accept invitation</a>`) {
+		t.Fatalf("Accept invitation must be the button link text, html:\n%s", html)
 	}
-	if strings.Contains(html, `>"`+u) || strings.Contains(html, `'`+`IBM`) || strings.Contains(html, "You're") {
-		t.Fatalf("template still has quote traps:\n%s", html)
-	}
-	if strings.Contains(html, "#ZgotmplZ") {
-		t.Fatal("template rejected the URL")
-	}
-	if !strings.Contains(html, "If the button does not open") {
-		t.Fatal("missing fallback copy")
+	rest := strings.ReplaceAll(html, `href="`+u+`"`, "")
+	if strings.Contains(rest, u) {
+		t.Fatalf("URL must not appear as visible text (mail clients quote it):\n%s", html)
 	}
 }
 
@@ -78,10 +71,7 @@ func TestInvitationEscapesHTML(t *testing.T) {
 	}
 }
 
-func TestBuildMessageEmbedsLogo(t *testing.T) {
-	if len(logoPNG) < 100 || string(logoPNG[:8]) != "\x89PNG\r\n\x1a\n" {
-		t.Fatalf("logo.png is not a PNG (%d bytes)", len(logoPNG))
-	}
+func TestBuildMessageAlternativeOnly(t *testing.T) {
 	text, html, err := verificationContent("u", "https://iot.example/v")
 	if err != nil {
 		t.Fatal(err)
@@ -93,31 +83,17 @@ func TestBuildMessageEmbedsLogo(t *testing.T) {
 	raw := string(msg)
 	for _, want := range []string{
 		"MIME-Version: 1.0",
-		"multipart/related",
 		"multipart/alternative",
 		"text/html; charset=UTF-8",
 		"text/plain; charset=UTF-8",
-		"image/png",
-		"<cogitor-logo>",
 		`From: "Cogitor IoT" <noreply@example.com>`,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("message missing %q", want)
 		}
 	}
-	encoded := base64.StdEncoding.EncodeToString(logoPNG)
-	// base64 may be wrapped; compare without whitespace
-	compact := strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' || r == ' ' {
-			return -1
-		}
-		return r
-	}, raw)
-	if !strings.Contains(compact, encoded) {
-		t.Fatal("message does not contain logo payload")
-	}
-	if !strings.Contains(raw, "text/html; charset=UTF-8") || !strings.Contains(raw, "base64") {
-		t.Fatal("html part should be base64 so long hrefs are not QP-wrapped")
+	if strings.Contains(raw, "multipart/related") || strings.Contains(raw, "cid:") {
+		t.Fatal("inline CID images break links in Yandex/Mail.ru")
 	}
 }
 
