@@ -44,6 +44,7 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Use(securityHeaders)
+	r.Use(middleware.Compress(5, "text/html", "application/json", "text/plain", "text/css", "application/javascript"))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: s.corsOrigins(),
 		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
