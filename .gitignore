@@ -22,4 +22,4 @@ internal/webui/dist
 dist/
 
 ci-templates
-mail.md
+mail.md__pycache__/
