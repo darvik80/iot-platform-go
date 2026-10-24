@@ -84,12 +84,6 @@ func (s *Server) Router() http.Handler {
 		})
 	})
 
-	// Prometheus metrics endpoint (public, no auth)
-	r.Get("/metrics", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		_, _ = w.Write([]byte(plugins.RenderMetrics()))
-	})
-
 	// Public: CA certificate for MQTT TLS clients (no auth required — needed before connect)
 	r.Get("/api/v1/mqtt/ca.pem", s.mqttCACert)
 
@@ -152,6 +146,8 @@ func (s *Server) Router() http.Handler {
 				r.Get("/users", s.requirePlatformAdmin(s.listUsers))
 				r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
 				r.Delete("/users/{id}", s.requirePlatformAdmin(s.deleteUser))
+
+				r.Get("/metrics", s.requirePlatformAdmin(s.getMetrics))
 
 				r.Get("/products", s.listProducts)
 				r.Post("/products", s.requireWrite(s.createProduct))
@@ -1115,4 +1111,9 @@ func (s *Server) corsOrigins() []string {
 		return []string{"*"}
 	}
 	return []string{base}
+}
+
+func (s *Server) getMetrics(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(plugins.RenderMetrics()))
 }
