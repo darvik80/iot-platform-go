@@ -1026,3 +1026,18 @@ func TestCreateMemberEmailOrLoginTaken(t *testing.T) {
 		t.Fatalf("err=%v want already-exists", err)
 	}
 }
+
+func TestInviteURL(t *testing.T) {
+	p := &Platform{}
+	if got := p.inviteURL("tok"); got != "http://localhost:8080/invite/tok" {
+		t.Fatalf("empty base: %q", got)
+	}
+	p.Cfg.Platform.PublicBaseURL = `"https://iot.example/"`
+	if got := p.inviteURL("ab"); got != "https://iot.example/invite/ab" {
+		t.Fatalf("quoted: %q", got)
+	}
+	p.Cfg.Platform.PublicBaseURL = "iot.example"
+	if got := p.inviteURL("ab"); got != "https://iot.example/invite/ab" {
+		t.Fatalf("no scheme: %q", got)
+	}
+}

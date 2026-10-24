@@ -20,6 +20,7 @@ func TestVerificationHTMLMatchesBrand(t *testing.T) {
 		"Hello darvik",
 		`href="https://iot.example/verify?token=abc"`,
 		">Confirm account</a>",
+		"https://iot.example/verify?token=abc",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("html missing %q", want)
@@ -33,14 +34,24 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(html, `<a href="`+u+`"`) || !strings.Contains(html, `>Accept invitation</a>`) {
+	if !strings.Contains(html, `<a href="`+u+`">Accept invitation</a>`) {
 		t.Fatalf("Accept invitation must be a link to the invite URL, html:\n%s", html)
 	}
-	if strings.Count(html, `href="`+u+`"`) != 1 {
-		t.Fatalf("href should appear once, html:\n%s", html)
+	if strings.Count(html, u) < 2 {
+		t.Fatalf("invite URL must appear as href and as visible text, html:\n%s", html)
 	}
-	if !strings.Contains(html, `https:<span></span>//iot.example/invite/`) {
-		t.Fatalf("copyable URL missing, html:\n%s", html)
+}
+
+func TestInvitationShowsRawURLEvenIfNotAbsolute(t *testing.T) {
+	_, html, err := invitationContent("Main", "viewer", "/invite/tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, `<a href="`) {
+		t.Fatal("relative URL must not become href")
+	}
+	if !strings.Contains(html, "/invite/tok") {
+		t.Fatalf("raw URL must still be visible, html:\n%s", html)
 	}
 }
 

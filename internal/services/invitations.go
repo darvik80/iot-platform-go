@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -94,8 +93,9 @@ func (p *Platform) CreateInvitation(accountID, invitedBy int64, email, role, del
 	if deliveryMethod == "email" {
 		var accName string
 		_ = p.DB.QueryRow(`SELECT name FROM accounts WHERE id=?`, accountID).Scan(&accName)
+		p.Log.Info("sending invitation email", "to", email, "url", inviteURL)
 		if err := p.Mailer().SendInvitation(email, accName, role, inviteURL); err != nil {
-			p.Log.Warn("invitation email failed", "err", err, "email", email)
+			p.Log.Warn("invitation email failed", "err", err, "email", email, "url", inviteURL)
 		}
 	}
 
@@ -377,8 +377,13 @@ func (p *Platform) ResendInvitation(accountID, invitationID int64) (string, erro
 	// Send email
 	var accName string
 	_ = p.DB.QueryRow(`SELECT name FROM accounts WHERE id=?`, accountID).Scan(&accName)
+	if p.Log != nil {
+		p.Log.Info("sending invitation email", "to", email, "url", inviteURL)
+	}
 	if err := p.Mailer().SendInvitation(email, accName, role, inviteURL); err != nil {
-		p.Log.Warn("invitation email failed", "err", err, "email", email)
+		if p.Log != nil {
+			p.Log.Warn("invitation email failed", "err", err, "email", email, "url", inviteURL)
+		}
 	}
 
 	return inviteURL, nil
@@ -526,5 +531,13 @@ func hashInviteToken(token string) string {
 }
 
 func (p *Platform) inviteURL(rawToken string) string {
-	return fmt.Sprintf("%s/invite/%s", p.Cfg.Platform.PublicBaseURL, url.PathEscape(rawToken))
+	base := strings.Trim(strings.TrimSpace(p.Cfg.Platform.PublicBaseURL), `"'`)
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	if !strings.Contains(base, "://") {
+		base = "https://" + strings.TrimPrefix(base, "//")
+	}
+	return base + "/invite/" + url.PathEscape(rawToken)
 }
