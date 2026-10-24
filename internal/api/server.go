@@ -308,7 +308,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		tok := auth.Bearer(r)
-		if tok == "" {
+		if tok == "" && strings.HasSuffix(r.URL.Path, "/ws") {
 			tok = r.URL.Query().Get("token")
 		}
 		if tok == "" {
