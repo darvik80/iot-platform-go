@@ -2,6 +2,7 @@ package mail
 
 import (
 	"bytes"
+	"html"
 	"html/template"
 	"net/url"
 	"strings"
@@ -15,14 +16,15 @@ type emailContent struct {
 	Badge     string
 	Button    string
 	URL       string
-	Href      template.URL
+	HrefAttr  template.HTMLAttr
 	FinePrint string
 }
 
-// mailLink returns the URL shown in the message and the same value as a
-// trusted href. html/template rejects scheme-less strings in href (the button
-// would go to #ZgotmplZ while the text still showed the original URL).
-func mailLink(raw string) (string, template.URL) {
+// mailLink normalizes an http(s) URL for the message body and a quoted href
+// attribute. The attribute is built here so html/template cannot wrap it in a
+// second pair of quotes (Yandex/Mail.ru then show `"https://...` and the
+// button goes nowhere).
+func mailLink(raw string) (display string, hrefAttr template.HTMLAttr) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return "", ""
@@ -41,7 +43,7 @@ func mailLink(raw string) (string, template.URL) {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return s, ""
 	}
-	return s, template.URL(s)
+	return s, template.HTMLAttr(`href="` + html.EscapeString(s) + `"`)
 }
 
 var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
@@ -81,13 +83,11 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td bgcolor="#3d9cf0" style="border-radius:6px;background-color:#3d9cf0;">
-                  <a href="{{.Href}}" style="display:inline-block;padding:12px 22px;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;line-height:1;color:#0f1419;text-decoration:none;">{{.Button}}</a>
+                  <a {{.HrefAttr}} target="_blank" style="display:block;padding:12px 22px;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;line-height:1;color:#0f1419;text-decoration:none;">{{.Button}}</a>
                 </td>
               </tr>
             </table>
-            <p style="margin:20px 0 0 0;font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;word-break:break-all;">
-              <a href="{{.Href}}" style="color:#8b9bb0;text-decoration:underline;">{{.URL}}</a>
-            </p>
+            <p style="margin:20px 0 0 0;font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;color:#8b9bb0;word-break:break-all;">{{.URL}}</p>
           </td>
         </tr>
         <tr>
@@ -116,7 +116,7 @@ func verificationContent(login, verifyURL string) (text string, html string, err
 	if login != "" {
 		hello = "Hello " + login + ","
 	}
-	display, href := mailLink(verifyURL)
+	display, hrefAttr := mailLink(verifyURL)
 	text = hello + "\n\nConfirm your Cogitor IoT account by opening this link:\n" + display + "\n\nIf you did not register, ignore this email.\n"
 	html, err = renderHTML(emailContent{
 		Preheader: "Confirm your Cogitor IoT account.",
@@ -125,7 +125,7 @@ func verificationContent(login, verifyURL string) (text string, html string, err
 		Body:      "Use the button below to confirm this email for your Cogitor IoT account.",
 		Button:    "Confirm account",
 		URL:       display,
-		Href:      href,
+		HrefAttr:  hrefAttr,
 		FinePrint: "If you did not register, you can ignore this email.",
 	})
 	return text, html, err
@@ -141,7 +141,7 @@ func invitationContent(accountName, role, inviteURL string) (text string, html s
 	if role != "" {
 		text += " as " + role
 	}
-	display, href := mailLink(inviteURL)
+	display, hrefAttr := mailLink(inviteURL)
 	text += ".\n\nAccept the invitation by opening this link:\n" + display + "\n\nIf you did not expect this, ignore this email.\n"
 	html, err = renderHTML(emailContent{
 		Preheader: "Join " + accountName + " on Cogitor IoT.",
@@ -151,7 +151,7 @@ func invitationContent(accountName, role, inviteURL string) (text string, html s
 		Body:      "Use the button below to accept and join the account.",
 		Button:    "Accept invitation",
 		URL:       display,
-		Href:      href,
+		HrefAttr:  hrefAttr,
 		FinePrint: "If you did not expect this invitation, you can ignore this email.",
 	})
 	return text, html, err

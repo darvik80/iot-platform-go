@@ -2,7 +2,6 @@ package mail
 
 import (
 	"encoding/base64"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -37,14 +36,17 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hrefs := regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(html, -1)
-	if len(hrefs) < 2 {
-		t.Fatalf("want button + fallback href, got %v in %s", hrefs, html)
+	if strings.Count(html, `href="`+u+`"`) != 1 {
+		t.Fatalf("button href must appear once, got:\n%s", html)
 	}
-	for _, m := range hrefs {
-		if m[1] != u {
-			t.Errorf("href=%q want %q", m[1], u)
-		}
+	if strings.Contains(html, `""`+u) || strings.Contains(html, `"https://iot.example/invite/abcdefghijklmnopqrstuvwxyz0123456789-_"`+`"`) {
+		t.Fatal("double-quoted href")
+	}
+	if strings.Contains(html, `>"`+u) || strings.Contains(html, `>`+`"`+u) {
+		t.Fatal("quoted URL leaked into link text")
+	}
+	if !strings.Contains(html, u) {
+		t.Fatal("visible URL missing")
 	}
 	if strings.Contains(html, "#ZgotmplZ") {
 		t.Fatal("template rejected the URL")
@@ -53,7 +55,7 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 
 func TestMailLinkAddsHTTPS(t *testing.T) {
 	display, href := mailLink("iot.example/invite/tok")
-	if display != "https://iot.example/invite/tok" || string(href) != display {
+	if display != "https://iot.example/invite/tok" || string(href) != `href="https://iot.example/invite/tok"` {
 		t.Fatalf("display=%q href=%q", display, href)
 	}
 	display, href = mailLink("javascript:alert(1)")
