@@ -23,6 +23,30 @@ type Sender struct {
 }
 
 func (s *Sender) Send(to, subject, body string) error {
+	return s.sendMIME(to, subject, body, "")
+}
+
+func (s *Sender) SendVerification(to, login, verifyURL string) error {
+	text, html, err := verificationContent(login, verifyURL, s.Cfg.Platform.PublicBaseURL)
+	if err != nil {
+		return err
+	}
+	return s.sendMIME(to, "Confirm your Cogitor IoT account", text, html)
+}
+
+func (s *Sender) SendInvitation(to, accountName, role, inviteURL string) error {
+	accountName = strings.TrimSpace(accountName)
+	if accountName == "" {
+		accountName = "a Cogitor IoT account"
+	}
+	text, html, err := invitationContent(accountName, role, inviteURL, s.Cfg.Platform.PublicBaseURL)
+	if err != nil {
+		return err
+	}
+	return s.sendMIME(to, fmt.Sprintf("Invitation to join %s", accountName), text, html)
+}
+
+func (s *Sender) sendMIME(to, subject, text, html string) error {
 	fromAddr := s.Cfg.Email.SMTPFrom
 	if fromAddr == "" {
 		fromAddr = "noreply@cogitor.local"
@@ -32,12 +56,16 @@ func (s *Sender) Send(to, subject, body string) error {
 	mode := s.Cfg.Email.EffectiveMode()
 	if mode == "log" {
 		if s.Log != nil {
-			s.Log.Info("email (log mode)", "to", to, "subject", subject, "body", body)
+			s.Log.Info("email (log mode)", "to", to, "subject", subject, "body", text)
 		}
 		return nil
 	}
 
-	msg := buildMessage(from, to, subject, body)
+	msg, err := buildMessage(from, to, subject, text, html)
+	if err != nil {
+		s.logSendErr(to, subject, err)
+		return err
+	}
 
 	addr := fmt.Sprintf("%s:%d", s.Cfg.Email.SMTPHost, s.Cfg.Email.SMTPPort)
 	var auth smtp.Auth
@@ -45,7 +73,6 @@ func (s *Sender) Send(to, subject, body string) error {
 		auth = smtp.PlainAuth("", s.Cfg.Email.SMTPUser, s.Cfg.Email.SMTPPass, s.Cfg.Email.SMTPHost)
 	}
 
-	var err error
 	if s.Cfg.Email.SMTPPort == 465 {
 		err = sendMailSSL(addr, fromAddr, auth, []string{to}, msg)
 	} else {
@@ -59,18 +86,6 @@ func (s *Sender) Send(to, subject, body string) error {
 		s.Log.Info("email sent", "to", to, "subject", subject, "host", s.Cfg.Email.SMTPHost, "port", s.Cfg.Email.SMTPPort)
 	}
 	return nil
-}
-
-func (s *Sender) SendVerification(to, login, verifyURL string) error {
-	return s.Send(to, "Confirm your Cogitor IoT account", verificationBody(login, verifyURL))
-}
-
-func (s *Sender) SendInvitation(to, accountName, role, inviteURL string) error {
-	accountName = strings.TrimSpace(accountName)
-	if accountName == "" {
-		accountName = "a Cogitor IoT account"
-	}
-	return s.Send(to, fmt.Sprintf("Invitation to join %s", accountName), invitationBody(accountName, role, inviteURL))
 }
 
 func verificationBody(login, verifyURL string) string {
@@ -119,19 +134,44 @@ func encodeHeader(s string) string {
 	return s
 }
 
-func buildMessage(from, to, subject, body string) []byte {
-	body = strings.ReplaceAll(body, "\r\n", "\n")
-	body = strings.ReplaceAll(body, "\n", "\r\n")
+func buildMessage(from, to, subject, text, html string) ([]byte, error) {
+	var body bytes.Buffer
+	alt := multipart.NewWriter(&body)
+	if err := writePart(alt, "text/plain; charset=UTF-8", text); err != nil {
+		return nil, err
+	}
+	if html != "" {
+		if err := writePart(alt, "text/html; charset=UTF-8", html); err != nil {
+			return nil, err
+		}
+	}
+	if err := alt.Close(); err != nil {
+		return nil, err
+	}
+
 	var msg bytes.Buffer
 	fmt.Fprintf(&msg, "From: %s\r\n", from)
 	fmt.Fprintf(&msg, "To: %s\r\n", to)
 	fmt.Fprintf(&msg, "Subject: %s\r\n", encodeHeader(subject))
 	fmt.Fprintf(&msg, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	msg.WriteString("MIME-Version: 1.0\r\n")
-	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-	msg.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-	msg.WriteString(body)
-	return msg.Bytes()
+	fmt.Fprintf(&msg, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", alt.Boundary())
+	msg.Write(body.Bytes())
+	return msg.Bytes(), nil
+}
+
+func writePart(w *multipart.Writer, contentType, body string) error {
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Transfer-Encoding", "8bit")
+	p, err := w.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = strings.ReplaceAll(body, "\n", "\r\n")
+	_, err = p.Write([]byte(body))
+	return err
 }
 
 func sendMailSSL(addr, from string, auth smtp.Auth, to []string, msg []byte) error {
