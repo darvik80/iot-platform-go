@@ -292,6 +292,172 @@ When a plugin is disabled, it stops running for all devices in the account. Sett
 
 ---
 
+<a id="monitoring"></a>
+
+## Monitoring
+
+Implemented in **v1.9.0**: account dashboards, metric queries, alert rules and notification delivery. This is separate from the [device dashboard](#device-dashboard) / `metrics-dashboard` plugin. Setup and delivery semantics: [Operations → Monitoring](11-operations.md#monitoring).
+
+All paths below are relative to **`/api/v1/monitoring`** and scoped to the token's active account. Suspended accounts are denied (`403`). `member` includes viewers; `write` means admin/operator. **All channel access, even reads, requires admin.** Resource/device IDs are internal numeric IDs, not MQTT device names.
+
+| Method | Path | Role | Result |
+|--------|------|------|--------|
+| GET | `/dashboards` | member | Dashboard summaries, each with `widgets: []` |
+| POST | `/dashboards` | write | Create dashboard |
+| GET | `/dashboards/{id}` | member | Full dashboard with widgets |
+| PUT / DELETE | `/dashboards/{id}` | write | Replace / delete dashboard |
+| GET | `/metrics?device_id=1` | member | Received metric catalog: `[{"key":"temperature","kind":"number","last_seen":1700000000000}]` |
+| POST | `/query` | member | Query one widget, including an unsaved preview |
+| GET | `/rules` | member | Full rule list |
+| POST | `/rules` | admin | Create rule |
+| PUT / DELETE | `/rules/{id}` | admin | Replace / delete rule |
+| GET | `/channels` | admin | Channel list without secrets |
+| POST | `/channels` | admin | Create channel |
+| PUT / DELETE | `/channels/{id}` | admin | Replace / delete channel |
+| POST | `/channels/{id}/test` | admin | Send a real test message; no body required |
+| GET | `/events?limit=100` | member | Alert events, newest first |
+| GET | `/deliveries?limit=100` | member | Outbox delivery records, newest first |
+
+Lists are JSON arrays. Creates return `201` and the saved object; updates return `200` and the saved object; successful deletes/tests return `204`. There is **no** `GET /rules/{id}` or `GET /channels/{id}`; use their lists.
+
+### Dashboards and widgets
+
+`POST /api/v1/monitoring/dashboards` example (device `1` must belong to the active account):
+
+```json
+{
+  "name": "Plant room",
+  "widgets": [{
+    "id": "temperature-line",
+    "title": "Temperature",
+    "type": "line",
+    "sources": [{"device_id": 1, "key": "temperature", "label": "Room", "color": "#3d9cf0"}],
+    "window_seconds": 3600,
+    "aggregation": "avg",
+    "width": 6,
+    "min": 0,
+    "max": 100
+  }]
+}
+```
+
+The saved object has `id`, `account_id`, `name`, `version` (initially `1`) and `widgets`. Layout is persisted in SQLite/PostgreSQL; widget data is queried, not stored as a snapshot.
+
+For `PUT /dashboards/{id}`, send `name`, the **current `version`**, and the **complete `widgets` array**. The update replaces all widgets and increments the version. On `409`, refetch the full dashboard, reapply edits and submit its new version. Never save a list summary as a full dashboard: its empty `widgets` would remove the layout.
+
+- Maximum 50 dashboards/account, 24 widgets/dashboard and 1–8 distinct `(device_id, key)` sources/widget. Widget IDs must be unique within a dashboard.
+- `type`: `line`, `bar`, `stat`, `gauge`, `table`; `aggregation`: `avg`, `min`, `max`, `sum`, `last`; `width`: `6` or `12`.
+- `window_seconds`: `60..2678400` (31 days); gauge requires `min < max`; source colors are six-digit hex (`#RRGGBB`, default `#3d9cf0`).
+- Use numeric sources for line/bar/gauge and numeric aggregates; `last` also supports boolean/text values in stat/table. The wizard enforces type compatibility; numeric API aggregates ignore non-numeric rows.
+- `/metrics` lists actual received telemetry keys (up to 1000/device), not product-schema declarations. `kind` is `number`, `boolean` or `text`; `last_seen` is receive time in Unix milliseconds.
+
+### Widget query
+
+`POST /api/v1/monitoring/query` accepts a full widget plus optional `from`/`to` Unix-millisecond timestamps:
+
+```json
+{
+  "widget": {
+    "id": "temperature-stat", "title": "Average temperature", "type": "stat",
+    "sources": [{"device_id": 1, "key": "temperature", "label": "Room", "color": "#3d9cf0"}],
+    "window_seconds": 3600, "aggregation": "avg", "width": 6, "min": 0, "max": 100
+  },
+  "from": 1700000000000,
+  "to": 1700003600000
+}
+```
+
+Illustrative `200` response when samples exist:
+
+```json
+{
+  "from": 1700000000000,
+  "to": 1700003600000,
+  "series": [{
+    "device_id": 1, "key": "temperature", "label": "Room", "color": "#3d9cf0",
+    "points": [{"ts": 1700003599000, "value": 23.5}]
+  }]
+}
+```
+
+Omitted/zero `to` defaults to now; omitted/zero `from` defaults to `to - window_seconds * 1000`. Require `0 <= from < to`, at most 31 days, and `to` no more than 60 seconds ahead of server time. Queries use measurement timestamps.
+
+Each series contains up to **240** bucketed points spanning the whole interval, not merely the last 240 samples. Stat/gauge return one whole-window aggregate per source. A point's `ts` is the latest contributing measurement time; `value` can be a number, boolean or string with `last`. No matching data yields `points: []`, **not zero**. Numeric aggregates use numeric samples; `last` selects the latest measurement per bucket.
+
+### Alert rules
+
+`POST /api/v1/monitoring/rules` example (events only until channels are selected):
+
+```json
+{
+  "name": "High temperature", "device_id": 1, "metric": "temperature",
+  "kind": "threshold", "operator": "gt", "threshold": 80, "recovery": 75,
+  "for_seconds": 30, "missing_seconds": 300, "cooldown_seconds": 300,
+  "enabled": true, "channel_ids": []
+}
+```
+
+The response adds `id`, `account_id`, `state` and `since` (Unix ms). `PUT /rules/{id}` takes the complete rule configuration, not a patch; state/timing are server-managed. There is no client version field for rules.
+
+| Field / kind | Contract |
+|--------------|----------|
+| `threshold` | Requires `metric`, numeric data and `operator` `gt` / `lt`. `gt`: fire above `threshold`, recover at/below `recovery`; `lt`: fire below, recover at/above. Recovery must be toward normal |
+| `no_data` | No receive-time data for `missing_seconds`; empty `metric` covers any telemetry from the device |
+| `offline` | Empty `metric`; offline status **or** stale `last_seen` satisfies the condition |
+| `for_seconds` | `0..604800`; default `0` means immediate firing on the next qualifying evaluation |
+| `missing_seconds` | `1..604800`; omitted/zero defaults to `300`; also controls threshold freshness, even though the threshold UI hides it |
+| `cooldown_seconds` | `60..604800`; omitted/zero defaults to `300`; repeat interval while firing |
+| `channel_ids` | Distinct IDs of this account's channels; empty means events only. Maximum 100 rules/account, 20 channels/account |
+
+`missing_seconds` is **not** a disconnect grace period: offline status can qualify immediately. Use `for_seconds` for sustained offline detection. Thresholds require fresh measurement and receive timestamps; stale/non-numeric samples cannot resolve firing or cause reminders. Latest-measurement ordering prevents delayed older recovery samples from replacing a newer alarm.
+
+States are `normal`, `pending`, `firing`, `resolved` and persist across restarts. Missing/invalid threshold data, cleared conditions or sufficiently long evaluation gaps break pending sustain. Disabled rules/devices and suspended accounts are not evaluated or sent notifications; pending state resets. Updating a rule resets state to `normal`, advances the internal revision and cancels queued deliveries from the prior configuration. Evaluation is server-side every 5 seconds, independent of browser refresh.
+
+### Notification channels
+
+`POST /api/v1/monitoring/channels`: replace the placeholder with your own bot token; it is **not** a usable credential.
+
+```json
+{
+  "name": "Duty chat", "kind": "telegram", "destination": "@plant_alerts",
+  "enabled": true, "secret": "<BOT_TOKEN>"
+}
+```
+
+Secret-masked response shape (`201`; no `secret` field is returned):
+
+```json
+{
+  "id": 7, "account_id": 1, "name": "Duty chat", "kind": "telegram",
+  "destination": "@plant_alerts", "enabled": true, "has_secret": true
+}
+```
+
+Telegram accepts a numeric chat ID or `@channel`; the bot must have permission to write there. Tokens are encrypted with AES-GCM using a `JWT_SECRET`-derived key and account/channel binding. `PUT /channels/{id}` supplies channel configuration; blank/omitted `secret` preserves an existing Telegram token. After `JWT_SECRET` rotation, re-enter tokens; there is no automatic migration.
+
+For email use `kind: "email"`, one email address as `destination` and no secret. Sending uses existing `email.*` YAML / SMTP environment configuration; `EMAIL_MODE=log` fails notification delivery rather than marking it sent. See [SMTP/TLS setup](11-operations.md#monitoring).
+
+Saving alone does not send a test, but an enabled rule may send. Explicit `POST /channels/{id}/test` sends a **real message** through an enabled channel; it is synchronous, not an outbox delivery. Remove channel references from rules before deleting a channel (`409` otherwise). Channel updates cancel its queued deliveries.
+
+### History and errors
+
+Both history endpoints accept `limit=1..500`, default `100` (the UI shows 100). Event fields: `id`, `rule_id`, `name`, `state`, `message`, `created_at`. Delivery fields: `id`, `event_id`, `channel_id`, `status`, `attempts`, `last_error`, `next_attempt`; timestamps are Unix ms. Errors are sanitized and never expose bot tokens.
+
+Outbox statuses: `pending`, `sending`, `sent`, `failed`; at most 5 attempts with backoff and leased claims. Older pending/sending work for the same rule/channel blocks newer notifications until terminal completion. Delivery is **at-least-once**: transport ambiguity can cause duplicates, not exactly-once delivery. Monitoring history is not automatically telemetry-retention-pruned.
+
+JSON bodies are limited to **128 KiB**; unknown fields and trailing JSON are rejected.
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Invalid JSON/ID/configuration/range/limit; dashboard quota (50) exceeded; foreign device/channel references in a rule body |
+| `403` | Insufficient role, inactive membership or suspended active account |
+| `404` | Missing/foreign resource addressed by ID; missing/foreign widget device; disabled channel on test |
+| `409` | Dashboard version conflict, rule/channel quota exceeded, or deletion of a referenced channel |
+| `413` | Request body too large |
+| `500` | Unexpected service error or test-message delivery failure |
+
+---
+
 ## Device dashboard
 
 | Method | Path | Description |

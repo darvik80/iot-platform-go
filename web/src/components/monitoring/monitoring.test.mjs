@@ -178,9 +178,9 @@ test('unmount abort rejects a late response while ordinary server errors remain 
   await assert.rejects(accountRequest(async () => { throw new Error('Version conflict'); }, 'A', () => 'A', new AbortController().signal), /Version conflict/);
   assert.equal(await accountRequest(async () => 'current', 'A', () => 'A', new AbortController().signal), 'current');
 });
-test('all Monitoring copy, registry choices and validation errors have matching EN/RU keys', () => {
-  const english = Object.keys(en).filter(key => key.startsWith('monitoring.') || key === 'nav.monitoring').sort();
-  const russian = Object.keys(ru).filter(key => key.startsWith('monitoring.') || key === 'nav.monitoring').sort();
+test('all Monitoring copy, documentation and validation errors have matching EN/RU keys', () => {
+  const english = Object.keys(en).filter(key => key.startsWith('monitoring.') || key.startsWith('docs.') || key === 'nav.monitoring').sort();
+  const russian = Object.keys(ru).filter(key => key.startsWith('monitoring.') || key.startsWith('docs.') || key === 'nav.monitoring').sort();
   assert.deepEqual(english, russian);
   const dynamic = [
     ...Object.values(WIDGET_TYPES).map(type => type.label),
@@ -188,10 +188,10 @@ test('all Monitoring copy, registry choices and validation errors have matching 
     ...RULE_KINDS.map(k => `monitoring.ruleKind.${k}`), ...CHANNEL_KINDS.map(k => `monitoring.channelKind.${k}`),
   ];
   for (const key of dynamic) { assert.ok(en[key], key); assert.ok(ru[key], key); }
-  const files = ['Shared.tsx', 'WidgetView.tsx', 'WidgetWizard.tsx', 'Dashboards.tsx', 'Alerts.tsx', 'Channels.tsx', 'History.tsx', '../../pages/MonitoringPage.tsx', '../../api/monitoring.ts'];
+  const files = ['Shared.tsx', 'WidgetView.tsx', 'WidgetWizard.tsx', 'Dashboards.tsx', 'Alerts.tsx', 'Channels.tsx', 'History.tsx', '../../pages/MonitoringPage.tsx', '../../pages/DocsPage.tsx', '../../api/monitoring.ts'];
   for (const file of files) {
     const code = readFileSync(new URL(file, import.meta.url), 'utf8');
-    for (const [, key] of code.matchAll(/['"]((?:monitoring|common|nav)\.[A-Za-z0-9_.]+)['"]/g)) { assert.ok(en[key], `${file}: ${key}`); assert.ok(ru[key], `${file}: ${key}`); }
+    for (const [, key] of code.matchAll(/['"]((?:monitoring|docs|common|nav)\.[A-Za-z0-9_.]+)['"]/g)) { assert.ok(en[key], `${file}: ${key}`); assert.ok(ru[key], `${file}: ${key}`); }
   }
   for (const key of english) assert.deepEqual([...en[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), [...ru[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), key);
 });

@@ -150,6 +150,7 @@ The dashboard is a React SPA embedded into the Go binary. It provides a dark-the
 | **MQTT** | Live broker sessions, connected clients (device / Node-RED / service), real-time broker event trail |
 | **Products** | Device archetypes — create products, define RPC methods, telemetry metrics, attributes |
 | **Devices** | All registered devices with status, firmware version, last seen. Search and filter. |
+| **Monitoring** | Account dashboards, chart wizard, threshold/no-data/offline alerts, Telegram/email channels and delivery history |
 | **Device Detail** | Connection info, telemetry metrics, desired attributes, OTA panel, plugins, RPC console, events |
 | **Events** | Device events filtered by severity, device, time range |
 | **Logs** | Device log messages from MQTT `v1/me/l` uplink |

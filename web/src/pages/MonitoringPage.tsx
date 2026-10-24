@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { monitoringPermissions } from '../api/monitoring';
 import { useAuth } from '../auth/AuthContext';
 import { Alerts } from '../components/monitoring/Alerts';
@@ -26,7 +27,7 @@ function AccountMonitoring() {
   const devices = useMonitoringResource<Device[]>(request, activeMembership ? '/devices' : null, refresh);
   return <div className="monitoring-page">
     <div className="d-flex align-items-start justify-content-between gap-3 mb-3">
-      <div><h1 className="h3 mb-1">{t('nav.monitoring')}</h1><p className="muted small mb-0">{t('monitoring.accountScope', { account: activeMembership?.account_name || t('common.none') })}</p></div>
+      <div><h1 className="h3 mb-1">{t('nav.monitoring')}</h1><p className="muted small mb-0">{t('monitoring.accountScope', { account: activeMembership?.account_name || t('common.none') })} · <Link to="/docs#monitoring">{t('docs.title')}</Link></p></div>
       <button type="button" className="btn btn-outline-secondary" onClick={() => setRefresh(v => v + 1)}>{t('common.refresh')}</button>
     </div>
     {!activeMembership ? <div className="alert alert-warning">{t('monitoring.noAccount')}</div> : <>
