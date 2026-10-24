@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"html"
 	"html/template"
-	"net/url"
 	"strings"
 )
 
 type emailContent struct {
-	Title     string
-	Lead      string
-	Body      string
-	Badge     string
-	LogoURL   template.URL
-	LinkHTML  template.HTML
-	FinePrint string
+	Title       string
+	Lead        string
+	Body        string
+	Badge       string
+	LogoURL     template.URL
+	ButtonURL   template.URL
+	ButtonText  string
+	FallbackURL template.HTML
+	FinePrint   string
 }
 
 func logoSrc(publicBase string) string {
@@ -24,21 +25,6 @@ func logoSrc(publicBase string) string {
 		return ""
 	}
 	return base + "/favicon.png"
-}
-
-// linkHTML is a bare <a href="url">url</a>. No button styles: mail clients
-// drop those and take the href with them. Color lives on the wrapping <p>.
-func linkHTML(raw string) template.HTML {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	esc := html.EscapeString(raw)
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return template.HTML(esc)
-	}
-	return template.HTML(`<a href="` + esc + `">` + esc + `</a>`)
 }
 
 var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
@@ -54,20 +40,29 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
     <td align="center" style="padding:32px 16px;">
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">
         <tr>
-          <td style="padding:0 0 20px 0;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:bold;color:#e6edf3;">
-            {{if .LogoURL}}<img src="{{.LogoURL}}" width="22" height="22" alt="" style="width:22px;height:22px;border:0;vertical-align:middle;margin-right:8px;border-radius:4px;">{{end}}Cogitor <span style="color:#3d9cf0;">IoT</span>
+          <td style="padding:0 0 24px 0;font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:600;color:#e6edf3;letter-spacing:0.3px;">
+            {{if .LogoURL}}<img src="{{.LogoURL}}" width="24" height="24" alt="" style="width:24px;height:24px;border:0;vertical-align:middle;margin-right:10px;border-radius:4px;">{{end}}Cogitor <span style="color:#3d9cf0;font-weight:600;">IoT</span>
           </td>
         </tr>
         <tr>
-          <td style="background-color:#1c2430;border:1px solid #2a3544;padding:28px 24px;">
-            <h1 style="margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:22px;color:#e6edf3;">{{.Title}}</h1>
-            {{if .Lead}}<p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#e6edf3;">{{.Lead}}{{if .Badge}} as {{.Badge}}{{end}}</p>{{end}}
-            {{if .Body}}<p style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#8b9bb0;">{{.Body}}</p>{{end}}
-            {{if .LinkHTML}}<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#3d9cf0;word-break:break-all;">{{.LinkHTML}}</p>{{end}}
+          <td style="background-color:#1c2430;border:1px solid #2a3544;border-radius:8px;padding:32px 28px;">
+            <h1 style="margin:0 0 16px 0;font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:600;color:#e6edf3;">{{.Title}}</h1>
+            {{if .Lead}}<p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#e6edf3;">{{.Lead}}{{if .Badge}} <span style="display:inline-block;background-color:rgba(61,156,240,0.15);color:#3d9cf0;font-size:12px;font-weight:600;padding:2px 10px;border-radius:10px;margin-left:4px;">{{.Badge}}</span>{{end}}</p>{{end}}
+            {{if .Body}}<p style="margin:0 0 24px 0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#8b9bb0;">{{.Body}}</p>{{end}}
+            {{if .ButtonURL}}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
+              <tr>
+                <td style="background-color:#3d9cf0;border-radius:6px;">
+                  <a href="{{.ButtonURL}}" target="_blank" style="display:inline-block;padding:12px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">{{.ButtonText}}</a>
+                </td>
+              </tr>
+            </table>
+            {{end}}
+            {{if .FallbackURL}}<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#8b9bb0;word-break:break-all;">Or copy this link into your browser:<br>{{.FallbackURL}}</p>{{end}}
           </td>
         </tr>
         <tr>
-          <td style="padding:20px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#8b9bb0;">{{.FinePrint}}</td>
+          <td style="padding:20px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#5a6a7e;">{{.FinePrint}}</td>
         </tr>
       </table>
     </td>
@@ -91,13 +86,16 @@ func verificationContent(login, verifyURL, publicBase string) (text string, html
 		hello = "Hello " + login + ","
 	}
 	text = verificationBody(login, verifyURL)
+	esc := html.EscapeString(strings.TrimSpace(verifyURL))
 	htmlOut, err = renderHTML(emailContent{
-		Title:     "Confirm your account",
-		Lead:      hello,
-		Body:      "Open this link to confirm this email for your Cogitor IoT account.",
-		LogoURL:   template.URL(logoSrc(publicBase)),
-		LinkHTML:  linkHTML(verifyURL),
-		FinePrint: "If you did not register, you can ignore this email.",
+		Title:       "Confirm your account",
+		Lead:        hello,
+		Body:        "Confirm this email address for your Cogitor IoT account.",
+		LogoURL:     template.URL(logoSrc(publicBase)),
+		ButtonURL:   template.URL(verifyURL),
+		ButtonText:  "Confirm account",
+		FallbackURL: template.HTML(`<a href="` + esc + `">` + esc + `</a>`),
+		FinePrint:   "If you did not register, you can ignore this email.",
 	})
 	return text, htmlOut, err
 }
@@ -109,14 +107,17 @@ func invitationContent(accountName, role, inviteURL, publicBase string) (text st
 	if accountName == "" {
 		accountName = "a Cogitor IoT account"
 	}
+	esc := html.EscapeString(strings.TrimSpace(inviteURL))
 	htmlOut, err = renderHTML(emailContent{
-		Title:     "You are invited",
-		Lead:      "You have been invited to join " + accountName,
-		Badge:     role,
-		Body:      "Open this link to accept and join the account.",
-		LogoURL:   template.URL(logoSrc(publicBase)),
-		LinkHTML:  linkHTML(inviteURL),
-		FinePrint: "If you did not expect this invitation, you can ignore this email.",
+		Title:       "You are invited",
+		Lead:        "You have been invited to join " + accountName,
+		Badge:       role,
+		Body:        "Accept the invitation to get access to the account.",
+		LogoURL:     template.URL(logoSrc(publicBase)),
+		ButtonURL:   template.URL(inviteURL),
+		ButtonText:  "Accept invitation",
+		FallbackURL: template.HTML(`<a href="` + esc + `">` + esc + `</a>`),
+		FinePrint:   "If you did not expect this invitation, you can ignore this email.",
 	})
 	return text, htmlOut, err
 }
