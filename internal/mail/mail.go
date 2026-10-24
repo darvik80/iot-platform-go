@@ -51,10 +51,7 @@ func (s *Sender) sendMIME(to, subject, text, html string) error {
 	}
 	from := formatFrom(fromAddr)
 
-	mode := s.Cfg.Email.Mode
-	if mode == "" || (mode == "smtp" && s.Cfg.Email.SMTPHost == "") {
-		mode = "log"
-	}
+	mode := s.Cfg.Email.EffectiveMode()
 	if mode == "log" {
 		if s.Log != nil {
 			s.Log.Info("email (log mode)", "to", to, "subject", subject, "body", text)
@@ -64,6 +61,7 @@ func (s *Sender) sendMIME(to, subject, text, html string) error {
 
 	msg, err := buildMessage(from, to, subject, text, html)
 	if err != nil {
+		s.logSendErr(to, subject, err)
 		return err
 	}
 
@@ -75,9 +73,25 @@ func (s *Sender) sendMIME(to, subject, text, html string) error {
 
 	// Port 465 requires implicit SSL; other ports use STARTTLS via smtp.SendMail.
 	if s.Cfg.Email.SMTPPort == 465 {
-		return sendMailSSL(addr, fromAddr, auth, []string{to}, msg)
+		err = sendMailSSL(addr, fromAddr, auth, []string{to}, msg)
+	} else {
+		err = smtp.SendMail(addr, auth, fromAddr, []string{to}, msg)
 	}
-	return smtp.SendMail(addr, auth, fromAddr, []string{to}, msg)
+	if err != nil {
+		s.logSendErr(to, subject, err)
+		return err
+	}
+	if s.Log != nil {
+		s.Log.Info("email sent", "to", to, "subject", subject, "host", s.Cfg.Email.SMTPHost, "port", s.Cfg.Email.SMTPPort)
+	}
+	return nil
+}
+
+func (s *Sender) logSendErr(to, subject string, err error) {
+	if s.Log == nil {
+		return
+	}
+	s.Log.Error("email send failed", "to", to, "subject", subject, "host", s.Cfg.Email.SMTPHost, "port", s.Cfg.Email.SMTPPort, "err", err)
 }
 
 func formatFrom(addr string) string {

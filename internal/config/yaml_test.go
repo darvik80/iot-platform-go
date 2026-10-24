@@ -6,6 +6,32 @@ import (
 	"testing"
 )
 
+func TestLoadYAMLTabIndent(t *testing.T) {
+	keys := []string{"EMAIL_MODE", "EMAIL_SMTP_HOST", "SMTP_HOST", "DATABASE_DRIVER", "DATABASE_DSN"}
+	for _, k := range keys {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	path := filepath.Join(t.TempDir(), "config.yml")
+	src := "database:\n\tdriver: sqlite\n\tdsn: /tmp/x.db\nemail:\n\tmode: smtp\n\tsmtp_host: smtp.example\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := LoadYAMLFile(path, true); !ok || err != nil {
+		t.Fatalf("tab-indented yaml: ok=%v err=%v", ok, err)
+	}
+	cfg := Load()
+	if cfg.Database.Driver != "sqlite" || cfg.Database.DSN != "/tmp/x.db" {
+		t.Fatalf("database driver=%q dsn=%q", cfg.Database.Driver, cfg.Database.DSN)
+	}
+	if cfg.Email.SMTPHost != "smtp.example" {
+		t.Fatalf("smtp_host=%q", cfg.Email.SMTPHost)
+	}
+	if cfg.Email.EffectiveMode() != "smtp" {
+		t.Fatalf("mode=%q effective=%q", cfg.Email.Mode, cfg.Email.EffectiveMode())
+	}
+}
+
 func TestLoadYAMLFileErrors(t *testing.T) {
 	dir := t.TempDir()
 

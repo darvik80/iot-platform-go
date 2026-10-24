@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -85,16 +86,16 @@ type SetupService struct {
 func NewSetupService(log *slog.Logger) *SetupService {
 	return &SetupService{
 		state: &SetupState{
-			CurrentStep:      1,
-			DatabaseDriver:   "sqlite",
-			DatabaseDSN:      "/opt/iot-platform/lib/platform.db",
-			AdminLogin:       "admin",
-			AdminEmail:       "admin@example.com",
-			AccountSlug:      "default",
-			AccountName:      "Default",
-			SMTPPort:         587,
-			JWTSecret:        generateSecret(),
-			PublicBaseURL: "http://localhost:8080",
+			CurrentStep:    1,
+			DatabaseDriver: "sqlite",
+			DatabaseDSN:    "/opt/iot-platform/lib/platform.db",
+			AdminLogin:     "admin",
+			AdminEmail:     "admin@example.com",
+			AccountSlug:    "default",
+			AccountName:    "Default",
+			SMTPPort:       587,
+			JWTSecret:      generateSecret(),
+			PublicBaseURL:  "http://localhost:8080",
 		},
 		log: log,
 	}
@@ -321,6 +322,7 @@ func (s *SetupService) Apply() error {
 			SMTPUser: s.state.SMTPUser,
 			SMTPPass: s.state.SMTPPass,
 			SMTPFrom: s.state.SMTPFrom,
+			Mode:     emailMode(s.state.SMTPHost),
 		},
 		MQTT: config.MQTTConfig{
 			Addr:    ":1883",
@@ -350,9 +352,11 @@ func (s *SetupService) Apply() error {
 	}
 
 	// Write configuration to config.yml for persistence
-	if err := writeConfigYAML(cfg); err != nil {
+	if path, err := writeConfigYAML(cfg); err != nil {
 		s.log.Warn("failed to write config.yml", "err", err)
 		// Not fatal - settings are already in the database
+	} else {
+		s.log.Info("wrote config.yml", "path", path)
 	}
 
 	s.state.Completed = true
@@ -491,54 +495,65 @@ func syscallAccessW(dir string) error {
 	return nil
 }
 
-// writeConfigYAML writes the configuration to config.yml for persistence.
-// The YAML structure is nested to match config.yml.example so that LoadYAML
-// (which flattens nested keys to SCREAMING_SNAKE_CASE env vars) can read it back.
-func writeConfigYAML(cfg config.Config) error {
-	type yamlConfig struct {
-		Database struct {
-			Driver string `yaml:"driver"`
-			DSN    string `yaml:"dsn"`
-		} `yaml:"database"`
-		Auth struct {
-			JWTSecret string `yaml:"jwt_secret"`
-		} `yaml:"auth"`
-		Platform struct {
-			PublicBaseURL    string `yaml:"public_base_url"`
-			BrokerHostPublic string `yaml:"broker_host_public"`
-		} `yaml:"platform"`
-		Email *struct {
-			SMTPHost string `yaml:"smtp_host"`
-			SMTPPort int    `yaml:"smtp_port"`
-			SMTPUser string `yaml:"smtp_user"`
-			SMTPPass string `yaml:"smtp_pass"`
-			SMTPFrom string `yaml:"smtp_from"`
-		} `yaml:"email,omitempty"`
-		MQTT *struct {
-			Addr        string `yaml:"addr"`
-			WSAddr      string `yaml:"ws_addr"`
-			WSPublicURL string `yaml:"ws_public_url,omitempty"`
-			TLSCert     string `yaml:"tls_cert"`
-			TLSKey      string `yaml:"tls_key"`
-			TLSCA       string `yaml:"tls_ca,omitempty"`
-		} `yaml:"mqtt,omitempty"`
+func emailMode(smtpHost string) string {
+	if strings.TrimSpace(smtpHost) == "" {
+		return "log"
 	}
+	return "smtp"
+}
 
-	var out yamlConfig
+type setupYAMLConfig struct {
+	Database struct {
+		Driver string `yaml:"driver"`
+		DSN    string `yaml:"dsn"`
+	} `yaml:"database"`
+	Auth struct {
+		JWTSecret string `yaml:"jwt_secret"`
+	} `yaml:"auth"`
+	Platform struct {
+		PublicBaseURL    string `yaml:"public_base_url"`
+		BrokerHostPublic string `yaml:"broker_host_public"`
+	} `yaml:"platform"`
+	Email *struct {
+		Mode     string `yaml:"mode"`
+		SMTPHost string `yaml:"smtp_host"`
+		SMTPPort int    `yaml:"smtp_port"`
+		SMTPUser string `yaml:"smtp_user"`
+		SMTPPass string `yaml:"smtp_pass"`
+		SMTPFrom string `yaml:"smtp_from"`
+	} `yaml:"email,omitempty"`
+	MQTT *struct {
+		Addr        string `yaml:"addr"`
+		WSAddr      string `yaml:"ws_addr"`
+		WSPublicURL string `yaml:"ws_public_url,omitempty"`
+		TLSCert     string `yaml:"tls_cert"`
+		TLSKey      string `yaml:"tls_key"`
+		TLSCA       string `yaml:"tls_ca,omitempty"`
+	} `yaml:"mqtt,omitempty"`
+}
+
+func marshalConfigYAML(cfg config.Config) ([]byte, error) {
+	var out setupYAMLConfig
 	out.Database.Driver = cfg.Database.Driver
 	out.Database.DSN = cfg.Database.DSN
 	out.Auth.JWTSecret = cfg.Auth.JWTSecret
 	out.Platform.PublicBaseURL = cfg.Platform.PublicBaseURL
 	out.Platform.BrokerHostPublic = cfg.Platform.BrokerHostPublic
 
-	if cfg.Email.SMTPHost != "" {
+	mode := strings.TrimSpace(cfg.Email.Mode)
+	if mode == "" {
+		mode = emailMode(cfg.Email.SMTPHost)
+	}
+	if cfg.Email.SMTPHost != "" || mode == "smtp" {
 		out.Email = &struct {
+			Mode     string `yaml:"mode"`
 			SMTPHost string `yaml:"smtp_host"`
 			SMTPPort int    `yaml:"smtp_port"`
 			SMTPUser string `yaml:"smtp_user"`
 			SMTPPass string `yaml:"smtp_pass"`
 			SMTPFrom string `yaml:"smtp_from"`
 		}{
+			Mode:     mode,
 			SMTPHost: cfg.Email.SMTPHost,
 			SMTPPort: cfg.Email.SMTPPort,
 			SMTPUser: cfg.Email.SMTPUser,
@@ -564,9 +579,25 @@ func writeConfigYAML(cfg config.Config) error {
 		}
 	}
 
-	yamlData, err := yaml.Marshal(&out)
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&out); err != nil {
+		return nil, fmt.Errorf("marshal yaml: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("marshal yaml: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// writeConfigYAML writes the configuration to config.yml for persistence.
+// The YAML structure is nested to match config.yml.example so that LoadYAML
+// (which flattens nested keys to SCREAMING_SNAKE_CASE env vars) can read it back.
+func writeConfigYAML(cfg config.Config) (string, error) {
+	yamlData, err := marshalConfigYAML(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal yaml: %w", err)
+		return "", err
 	}
 
 	// Write to config.yml — try preferred paths in order
@@ -585,9 +616,9 @@ func writeConfigYAML(cfg config.Config) error {
 			continue
 		}
 		_ = os.Chmod(path, 0600)
-		return nil // success
+		return path, nil
 	}
-	return fmt.Errorf("all config paths failed: %w", lastErr)
+	return "", fmt.Errorf("all config paths failed: %w", lastErr)
 }
 
 // MQTTTLSResult holds the paths of generated TLS certificates.

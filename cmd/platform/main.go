@@ -56,6 +56,8 @@ func initConfig() (config.Config, *slog.Logger) {
 		"http_addr", cfg.HTTP.Addr,
 		"mqtt_addr", cfg.MQTT.Addr,
 		"data_dir", cfg.DataDir,
+		"email_mode", cfg.Email.EffectiveMode(),
+		"smtp_host", cfg.Email.SMTPHost,
 		"version", Version,
 		"commit", Commit,
 	)
@@ -134,6 +136,8 @@ func runSetupWizard(cfg config.Config, log *slog.Logger) (*db.DB, *services.Plat
 		"files", configSources(loaded),
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
+		"email_mode", cfg.Email.EffectiveMode(),
+		"smtp_host", cfg.Email.SMTPHost,
 	)
 
 	database, err := db.Open(cfg.Database.Driver, cfg.Database.DSN)

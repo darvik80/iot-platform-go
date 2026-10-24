@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestEmailEffectiveMode(t *testing.T) {
+	cases := []struct {
+		mode, host, want string
+	}{
+		{"", "", "log"},
+		{"", "smtp.example", "smtp"},
+		{"smtp", "smtp.example", "smtp"},
+		{"smtp", "", "log"},
+		{"log", "smtp.example", "log"},
+		{"LOG", "smtp.example", "log"},
+	}
+	for _, c := range cases {
+		got := EmailConfig{Mode: c.mode, SMTPHost: c.host}.EffectiveMode()
+		if got != c.want {
+			t.Errorf("mode=%q host=%q → %q want %q", c.mode, c.host, got, c.want)
+		}
+	}
+}
+
 func TestTimezoneOrUTC(t *testing.T) {
 	if (Config{}).TimezoneOrUTC() != "UTC" {
 		t.Fatal("empty → UTC")

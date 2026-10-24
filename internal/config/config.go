@@ -193,7 +193,7 @@ func Load() Config {
 			SMTPUser: getenv("SMTP_USER", "", "EMAIL_SMTP_USER"),
 			SMTPPass: getenv("SMTP_PASS", "", "EMAIL_SMTP_PASS"),
 			SMTPFrom: getenv("SMTP_FROM", "noreply@cogitor.local", "EMAIL_SMTP_FROM"),
-			Mode:     strings.ToLower(getenv("EMAIL_MODE", "log")),
+			Mode:     strings.ToLower(getenv("EMAIL_MODE", "")),
 		},
 		Register: RegisterConfig{
 			Enabled:       getenvBool("REGISTER_ENABLED", true, "AUTH_REGISTER_ENABLED"),
@@ -236,6 +236,20 @@ func Load() Config {
 }
 
 // ── Methods ──────────────────────────────────────────────────────────
+
+// EffectiveMode is smtp when a host is configured, unless EMAIL_MODE=log.
+// An unset mode with no host stays log. The setup wizard used to omit
+// email.mode, so a host in config.yml must be enough to send mail.
+func (e EmailConfig) EffectiveMode() string {
+	mode := strings.ToLower(strings.TrimSpace(e.Mode))
+	if mode == "log" {
+		return "log"
+	}
+	if strings.TrimSpace(e.SMTPHost) == "" {
+		return "log"
+	}
+	return "smtp"
+}
 
 func (c Config) SlogLevel() slog.Level {
 	switch strings.ToLower(strings.TrimSpace(c.LogLevel)) {

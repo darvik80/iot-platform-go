@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -58,6 +59,7 @@ func LoadYAMLFile(path string, force bool) (bool, error) {
 		}
 		return false, err
 	}
+	data = detabYAML(data)
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return false, fmt.Errorf("parse %s: %w", path, err)
@@ -74,6 +76,50 @@ func LoadYAMLFile(path string, force bool) (bool, error) {
 	return true, nil
 }
 
+// detabYAML replaces tab indentation with two spaces. YAML forbids tabs as
+// indentation; a file that uses them fails to parse and the platform then
+// falls back to compiled-in defaults.
+func detabYAML(data []byte) []byte {
+	if !bytes.Contains(data, []byte{'\t'}) {
+		return data
+	}
+	lines := bytes.Split(data, []byte{'\n'})
+	for i, line := range lines {
+		n := 0
+		for n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+			n++
+		}
+		if n == 0 {
+			continue
+		}
+		width := 0
+		for _, c := range line[:n] {
+			if c == '\t' {
+				width += 2
+			} else {
+				width++
+			}
+		}
+		lines[i] = append(bytes.Repeat([]byte{' '}, width), line[n:]...)
+	}
+	return bytes.Join(lines, []byte{'\n'})
+}
+
+func asStringMap(v any) (map[string]any, bool) {
+	switch m := v.(type) {
+	case map[string]any:
+		return m, true
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[fmt.Sprint(k)] = val
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
 // flatten recursively walks nested maps and produces SCREAMING_SNAKE_CASE keys.
 func flatten(prefix string, m map[string]any, out map[string]string) {
 	for k, v := range m {
@@ -81,11 +127,10 @@ func flatten(prefix string, m map[string]any, out map[string]string) {
 		if prefix != "" {
 			key = prefix + "_" + key
 		}
-		switch val := v.(type) {
-		case map[string]any:
-			flatten(key, val, out)
-		default:
-			out[key] = fmt.Sprintf("%v", val)
+		if nested, ok := asStringMap(v); ok {
+			flatten(key, nested, out)
+			continue
 		}
+		out[key] = fmt.Sprintf("%v", v)
 	}
 }
