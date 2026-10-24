@@ -29,44 +29,43 @@ export function DocsPage() {
   const sections: Section[] = [
     {
       id: 'getting-started',
-      title: 'Getting Started',
+      title: t('docs.gettingStarted.title'),
       icon: '🚀',
       content: (
         <>
-          <p>
-            Welcome to the IoT Platform. This guide covers the core concepts and workflows for managing
-            devices, products, events, and automation.
-          </p>
-          <h4>Core Concepts</h4>
+          <p>{t('docs.gettingStarted.intro')}</p>
+          <h4>{t('docs.gettingStarted.concepts')}</h4>
           <ul>
             <li>
-              <strong>Product</strong> — a device model/type (e.g. "Temperature Sensor v2"). Defines metrics, methods, and attributes shared by all devices of this type.
+              <strong>{t('docs.gettingStarted.product')}</strong> — {t('docs.gettingStarted.productDescription')}
             </li>
             <li>
-              <strong>Device</strong> — a physical instance of a product. Each device has unique credentials and communicates via MQTT.
+              <strong>{t('docs.gettingStarted.device')}</strong> — {t('docs.gettingStarted.deviceDescription')}
             </li>
             <li>
-              <strong>Events</strong> — structured notifications from devices (errors, status changes, custom events). Each event has a severity level and code.
+              <strong>{t('docs.gettingStarted.events')}</strong> — {t('docs.gettingStarted.eventsDescription')}
             </li>
             <li>
-              <strong>Telemetry</strong> — periodic measurements sent by devices (temperature, humidity, battery level, etc.).
+              <strong>{t('docs.gettingStarted.telemetry')}</strong> — {t('docs.gettingStarted.telemetryDescription')}
             </li>
             <li>
-              <strong>Attributes</strong> — key-value state on a device. <em>Reported</em> attributes come from the device; <em>desired</em> attributes are set by the platform.
+              <strong>{t('docs.gettingStarted.attributes')}</strong> — {t('docs.gettingStarted.attributesDescription')}{' '}
+              <em>{t('docs.gettingStarted.reported')}</em> {t('docs.gettingStarted.reportedDescription')}{' '}
+              <em>{t('docs.gettingStarted.desired')}</em> {t('docs.gettingStarted.desiredDescription')}
             </li>
             <li>
-              <strong>RPC</strong> — remote procedure calls. Send commands to devices and receive responses.
+              <strong>{t('docs.gettingStarted.rpc')}</strong> — {t('docs.gettingStarted.rpcDescription')}
             </li>
             <li>
-              <strong>OTA</strong> — over-the-air firmware updates. Register firmware binaries and push them to devices.
+              <strong>{t('docs.gettingStarted.ota')}</strong> — {t('docs.gettingStarted.otaDescription')}
             </li>
           </ul>
-          <h4>Quick Start</h4>
+          <h4>{t('docs.gettingStarted.quickStart')}</h4>
           <ol>
-            <li>Create a <Link to="/products">Product</Link> with your device schema (metrics, methods).</li>
-            <li>Register a <Link to="/devices">Device</Link> — you'll receive MQTT credentials.</li>
-            <li>Connect your device using the provided credentials.</li>
-            <li>Monitor telemetry and events on the <Link to="/">Overview</Link> page.</li>
+            <li><Link to="/products">{t('docs.gettingStarted.createProduct')}</Link></li>
+            <li><Link to="/devices">{t('docs.gettingStarted.registerDevice')}</Link></li>
+            <li>{t('docs.gettingStarted.connectDevice')}</li>
+            <li><Link to="/">{t('docs.gettingStarted.overview')}</Link></li>
             <li><Link to="/monitoring">{t('docs.monitoring.quickStart')}</Link></li>
           </ol>
         </>
@@ -74,100 +73,98 @@ export function DocsPage() {
     },
     {
       id: 'mqtt-connection',
-      title: 'MQTT Connection',
+      title: t('docs.mqttConnection.title'),
       icon: '🔌',
       content: (
         <>
-          <p>
-            All devices communicate over MQTT. The platform supports both TCP and WebSocket transports.
-          </p>
-          <h4>Connection Details</h4>
+          <p>{t('docs.mqttConnection.intro')}</p>
+          <h4>{t('docs.mqttConnection.details')}</h4>
           <table className="table table-sm table-bordered">
             <tbody>
-              <tr><td><strong>Broker</strong></td><td className="mono">{brokerHost}</td></tr>
-              <tr><td><strong>TCP Port</strong></td><td className="mono">{mqttPort}</td></tr>
-              <tr><td><strong>WebSocket URL</strong></td><td className="mono">{wsUrl}</td></tr>
-              <tr><td><strong>Client ID</strong></td><td className="mono">{'{product_id}.{device_id}'}</td></tr>
-              <tr><td><strong>Username</strong></td><td className="mono">{'{product_id}.{device_id}'}</td></tr>
-              <tr><td><strong>Password</strong></td><td>Device access token (shown at creation or token rotation)</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.broker')}</strong></td><td className="mono">{brokerHost}</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.tcpPort')}</strong></td><td className="mono">{mqttPort}</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.wsUrl')}</strong></td><td className="mono">{wsUrl}</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.clientId')}</strong></td><td className="mono">{'{product_id}.{device_id}'}</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.username')}</strong></td><td className="mono">{'{product_id}.{device_id}'}</td></tr>
+              <tr><td><strong>{t('docs.mqttConnection.password')}</strong></td><td>{t('docs.mqttConnection.passwordDescription')}</td></tr>
             </tbody>
           </table>
-          <h4>Topic Styles</h4>
-          <p>The platform supports two topic styles:</p>
+          <h4>{t('docs.mqttConnection.topicStyles')}</h4>
+          <p>{t('docs.mqttConnection.topicStylesIntro')}</p>
           <ul>
-            <li><strong>Full</strong>: <span className="mono">iot/v1/{'{product}/{device}/up/{tail}'}</span></li>
-            <li><strong>Short</strong>: <span className="mono">v1/me/{'{tail}'}</span></li>
+            <li><strong>{t('docs.mqttConnection.full')}</strong>: <span className="mono">iot/v1/{'{product}/{device}/up/{tail}'}</span></li>
+            <li><strong>{t('docs.mqttConnection.short')}</strong>: <span className="mono">v1/me/{'{tail}'}</span></li>
           </ul>
-          <p>The topic style is configured per-product and can be overridden per-device.</p>
+          <p>{t('docs.mqttConnection.topicStyleConfiguration')}</p>
         </>
       ),
     },
     {
       id: 'topic-reference',
-      title: 'Topic Reference',
+      title: t('docs.topicReference.title'),
       icon: '📋',
       content: (
         <>
-          <h4>Uplink Topics (Device → Platform)</h4>
+          <h4>{t('docs.topicReference.uplink')}</h4>
           <table className="table table-sm table-bordered">
-            <thead><tr><th>Purpose</th><th>Full Style</th><th>Short Style</th></tr></thead>
+            <thead><tr><th>{t('docs.topicReference.purpose')}</th><th>{t('docs.topicReference.fullStyle')}</th><th>{t('docs.topicReference.shortStyle')}</th></tr></thead>
             <tbody>
-              <tr><td>Status</td><td className="mono small">up/status</td><td className="mono small">v1/me/s</td></tr>
-              <tr><td>Telemetry</td><td className="mono small">up/telemetry/data</td><td className="mono small">v1/me/t</td></tr>
-              <tr><td>Event</td><td className="mono small">up/events/post</td><td className="mono small">v1/me/e</td></tr>
-              <tr><td>Attributes report</td><td className="mono small">up/attributes/report</td><td className="mono small">v1/me/a</td></tr>
-              <tr><td>RPC response</td><td className="mono small">up/rpc/response</td><td className="mono small">v1/me/r/res</td></tr>
-              <tr><td>OTA version</td><td className="mono small">up/ota/version</td><td className="mono small">v1/me/o/ver</td></tr>
-              <tr><td>Logs</td><td className="mono small">up/logs/report</td><td className="mono small">v1/me/l</td></tr>
+              <tr><td>{t('docs.topicReference.status')}</td><td className="mono small">up/status</td><td className="mono small">v1/me/s</td></tr>
+              <tr><td>{t('docs.topicReference.telemetry')}</td><td className="mono small">up/telemetry/data</td><td className="mono small">v1/me/t</td></tr>
+              <tr><td>{t('docs.topicReference.event')}</td><td className="mono small">up/events/post</td><td className="mono small">v1/me/e</td></tr>
+              <tr><td>{t('docs.topicReference.attributesReport')}</td><td className="mono small">up/attributes/report</td><td className="mono small">v1/me/a</td></tr>
+              <tr><td>{t('docs.topicReference.rpcResponse')}</td><td className="mono small">up/rpc/response</td><td className="mono small">v1/me/r/res</td></tr>
+              <tr><td>{t('docs.topicReference.otaVersion')}</td><td className="mono small">up/ota/version</td><td className="mono small">v1/me/o/ver</td></tr>
+              <tr><td>{t('docs.topicReference.logs')}</td><td className="mono small">up/logs/report</td><td className="mono small">v1/me/l</td></tr>
             </tbody>
           </table>
-          <h4>Downlink Topics (Platform → Device)</h4>
+          <h4>{t('docs.topicReference.downlink')}</h4>
           <table className="table table-sm table-bordered">
-            <thead><tr><th>Purpose</th><th>Full Style</th><th>Short Style</th></tr></thead>
+            <thead><tr><th>{t('docs.topicReference.purpose')}</th><th>{t('docs.topicReference.fullStyle')}</th><th>{t('docs.topicReference.shortStyle')}</th></tr></thead>
             <tbody>
-              <tr><td>RPC request</td><td className="mono small">down/rpc/request</td><td className="mono small">v1/me/r/req</td></tr>
-              <tr><td>Attributes update</td><td className="mono small">down/attributes/update</td><td className="mono small">v1/me/a/upd</td></tr>
-              <tr><td>OTA update</td><td className="mono small">down/ota/update</td><td className="mono small">v1/me/o/upd</td></tr>
-              <tr><td>NTP response</td><td className="mono small">down/ntp/response</td><td className="mono small">v1/me/n/res</td></tr>
+              <tr><td>{t('docs.topicReference.rpcRequest')}</td><td className="mono small">down/rpc/request</td><td className="mono small">v1/me/r/req</td></tr>
+              <tr><td>{t('docs.topicReference.attributesUpdate')}</td><td className="mono small">down/attributes/update</td><td className="mono small">v1/me/a/upd</td></tr>
+              <tr><td>{t('docs.topicReference.otaUpdate')}</td><td className="mono small">down/ota/update</td><td className="mono small">v1/me/o/upd</td></tr>
+              <tr><td>{t('docs.topicReference.ntpResponse')}</td><td className="mono small">down/ntp/response</td><td className="mono small">v1/me/n/res</td></tr>
             </tbody>
           </table>
-          <h4>Payload Formats</h4>
-          <p><strong>Telemetry</strong> — JSON object with key-value pairs:</p>
+          <h4>{t('docs.topicReference.payloadFormats')}</h4>
+          <p><strong>{t('docs.topicReference.telemetry')}</strong> — {t('docs.topicReference.telemetryPayload')}</p>
           <pre className="bg-dark border border-secondary rounded p-2 small mono">{'{\n  "temperature": 23.5,\n  "humidity": 65,\n  "battery": 87\n}'}</pre>
-          <p><strong>Event</strong> — JSON with severity, code, and optional message:</p>
+          <p><strong>{t('docs.topicReference.event')}</strong> — {t('docs.topicReference.eventPayload')}</p>
           <pre className="bg-dark border border-secondary rounded p-2 small mono">{'{\n  "severity": "warning",\n  "code": "HIGH_TEMP",\n  "message": "Temperature exceeded threshold"\n}'}</pre>
-          <p><strong>Status</strong> — JSON with online/offline status:</p>
+          <p><strong>{t('docs.topicReference.status')}</strong> — {t('docs.topicReference.statusPayload')}</p>
           <pre className="bg-dark border border-secondary rounded p-2 small mono">{'{\n  "status": "online",\n  "fw_version": "1.2.3"\n}'}</pre>
         </>
       ),
     },
     {
       id: 'products-devices',
-      title: 'Products & Devices',
+      title: t('docs.productsDevices.title'),
       icon: '📦',
       content: (
         <>
-          <h4>Creating a Product</h4>
+          <h4>{t('docs.productsDevices.creatingProduct')}</h4>
           <p>
-            Go to <Link to="/products">Products</Link> → <strong>New Product</strong>. Define:
+            <Link to="/products">{t('docs.productsDevices.openProducts')}</Link> → <strong>{t('docs.productsDevices.newProduct')}</strong>. {t('docs.productsDevices.define')}
           </p>
           <ul>
-            <li><strong>Product ID</strong> — unique identifier used in MQTT topics (e.g. <span className="mono">temp-sensor</span>).</li>
-            <li><strong>Topic Style</strong> — <span className="mono">full</span> or <span className="mono">short</span>.</li>
-            <li><strong>Metrics</strong> — telemetry keys the device sends (temperature, humidity, etc.).</li>
-            <li><strong>Methods</strong> — RPC methods the device supports (reboot, set_mode, etc.).</li>
-            <li><strong>Attributes</strong> — device state keys (reported by device or set by platform).</li>
+            <li><strong>{t('docs.productsDevices.productId')}</strong> — {t('docs.productsDevices.productIdDescription')} <span className="mono">temp-sensor</span>).</li>
+            <li><strong>{t('docs.productsDevices.topicStyle')}</strong> — <span className="mono">full</span> {t('docs.productsDevices.or')} <span className="mono">short</span>.</li>
+            <li><strong>{t('docs.productsDevices.metrics')}</strong> — {t('docs.productsDevices.metricsDescription')}</li>
+            <li><strong>{t('docs.productsDevices.methods')}</strong> — {t('docs.productsDevices.methodsDescription')} (<span className="mono">reboot</span>, <span className="mono">set_mode</span> {t('docs.productsDevices.etc')}).</li>
+            <li><strong>{t('docs.productsDevices.attributes')}</strong> — {t('docs.productsDevices.attributesDescription')}</li>
           </ul>
-          <h4>Registering a Device</h4>
+          <h4>{t('docs.productsDevices.registeringDevice')}</h4>
           <p>
-            Go to <Link to="/devices">Devices</Link> → <strong>New Device</strong>. Select the product and provide a device ID.
-            After creation you'll see credentials — <span className="text-danger">save them immediately</span>, the access token is shown only once.
+            <Link to="/devices">{t('docs.productsDevices.openDevices')}</Link> → <strong>{t('docs.productsDevices.newDevice')}</strong>. {t('docs.productsDevices.deviceSetup')}{' '}
+            <span className="text-danger">{t('docs.productsDevices.saveCredentials')}</span>
           </p>
-          <h4>Device Lifecycle</h4>
+          <h4>{t('docs.productsDevices.lifecycle')}</h4>
           <ul>
-            <li><strong>Enable/Disable</strong> — disabled devices are rejected by the broker.</li>
-            <li><strong>Token Rotate</strong> — generates a new access token, invalidating the previous one.</li>
-            <li><strong>OTA Update</strong> — push firmware to the device from the device detail page.</li>
+            <li><strong>{t('docs.productsDevices.enableDisable')}</strong> — {t('docs.productsDevices.enableDisableDescription')}</li>
+            <li><strong>{t('docs.productsDevices.rotateToken')}</strong> — {t('docs.productsDevices.rotateTokenDescription')}</li>
+            <li><strong>{t('docs.productsDevices.otaUpdate')}</strong> — {t('docs.productsDevices.otaUpdateDescription')}</li>
           </ul>
         </>
       ),
@@ -175,7 +172,7 @@ export function DocsPage() {
     {
       id: 'monitoring',
       title: t('docs.monitoring.title'),
-      icon: '',
+      icon: '📊',
       content: (
         <>
           <p>{t('docs.monitoring.intro')}</p>
@@ -232,188 +229,164 @@ export function DocsPage() {
     },
     {
       id: 'events-logs',
-      title: 'Events & Logs',
+      title: t('docs.eventsLogs.title'),
       icon: '⚡',
       content: (
         <>
-          <h4>Events</h4>
+          <h4>{t('docs.eventsLogs.events')}</h4>
           <p>
-            Events are structured notifications from devices. View them on the <Link to="/events">Events</Link> page.
+            {t('docs.eventsLogs.eventsIntro')} <Link to="/events">{t('docs.eventsLogs.openEvents')}</Link>
           </p>
           <table className="table table-sm table-bordered">
-            <thead><tr><th>Severity</th><th>Meaning</th></tr></thead>
+            <thead><tr><th>{t('docs.eventsLogs.severity')}</th><th>{t('docs.eventsLogs.meaning')}</th></tr></thead>
             <tbody>
-              <tr><td><span className="badge text-bg-info">info</span></td><td>Informational — normal operation</td></tr>
-              <tr><td><span className="badge text-bg-warning">warning</span></td><td>Warning — may need attention</td></tr>
-              <tr><td><span className="badge text-bg-danger">error</span></td><td>Error — something failed</td></tr>
-              <tr><td><span className="badge text-bg-dark">critical</span></td><td>Critical — immediate action required</td></tr>
+              <tr><td><span className="badge text-bg-info">info</span></td><td>{t('docs.eventsLogs.info')}</td></tr>
+              <tr><td><span className="badge text-bg-warning">warning</span></td><td>{t('docs.eventsLogs.warning')}</td></tr>
+              <tr><td><span className="badge text-bg-danger">error</span></td><td>{t('docs.eventsLogs.error')}</td></tr>
+              <tr><td><span className="badge text-bg-dark">critical</span></td><td>{t('docs.eventsLogs.critical')}</td></tr>
             </tbody>
           </table>
-          <h4>Device Logs</h4>
+          <h4>{t('docs.eventsLogs.deviceLogs')}</h4>
           <p>
-            Logs are free-form messages from device firmware. View on the <Link to="/logs">Logs</Link> page.
-            Each log entry has a level (debug, info, warn, error) and a module tag.
+            {t('docs.eventsLogs.logsIntro')} <Link to="/logs">{t('docs.eventsLogs.openLogs')}</Link>{' '}
+            {t('docs.eventsLogs.logLevel')} (<span className="mono">debug, info, warn, error</span>) {t('docs.eventsLogs.logModule')}
           </p>
         </>
       ),
     },
     {
       id: 'rpc',
-      title: 'Remote Procedure Calls',
+      title: t('docs.rpc.title'),
       icon: '📡',
       content: (
         <>
-          <p>
-            RPC allows you to send commands to devices and receive responses. Methods are defined per-product.
-          </p>
-          <h4>Using RPC</h4>
+          <p>{t('docs.rpc.intro')}</p>
+          <h4>{t('docs.rpc.using')}</h4>
           <ol>
-            <li>Open a device's detail page.</li>
-            <li>Go to the <strong>RPC</strong> tab.</li>
-            <li>Select a method defined in the product schema.</li>
-            <li>Fill in parameters and click <strong>Invoke</strong>.</li>
+            <li>{t('docs.rpc.openDevice')}</li>
+            <li>{t('docs.rpc.goToTab')} <strong>{t('docs.rpc.tab')}</strong>.</li>
+            <li>{t('docs.rpc.selectMethod')}</li>
+            <li>{t('docs.rpc.fillParameters')} <strong>{t('docs.rpc.invoke')}</strong>.</li>
           </ol>
-          <h4>How it Works</h4>
-          <p>
-            The platform publishes an RPC request to the device's downlink topic. The device processes it
-            and publishes a response to the uplink topic. The platform correlates the response and returns it.
-          </p>
-          <p>
-            Default timeout is {settings?.rpc_default_timeout_ms || 30000}ms (configurable in platform settings).
-          </p>
+          <h4>{t('docs.rpc.howItWorks')}</h4>
+          <p>{t('docs.rpc.flow')}</p>
+          <p>{t('docs.rpc.timeout', { timeout: settings?.rpc_default_timeout_ms || 30000 })}</p>
         </>
       ),
     },
     {
       id: 'ota',
-      title: 'OTA Updates',
+      title: t('docs.ota.title'),
       icon: '🔄',
       content: (
         <>
-          <p>
-            Over-the-air updates let you push new firmware to devices remotely.
-          </p>
-          <h4>Workflow</h4>
+          <p>{t('docs.ota.intro')}</p>
+          <h4>{t('docs.ota.workflow')}</h4>
           <ol>
             <li>
-              <strong>Register Firmware</strong> — go to <Link to="/ota">OTA</Link> → <strong>Upload Firmware</strong>.
-              Provide product, module, version, and the binary file.
+              <strong>{t('docs.ota.registerFirmware')}</strong> — <Link to="/ota">{t('docs.ota.openOta')}</Link> → <strong>{t('docs.ota.uploadFirmware')}</strong>.{' '}
+              {t('docs.ota.firmwareDetails')}
             </li>
             <li>
-              <strong>Start Update</strong> — from a device's detail page, click <strong>OTA</strong> and select the firmware.
+              <strong>{t('docs.ota.startUpdate')}</strong> — {t('docs.ota.startUpdateDescription')} <strong>{t('docs.ota.button')}</strong> {t('docs.ota.selectFirmware')}
             </li>
             <li>
-              <strong>Monitor</strong> — the OTA job progress is shown in real-time.
+              <strong>{t('docs.ota.monitor')}</strong> — {t('docs.ota.monitorDescription')}
             </li>
           </ol>
-          <h4>Auto OTA</h4>
+          <h4>{t('docs.ota.autoOta')}</h4>
           <p>
-            Products can have <strong>Auto OTA</strong> enabled. When new firmware is registered for a module,
-            all online devices with that module are automatically notified.
+            {t('docs.ota.enableAutoOta')} <strong>{t('docs.ota.autoOta')}</strong>. {t('docs.ota.autoOtaDescription')}
           </p>
         </>
       ),
     },
     {
       id: 'automation',
-      title: 'Automation & Plugins',
+      title: t('docs.automation.title'),
       icon: '🤖',
       content: (
         <>
-          <p>
-            The platform supports automation through internal plugins and external integrations.
-          </p>
-          <h4>Rules Bus</h4>
-          <p>
-            When enabled, the platform publishes all device events to an MQTT rules bus. External services
-            can subscribe and react to events in real-time.
-          </p>
-          <h4>Topic Patterns</h4>
+          <p>{t('docs.automation.intro')}</p>
+          <h4>{t('docs.automation.rulesBus')}</h4>
+          <p>{t('docs.automation.rulesBusDescription')}</p>
+          <h4>{t('docs.automation.topicPatterns')}</h4>
           <table className="table table-sm table-bordered">
             <tbody>
               <tr>
-                <td><strong>Subscribe (events)</strong></td>
+                <td><strong>{t('docs.automation.subscribe')}</strong></td>
                 <td className="mono small">platform/v1/events/{accountSlug}/{'{product}'}/{'{device}'}/{'{kind}'}</td>
               </tr>
               <tr>
-                <td><strong>Publish (commands)</strong></td>
+                <td><strong>{t('docs.automation.publish')}</strong></td>
                 <td className="mono small">platform/v1/commands/{accountSlug}/{'{product}'}/{'{device}'}/{'{kind}'}</td>
               </tr>
             </tbody>
           </table>
-          <h4>Event Kinds</h4>
+          <h4>{t('docs.automation.eventKinds')}</h4>
           <ul>
-            <li><span className="mono">status</span> — device online/offline</li>
-            <li><span className="mono">telemetry</span> — telemetry data</li>
-            <li><span className="mono">event</span> — device events</li>
-            <li><span className="mono">attributes/reported</span> — attribute changes</li>
-            <li><span className="mono">rpc/result</span> — RPC call results</li>
-            <li><span className="mono">ota</span> — OTA status changes</li>
-            <li><span className="mono">log</span> — device log messages</li>
+            <li><span className="mono">status</span> — {t('docs.automation.status')}</li>
+            <li><span className="mono">telemetry</span> — {t('docs.automation.telemetry')}</li>
+            <li><span className="mono">event</span> — {t('docs.automation.event')}</li>
+            <li><span className="mono">attributes/reported</span> — {t('docs.automation.attributes')}</li>
+            <li><span className="mono">rpc/result</span> — {t('docs.automation.rpc')}</li>
+            <li><span className="mono">ota</span> — {t('docs.automation.ota')}</li>
+            <li><span className="mono">log</span> — {t('docs.automation.log')}</li>
           </ul>
-          <h4>External Plugins</h4>
+          <h4>{t('docs.automation.externalPlugins')}</h4>
           <p>
-            Admins can register external plugins on the <Link to="/settings">Settings</Link> page.
-            Each plugin gets its own MQTT credentials and can subscribe to the rules bus.
+            <Link to="/settings">{t('docs.automation.registerPlugins')}</Link>{' '}
+            {t('docs.automation.pluginCredentials')}
           </p>
-          <h4>Internal Plugins</h4>
-          <p>
-            Built-in plugins run inside the platform process. They can be bound to individual devices
-            from the device detail page. Examples: LED garland controller, scheduling, time windows.
-          </p>
+          <h4>{t('docs.automation.internalPlugins')}</h4>
+          <p>{t('docs.automation.internalPluginsDescription')}</p>
         </>
       ),
     },
     {
       id: 'users-roles',
-      title: 'Users & Roles',
+      title: t('docs.usersRoles.title'),
       icon: '👥',
       content: (
         <>
-          <p>
-            The platform supports multi-tenant access with role-based permissions.
-          </p>
-          <h4>Roles</h4>
+          <p>{t('docs.usersRoles.intro')}</p>
+          <h4>{t('docs.usersRoles.roles')}</h4>
           <table className="table table-sm table-bordered">
-            <thead><tr><th>Role</th><th>Permissions</th></tr></thead>
+            <thead><tr><th>{t('docs.usersRoles.role')}</th><th>{t('docs.usersRoles.permissions')}</th></tr></thead>
             <tbody>
-              <tr><td><strong>Admin</strong></td><td>Full access — manage users, devices, products, settings, plugins</td></tr>
-              <tr><td><strong>Operator</strong></td><td>Read + write — manage devices, send RPC, OTA updates</td></tr>
-              <tr><td><strong>Viewer</strong></td><td>Read-only — view devices, telemetry, events</td></tr>
+              <tr><td><strong>{t('docs.usersRoles.admin')}</strong></td><td>{t('docs.usersRoles.adminPermissions')}</td></tr>
+              <tr><td><strong>{t('docs.usersRoles.operator')}</strong></td><td>{t('docs.usersRoles.operatorPermissions')}</td></tr>
+              <tr><td><strong>{t('docs.usersRoles.viewer')}</strong></td><td>{t('docs.usersRoles.viewerPermissions')}</td></tr>
             </tbody>
           </table>
-          <h4>Invitations</h4>
+          <h4>{t('docs.usersRoles.invitations')}</h4>
           <p>
-            Admins can invite users by email. The invitee receives a link to create an account and join the account.
-            Go to <Link to="/users">Users</Link> → <strong>Invite User</strong>.
+            {t('docs.usersRoles.invitationsDescription')}{' '}
+            <Link to="/users">{t('docs.usersRoles.openUsers')}</Link> → <strong>{t('docs.usersRoles.inviteUser')}</strong>.
           </p>
-          <h4>Account Switching</h4>
-          <p>
-            Users belonging to multiple accounts can switch between them using the account switcher in the sidebar.
-          </p>
+          <h4>{t('docs.usersRoles.accountSwitching')}</h4>
+          <p>{t('docs.usersRoles.accountSwitchingDescription')}</p>
         </>
       ),
     },
     {
       id: 'api-tokens',
-      title: 'API Tokens',
+      title: t('docs.apiTokens.title'),
       icon: '🔑',
       content: (
         <>
-          <p>
-            Long-lived API tokens are useful for scripts, MCP integrations, and automation.
-          </p>
-          <h4>Creating a Token</h4>
+          <p>{t('docs.apiTokens.intro')}</p>
+          <h4>{t('docs.apiTokens.creating')}</h4>
           <ol>
-            <li>Go to <Link to="/settings">Settings</Link>.</li>
-            <li>Enter a name (e.g. <span className="mono">mcp</span>, <span className="mono">ci-script</span>).</li>
-            <li>Click <strong>Create token</strong>.</li>
-            <li>Copy the token immediately — it will not be shown again.</li>
+            <li><Link to="/settings">{t('docs.apiTokens.openSettings')}</Link></li>
+            <li>{t('docs.apiTokens.enterName')} <span className="mono">mcp</span>, <span className="mono">ci-script</span>).</li>
+            <li>{t('docs.apiTokens.clickCreate')} <strong>{t('docs.apiTokens.createToken')}</strong>.</li>
+            <li>{t('docs.apiTokens.copyToken')}</li>
           </ol>
-          <h4>Using Tokens</h4>
-          <p>Include the token in the <span className="mono">Authorization</span> header:</p>
+          <h4>{t('docs.apiTokens.using')}</h4>
+          <p>{t('docs.apiTokens.header')} <span className="mono">Authorization</span>:</p>
           <pre className="bg-dark border border-secondary rounded p-2 small mono">Authorization: Bearer YOUR_TOKEN_HERE</pre>
-          <p>Tokens have the same permissions as your user account and active account selection.</p>
+          <p>{t('docs.apiTokens.permissions')}</p>
         </>
       ),
     },

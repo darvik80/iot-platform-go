@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 import {
   AGGREGATIONS, CHANNEL_KINDS, MAX_SOURCES, MAX_WIDGETS, RULE_KINDS, WINDOWS, WIDGET_TYPES,
   acceptsMetric, accountRequest, channelPayload, chartDomain, createWidget, formatValue,
@@ -194,4 +195,52 @@ test('all Monitoring copy, documentation and validation errors have matching EN/
     for (const [, key] of code.matchAll(/['"]((?:monitoring|docs|common|nav)\.[A-Za-z0-9_.]+)['"]/g)) { assert.ok(en[key], `${file}: ${key}`); assert.ok(ru[key], `${file}: ${key}`); }
   }
   for (const key of english) assert.deepEqual([...en[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), [...ru[key].matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort(), key);
+});
+test('documentation localizes every section and prose and keeps section icons', () => {
+  const code = readFileSync(new URL('../../pages/DocsPage.tsx', import.meta.url), 'utf8');
+  const doc = ts.createSourceFile('DocsPage.tsx', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const identifiers = new Set(['RPC', 'OTA', 'MQTT', 'MCP', 'JSON', 'TCP', 'WebSocket', 'TLS', 'STARTTLS', 'info', 'warning', 'error', 'critical', 'admin', 'operator', 'viewer']);
+  const sections = [];
+  const untranslated = [];
+  const technical = node => {
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (!ts.isJsxElement(parent)) continue;
+      const opening = parent.openingElement;
+      if (['pre', 'code'].includes(opening.tagName.getText(doc))) return true;
+      const className = opening.attributes.properties.find(p => ts.isJsxAttribute(p) && p.name.getText(doc) === 'className');
+      if (className?.initializer && ts.isStringLiteral(className.initializer) && /\bmono\b/.test(className.initializer.text)) return true;
+    }
+    return false;
+  };
+  const visit = node => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(doc) === 'sections') {
+      assert.ok(node.initializer && ts.isArrayLiteralExpression(node.initializer));
+      for (const section of node.initializer.elements) {
+        assert.ok(ts.isObjectLiteralExpression(section));
+        const property = name => section.properties.find(p => ts.isPropertyAssignment(p) && p.name.getText(doc) === name)?.initializer;
+        const id = property('id');
+        assert.ok(id && ts.isStringLiteral(id));
+        sections.push(id.text);
+        const title = property('title');
+        assert.ok(title && ts.isCallExpression(title) && title.expression.getText(doc) === 't', `${id.text}: title must be localized`);
+        const key = title.arguments[0];
+        assert.ok(key && ts.isStringLiteral(key));
+        assert.ok(en[key.text], key.text);
+        assert.ok(ru[key.text], key.text);
+        assert.notEqual(en[key.text], ru[key.text], `${id.text}: title needs a Russian translation`);
+        const icon = property('icon');
+        assert.ok(icon && ts.isStringLiteral(icon) && /\p{Extended_Pictographic}/u.test(icon.text), `${id.text}: section icon is missing`);
+      }
+    }
+    const text = ts.isJsxText(node) ? node.text.trim()
+      : ts.isJsxExpression(node) && node.expression && (ts.isStringLiteral(node.expression) || ts.isNoSubstitutionTemplateLiteral(node.expression)) ? node.expression.text.trim() : '';
+    if (/\p{L}/u.test(text) && !identifiers.has(text) && !technical(node)) {
+      const line = doc.getLineAndCharacterOfPosition(node.getStart(doc)).line + 1;
+      untranslated.push(`L${line}: ${text}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(doc);
+  assert.deepEqual(sections, ['getting-started', 'mqtt-connection', 'topic-reference', 'products-devices', 'monitoring', 'events-logs', 'rpc', 'ota', 'automation', 'users-roles', 'api-tokens']);
+  assert.deepEqual(untranslated, [], 'Use translations for explanatory JSX text; keep protocol literals in code/mono markup');
 });
