@@ -52,8 +52,8 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
             {{if .ButtonURL}}
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0;">
               <tr>
-                <td style="background-color:#3d9cf0;border-radius:6px;">
-                  <a href="{{.ButtonURL}}" target="_blank" style="display:inline-block;padding:12px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">{{.ButtonText}}</a>
+                <td>
+                  <a href="{{.ButtonURL}}" style="display:inline-block;background-color:#3d9cf0;border-radius:6px;padding:12px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">{{.ButtonText}}</a>
                 </td>
               </tr>
             </table>
