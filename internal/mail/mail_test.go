@@ -5,110 +5,50 @@ import (
 	"testing"
 )
 
-func TestVerificationHTMLMatchesBrand(t *testing.T) {
-	text, html, err := verificationContent("darvik", "https://iot.example/verify?token=abc")
-	if err != nil {
-		t.Fatal(err)
+func TestInvitationPlaintextContainsURL(t *testing.T) {
+	s := &Sender{}
+	u := "https://iot.cogitor.dev/invite/ZLUPZkqKTWuI1kn2GQSY7KfxCbdBhIJHBiNpvuJvLHg"
+	// log mode: no SMTP, just build the same body SendInvitation would send
+	body := invitationBody("Main", "viewer", u)
+	if !strings.Contains(body, "You have been invited to join Main as viewer.") {
+		t.Fatalf("body: %s", body)
 	}
-	if !strings.Contains(text, "https://iot.example/verify?token=abc") {
-		t.Fatalf("plain text missing link: %s", text)
+	if strings.Contains(body, "Accept invitation") {
+		t.Fatal("no button label — the URL is the link")
 	}
-	for _, want := range []string{
-		"Cogitor",
-		"#3d9cf0",
-		"Confirm account",
-		"Hello darvik",
-		`href="https://iot.example/verify?token=abc"`,
-		">Confirm account</a>",
-		"https://iot.example/verify?token=abc",
-	} {
-		if !strings.Contains(html, want) {
-			t.Errorf("html missing %q", want)
-		}
+	if !strings.Contains(body, "\n"+u+"\n") {
+		t.Fatalf("URL must be on its own line so mail clients autolink it:\n%s", body)
+	}
+	_ = s
+}
+
+func TestVerificationPlaintextContainsURL(t *testing.T) {
+	u := "https://iot.example/verify?token=abc"
+	body := verificationBody("darvik", u)
+	if !strings.Contains(body, "Hello darvik,") {
+		t.Fatalf("body: %s", body)
+	}
+	if !strings.Contains(body, "\n"+u+"\n") {
+		t.Fatalf("URL must be on its own line:\n%s", body)
 	}
 }
 
-func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
-	u := "https://iot.example/invite/abcdefghijklmnopqrstuvwxyz0123456789-_"
-	_, html, err := invitationContent("Acme", "viewer", u)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(html, `<a href="`+u+`">Accept invitation</a>`) {
-		t.Fatalf("Accept invitation must be a link to the invite URL, html:\n%s", html)
-	}
-	if strings.Count(html, u) < 2 {
-		t.Fatalf("invite URL must appear as href and as visible text, html:\n%s", html)
-	}
-}
-
-func TestInvitationShowsRawURLEvenIfNotAbsolute(t *testing.T) {
-	_, html, err := invitationContent("Main", "viewer", "/invite/tok")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(html, `<a href="`) {
-		t.Fatal("relative URL must not become href")
-	}
-	if !strings.Contains(html, "/invite/tok") {
-		t.Fatalf("raw URL must still be visible, html:\n%s", html)
-	}
-}
-
-func TestSafeHTTPURL(t *testing.T) {
-	if got := safeHTTPURL("iot.example/invite/tok"); got != "https://iot.example/invite/tok" {
-		t.Fatalf("got %q", got)
-	}
-	if got := safeHTTPURL("javascript:alert(1)"); got != "" {
-		t.Fatalf("unsafe url %q", got)
-	}
-}
-
-func TestInvitationEscapesHTML(t *testing.T) {
-	_, html, err := invitationContent(`Acme <script>alert(1)</script>`, `admin" onclick="x`, "https://iot.example/invite?token=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(html, "<script>") || strings.Contains(html, `onclick="x`) {
-		t.Fatalf("unescaped content in html: %s", html)
-	}
-	if !strings.Contains(html, "Acme &lt;script&gt;") {
-		t.Fatalf("account name not escaped: %s", html)
-	}
-	if !strings.Contains(html, "Accept invitation") {
-		t.Fatal("missing button")
-	}
-}
-
-func TestBuildMessageAlternativeOnly(t *testing.T) {
-	text, html, err := verificationContent("u", "https://iot.example/v")
-	if err != nil {
-		t.Fatal(err)
-	}
-	msg, err := buildMessage(`"Cogitor IoT" <noreply@example.com>`, "u@example.com", "Confirm your Cogitor IoT account", text, html)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := string(msg)
+func TestBuildMessagePlaintextOnly(t *testing.T) {
+	u := "https://iot.cogitor.dev/invite/ZLUPZkqKTWuI1kn2GQSY7KfxCbdBhIJHBiNpvuJvLHg"
+	body := invitationBody("Main", "viewer", u)
+	raw := string(buildMessage(`"Cogitor IoT" <noreply@example.com>`, "u@example.com", "Invitation to join Main", body))
 	for _, want := range []string{
 		"MIME-Version: 1.0",
-		"multipart/alternative",
-		"text/html; charset=UTF-8",
-		"text/plain; charset=UTF-8",
+		"Content-Type: text/plain; charset=UTF-8",
 		`From: "Cogitor IoT" <noreply@example.com>`,
+		u,
 	} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("message missing %q", want)
 		}
 	}
-	if strings.Contains(raw, "multipart/related") || strings.Contains(raw, "cid:") {
-		t.Fatal("inline CID images break links in Yandex/Mail.ru")
-	}
-	if !strings.Contains(raw, "8bit") {
-		t.Fatal("html part should be 8bit so href is not encoded/wrapped")
-	}
-	if !strings.Contains(raw, `<a href="https://iot.example/v"`) {
-		t.Fatalf("href must appear as 8bit plaintext, not encoded:\n%s", raw)
+	if strings.Contains(raw, "text/html") || strings.Contains(raw, "multipart/") || strings.Contains(raw, "<a href") {
+		t.Fatal("must be plaintext only — HTML breaks autolink in Yandex/Mail.ru")
 	}
 }
 
