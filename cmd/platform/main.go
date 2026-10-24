@@ -223,6 +223,11 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go plat.RetentionLoop(ctx)
+	monitoringDone := make(chan struct{})
+	go func() {
+		defer close(monitoringDone)
+		plat.MonitoringLoop(ctx)
+	}()
 	plat.StartPlugins(ctx)
 
 	var spa fs.FS
@@ -265,16 +270,21 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 	log.Info("shutting down...")
 	shutdownCtx, c2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer c2()
-	
+
 	// Stop background workers
 	cancel()
-	
+
 	// Shutdown HTTP server (stops accepting new requests, waits for in-flight)
 	_ = httpServer.Shutdown(shutdownCtx)
-	
+
 	// Close MQTT broker (disconnects all MQTT clients)
 	brk.Close()
-	
+	select {
+	case <-monitoringDone:
+	case <-shutdownCtx.Done():
+		log.Warn("monitoring shutdown timed out")
+	}
+
 	log.Info("shutdown complete")
 }
 

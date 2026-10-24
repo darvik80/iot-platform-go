@@ -144,6 +144,7 @@ func (s *Server) Router() http.Handler {
 
 				r.Get("/overview", s.overview)
 				r.Get("/mqtt", s.mqttStatus)
+				s.monitoringRoutes(r)
 
 				r.Get("/users", s.requirePlatformAdmin(s.listUsers))
 				r.Patch("/users/{id}", s.requireAdmin(s.updateUser))
