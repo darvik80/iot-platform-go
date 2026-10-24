@@ -8,42 +8,47 @@ import (
 	"strings"
 )
 
+const emailFont = `Arial, Helvetica, sans-serif`
+
 type emailContent struct {
-	Preheader string
-	Title     string
-	Lead      string
-	Body      string
-	Badge     string
-	Button    string
-	URL       string
-	HrefAttr  template.HTMLAttr
-	FinePrint string
+	Preheader  string
+	Title      string
+	Lead       string
+	Body       string
+	Badge      string
+	ButtonHTML template.HTML
+	URL        string
+	FinePrint  string
 }
 
-// mailLink normalizes an http(s) URL for the message body and a quoted href
-// attribute. The attribute is built here so html/template cannot wrap it in a
-// second pair of quotes (Yandex/Mail.ru then show `"https://...` and the
-// button goes nowhere).
-func mailLink(raw string) (display string, hrefAttr template.HTMLAttr) {
+func safeHTTPURL(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", ""
+		return ""
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return s, ""
+		return ""
 	}
 	if u.Scheme == "" {
 		s = "https://" + strings.TrimPrefix(s, "//")
 		u, err = url.Parse(s)
 		if err != nil {
-			return s, ""
+			return ""
 		}
 	}
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return s, ""
+		return ""
 	}
-	return s, template.HTMLAttr(`href="` + html.EscapeString(s) + `"`)
+	return s
+}
+
+func buttonHTML(href, label string) template.HTML {
+	label = html.EscapeString(label)
+	if href == "" {
+		return template.HTML(`<span style="display:block;padding:12px 22px;font-family:` + emailFont + `;font-size:14px;font-weight:bold;line-height:20px;color:#0f1419;">` + label + `</span>`)
+	}
+	return template.HTML(`<a href="` + html.EscapeString(href) + `" style="display:block;padding:12px 22px;font-family:` + emailFont + `;font-size:14px;font-weight:bold;line-height:20px;color:#0f1419;text-decoration:none;">` + label + `</a>`)
 }
 
 var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
@@ -56,7 +61,6 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
 <title>{{.Title}}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#0f1419;">
-<span style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all;">{{.Preheader}}</span>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0f1419;">
   <tr>
     <td align="center" style="padding:32px 16px;background-color:#0f1419;">
@@ -66,32 +70,33 @@ var emailTmpl = template.Must(template.New("email").Parse(`<!DOCTYPE html>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td style="vertical-align:middle;padding-right:10px;">
-                  <img src="cid:cogitor-logo" width="32" height="32" alt="" style="display:block;border:0;outline:none;text-decoration:none;border-radius:7px;">
+                  <img src="cid:cogitor-logo" width="32" height="32" alt="Cogitor IoT" style="display:block;border:0;outline:none;">
                 </td>
-                <td style="vertical-align:middle;font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:18px;font-weight:500;letter-spacing:0.02em;color:#e6edf3;line-height:1;">
-                  Cogitor&nbsp;<span style="color:#3d9cf0;">IoT</span>
+                <td style="vertical-align:middle;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:bold;color:#e6edf3;line-height:1;">
+                  Cogitor <span style="color:#3d9cf0;">IoT</span>
                 </td>
               </tr>
             </table>
           </td>
         </tr>
         <tr>
-          <td style="background-color:#1c2430;border:1px solid #2a3544;border-radius:8px;padding:28px 28px 24px 28px;">
-            <h1 style="margin:0 0 12px 0;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:22px;line-height:1.3;font-weight:600;color:#e6edf3;">{{.Title}}</h1>
-            {{if .Lead}}<p style="margin:0 0 16px 0;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#e6edf3;">{{.Lead}}{{if .Badge}} as <span style="display:inline-block;background-color:rgba(61,156,240,0.15);color:#3d9cf0;border-radius:4px;padding:2px 8px;font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:0.02em;">{{.Badge}}</span>{{end}}</p>{{end}}
-            {{if .Body}}<p style="margin:0 0 24px 0;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#8b9bb0;">{{.Body}}</p>{{end}}
+          <td style="background-color:#1c2430;border:1px solid #2a3544;border-radius:8px;padding:28px 24px 24px 24px;">
+            <h1 style="margin:0 0 12px 0;font-family:Arial, Helvetica, sans-serif;font-size:22px;line-height:1.3;font-weight:bold;color:#e6edf3;">{{.Title}}</h1>
+            {{if .Lead}}<p style="margin:0 0 16px 0;font-family:Arial, Helvetica, sans-serif;font-size:15px;line-height:1.55;color:#e6edf3;">{{.Lead}}{{if .Badge}} as <span style="display:inline-block;background-color:#1a3348;color:#3d9cf0;border-radius:4px;padding:2px 8px;font-family:Arial, Helvetica, sans-serif;font-size:12px;">{{.Badge}}</span>{{end}}</p>{{end}}
+            {{if .Body}}<p style="margin:0 0 24px 0;font-family:Arial, Helvetica, sans-serif;font-size:15px;line-height:1.55;color:#8b9bb0;">{{.Body}}</p>{{end}}
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
                 <td bgcolor="#3d9cf0" style="border-radius:6px;background-color:#3d9cf0;">
-                  <a {{.HrefAttr}} target="_blank" style="display:block;padding:12px 22px;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;line-height:1;color:#0f1419;text-decoration:none;">{{.Button}}</a>
+                  {{.ButtonHTML}}
                 </td>
               </tr>
             </table>
-            <p style="margin:20px 0 0 0;font-family:'IBM Plex Mono',ui-monospace,Consolas,monospace;font-size:12px;line-height:1.5;color:#8b9bb0;word-break:break-all;">{{.URL}}</p>
+            {{if .URL}}<p style="margin:20px 0 0 0;font-family:Arial, Helvetica, sans-serif;font-size:12px;line-height:1.5;color:#8b9bb0;">If the button does not open, copy this address:</p>
+            <p style="margin:6px 0 0 0;font-family:Consolas, Courier New, monospace;font-size:12px;line-height:1.5;color:#8b9bb0;word-break:break-all;">{{.URL}}</p>{{end}}
           </td>
         </tr>
         <tr>
-          <td style="padding:20px 4px 0 4px;font-family:'IBM Plex Sans',Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8b9bb0;">
+          <td style="padding:20px 4px 0 4px;font-family:Arial, Helvetica, sans-serif;font-size:12px;line-height:1.5;color:#8b9bb0;">
             {{.FinePrint}}
           </td>
         </tr>
@@ -110,49 +115,51 @@ func renderHTML(c emailContent) (string, error) {
 	return buf.String(), nil
 }
 
-func verificationContent(login, verifyURL string) (text string, html string, err error) {
+func verificationContent(login, verifyURL string) (text string, htmlOut string, err error) {
 	login = strings.TrimSpace(login)
 	hello := "Hello,"
 	if login != "" {
 		hello = "Hello " + login + ","
 	}
-	display, hrefAttr := mailLink(verifyURL)
-	text = hello + "\n\nConfirm your Cogitor IoT account by opening this link:\n" + display + "\n\nIf you did not register, ignore this email.\n"
-	html, err = renderHTML(emailContent{
-		Preheader: "Confirm your Cogitor IoT account.",
-		Title:     "Confirm your account",
-		Lead:      hello,
-		Body:      "Use the button below to confirm this email for your Cogitor IoT account.",
-		Button:    "Confirm account",
-		URL:       display,
-		HrefAttr:  hrefAttr,
-		FinePrint: "If you did not register, you can ignore this email.",
+	link := safeHTTPURL(verifyURL)
+	if link == "" {
+		link = strings.TrimSpace(verifyURL)
+	}
+	text = hello + "\n\nConfirm your Cogitor IoT account by opening this link:\n" + link + "\n\nIf you did not register, ignore this email.\n"
+	htmlOut, err = renderHTML(emailContent{
+		Title:      "Confirm your account",
+		Lead:       hello,
+		Body:       "Use the button below to confirm this email for your Cogitor IoT account.",
+		ButtonHTML: buttonHTML(safeHTTPURL(verifyURL), "Confirm account"),
+		URL:        link,
+		FinePrint:  "If you did not register, you can ignore this email.",
 	})
-	return text, html, err
+	return text, htmlOut, err
 }
 
-func invitationContent(accountName, role, inviteURL string) (text string, html string, err error) {
+func invitationContent(accountName, role, inviteURL string) (text string, htmlOut string, err error) {
 	accountName = strings.TrimSpace(accountName)
 	role = strings.TrimSpace(role)
 	if accountName == "" {
 		accountName = "a Cogitor IoT account"
 	}
+	link := safeHTTPURL(inviteURL)
+	if link == "" {
+		link = strings.TrimSpace(inviteURL)
+	}
 	text = "You have been invited to join " + accountName
 	if role != "" {
 		text += " as " + role
 	}
-	display, hrefAttr := mailLink(inviteURL)
-	text += ".\n\nAccept the invitation by opening this link:\n" + display + "\n\nIf you did not expect this, ignore this email.\n"
-	html, err = renderHTML(emailContent{
-		Preheader: "Join " + accountName + " on Cogitor IoT.",
-		Title:     "You're invited",
-		Lead:      "You have been invited to join " + accountName,
-		Badge:     role,
-		Body:      "Use the button below to accept and join the account.",
-		Button:    "Accept invitation",
-		URL:       display,
-		HrefAttr:  hrefAttr,
-		FinePrint: "If you did not expect this invitation, you can ignore this email.",
+	text += ".\n\nAccept the invitation by opening this link:\n" + link + "\n\nIf you did not expect this, ignore this email.\n"
+	htmlOut, err = renderHTML(emailContent{
+		Title:      "You are invited",
+		Lead:       "You have been invited to join " + accountName,
+		Badge:      role,
+		Body:       "Use the button below to accept and join the account.",
+		ButtonHTML: buttonHTML(safeHTTPURL(inviteURL), "Accept invitation"),
+		URL:        link,
+		FinePrint:  "If you did not expect this invitation, you can ignore this email.",
 	})
-	return text, html, err
+	return text, htmlOut, err
 }

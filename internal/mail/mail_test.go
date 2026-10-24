@@ -36,31 +36,29 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(html, `<a href="`+u+`"`) {
+		t.Fatalf("button href missing, html:\n%s", html)
+	}
 	if strings.Count(html, `href="`+u+`"`) != 1 {
-		t.Fatalf("button href must appear once, got:\n%s", html)
+		t.Fatalf("href must appear once, got:\n%s", html)
 	}
-	if strings.Contains(html, `""`+u) || strings.Contains(html, `"https://iot.example/invite/abcdefghijklmnopqrstuvwxyz0123456789-_"`+`"`) {
-		t.Fatal("double-quoted href")
-	}
-	if strings.Contains(html, `>"`+u) || strings.Contains(html, `>`+`"`+u) {
-		t.Fatal("quoted URL leaked into link text")
-	}
-	if !strings.Contains(html, u) {
-		t.Fatal("visible URL missing")
+	if strings.Contains(html, `>"`+u) || strings.Contains(html, `'`+`IBM`) || strings.Contains(html, "You're") {
+		t.Fatalf("template still has quote traps:\n%s", html)
 	}
 	if strings.Contains(html, "#ZgotmplZ") {
 		t.Fatal("template rejected the URL")
 	}
+	if !strings.Contains(html, "If the button does not open") {
+		t.Fatal("missing fallback copy")
+	}
 }
 
-func TestMailLinkAddsHTTPS(t *testing.T) {
-	display, href := mailLink("iot.example/invite/tok")
-	if display != "https://iot.example/invite/tok" || string(href) != `href="https://iot.example/invite/tok"` {
-		t.Fatalf("display=%q href=%q", display, href)
+func TestSafeHTTPURL(t *testing.T) {
+	if got := safeHTTPURL("iot.example/invite/tok"); got != "https://iot.example/invite/tok" {
+		t.Fatalf("got %q", got)
 	}
-	display, href = mailLink("javascript:alert(1)")
-	if display != "javascript:alert(1)" || href != "" {
-		t.Fatalf("unsafe url display=%q href=%q", display, href)
+	if got := safeHTTPURL("javascript:alert(1)"); got != "" {
+		t.Fatalf("unsafe url %q", got)
 	}
 }
 
