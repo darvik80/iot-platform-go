@@ -43,6 +43,7 @@ func (s *Server) Router() http.Handler {
 	}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+	r.Use(requestIDLogContext)
 	r.Use(securityHeaders)
 	r.Use(middleware.Compress(5, "text/html", "application/json", "text/plain", "text/css", "application/javascript"))
 	r.Use(cors.Handler(cors.Options{
@@ -1102,6 +1103,20 @@ func securityHeaders(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+func requestIDLogContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if reqID := middleware.GetReqID(r.Context()); reqID != "" {
+			w.Header().Set("X-Request-ID", reqID)
+			r = r.WithContext(context.WithValue(r.Context(), requestIDKey, reqID))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
 
 func (s *Server) corsOrigins() []string {
 	if s.Plat == nil {
