@@ -386,9 +386,25 @@ func (p *Platform) runRetention() {
 		{"ingest_dedup", "seen_at"},
 		{"attribute_history", "updated_at"},
 	} {
-		if _, err := p.DB.Exec(`DELETE FROM `+table.name+` WHERE `+table.col+` < ?`, cutoff); err != nil && p.Log != nil {
-			p.Log.Warn("retention delete failed", "table", table.name, "err", err)
+		p.deleteInBatches(table.name, table.col, cutoff)
+	}
+}
+
+func (p *Platform) deleteInBatches(table, col string, cutoff int64) {
+	const batchSize = 1000
+	for {
+		res, err := p.DB.Exec(`DELETE FROM `+table+` WHERE id IN (SELECT id FROM `+table+` WHERE `+col+` < ? LIMIT ?)`, cutoff, batchSize)
+		if err != nil {
+			if p.Log != nil {
+				p.Log.Warn("retention delete failed", "table", table, "err", err)
+			}
+			return
 		}
+		n, _ := res.RowsAffected()
+		if n < batchSize {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
