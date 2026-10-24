@@ -112,6 +112,20 @@ func (b *Broker) forgetSession(clientID string) {
 	delete(b.sessions, clientID)
 }
 
+func (b *Broker) sweepStaleSessions(maxAgeMs int64) int {
+	now := db.NowMS()
+	b.sessMu.Lock()
+	defer b.sessMu.Unlock()
+	swept := 0
+	for id, s := range b.sessions {
+		if now-s.lastSeen > maxAgeMs {
+			delete(b.sessions, id)
+			swept++
+		}
+	}
+	return swept
+}
+
 func (b *Broker) sessionTimes(clientID string) (connectedAt, lastSeen int64) {
 	b.sessMu.Lock()
 	defer b.sessMu.Unlock()
