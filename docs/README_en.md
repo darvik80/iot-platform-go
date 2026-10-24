@@ -17,6 +17,7 @@
 | [Product Schema](en/09-product-schema.md) | Product definition: metrics, attributes, RPC methods |
 | [MCP (LLM Tools)](en/10-mcp.md) | Model Context Protocol endpoint for AI tools |
 | [Operations](en/11-operations.md) | Backup, restore, monitoring, troubleshooting |
+| [Monitoring and alerts (v1.9.0)](en/11-operations.md#monitoring) | Account dashboards, widget wizard, alert timing, Telegram/SMTP, permissions and delivery; [API examples](en/02-api.md#monitoring) |
 | [Deploy VDS](en/12-deploy-vds.md) | Bare-metal / VPS deployment with systemd |
 | [Deploy Docker](en/13-deploy-docker.md) | Docker image deployment (compose file ships Node-RED only) |
 | [Diagrams](en/14-diagrams.md) | Mermaid architecture and flow diagrams |

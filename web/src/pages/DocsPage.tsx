@@ -427,7 +427,7 @@ export function DocsPage() {
         {/* Sidebar navigation */}
         <div className="col-md-3">
           <div className="panel">
-            <h2 className="h6 text-uppercase muted mb-2">Contents</h2>
+            <h2 className="h6 text-uppercase muted mb-2">{t('docs.contents')}</h2>
             <nav className="nav flex-column gap-1">
               {sections.map((sec) => (
                 <a key={sec.id} href={`#${sec.id}`} className="nav-link px-2 py-1 small" onClick={(e) => {

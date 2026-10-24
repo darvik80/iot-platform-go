@@ -154,7 +154,7 @@ For example, `gt`, threshold `80`, recovery `75` fires above 80 and resolves at 
 | `missing_seconds` | Missing-data/stale-device interval and threshold freshness; default `300`, minimum `1` |
 | `cooldown_seconds` | Repeat-notification interval while firing; default `300`, minimum `60` |
 
-All three durations are capped at `604800` seconds (7 days). The current threshold form hides `missing_seconds`, but the API exposes it; its default still applies.
+All three durations are capped at `604800` seconds (7 days). The current threshold form hides `missing_seconds`, but the API exposes it; its default still applies. The no-data form requires a received metric; device-wide no-data rules with an empty metric can be configured through the API. Cooldown does not delay the first alert or recovery notification and is independent of delivery retries.
 
 **Offline timing is not a disconnect grace period.** A disconnect can satisfy the condition immediately, regardless of `missing_seconds`. Set `for_seconds` to require sustained offline status before firing.
 
@@ -199,7 +199,7 @@ Rule evaluation runs **server-side every 5 seconds**. A separate notification wo
 
 - The persisted outbox uses `pending`, `sending`, `sent`, `failed`, with leased claims and at most **5 attempts**. Retryable failures use backoff; permanent failures can terminate earlier.
 - Older unfinished notifications for the same rule/channel block newer ones until completion or terminal failure, preserving firing/recovery order.
-- Delivery is **at-least-once**, not exactly-once: ambiguous transport outcomes or recovery after a crash can produce duplicates. `sent` indicates transport acceptance, not that a person read the message.
+- Delivery is retried within the attempt limit, **not guaranteed** and not exactly-once: ambiguous transport outcomes or recovery after a crash can produce duplicates. `sent` indicates transport acceptance, not that a person read the message.
 - Rule/channel updates cancel queued work; before sending, the worker rechecks account, device, rule and channel availability. An already accepted external message cannot be recalled.
 - History displays the latest **100** events/deliveries. The API accepts `limit=1..500` (default `100`) and exposes attempts, the sanitized last error and next retry time.
 - Monitoring history is **not** automatically pruned by `TELEMETRY_RETENTION_DAYS`; include it in database capacity planning and backups. Telemetry retention still affects widget queries.

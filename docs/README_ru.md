@@ -17,6 +17,7 @@
 | [Схема продукта](ru/09-product-schema.md) | Определение продукта: метрики, атрибуты, RPC-методы |
 | [MCP (LLM-инструменты)](ru/10-mcp.md) | Эндпоинт Model Context Protocol для AI-инструментов |
 | [Эксплуатация](ru/11-operations.md) | Бэкап, восстановление, мониторинг, устранение проблем |
+| [Мониторинг и алерты (v1.9.0)](ru/11-operations.md#monitoring) | Дашборды аккаунта, мастер виджетов, интервалы алертов, Telegram/SMTP, права и доставка; [примеры API](ru/02-api.md#monitoring) |
 | [Развёртывание VDS](ru/12-deploy-vds.md) | Развёртывание на bare-metal / VPS с systemd |
 | [Развёртывание Docker](ru/13-deploy-docker.md) | Развёртывание Docker-образа (compose-файл содержит только Node-RED) |
 | [Диаграммы](ru/14-diagrams.md) | Mermaid-диаграммы архитектуры и потоков |

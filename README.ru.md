@@ -577,6 +577,16 @@ make build-linux
 
 ### Мониторинг
 
+Начиная с **v1.9.0**, страница **Monitoring** предоставляет дашборды и алерты в разрезе аккаунта:
+- Мастер линейных/столбчатых диаграмм, показателей, шкал и таблиц по полученным метрикам устройств; раскладка сохраняется в БД для аккаунта.
+- Пороговые, no-data и offline правила с выдержкой условия и интервалом повторных уведомлений.
+- Каналы Telegram и email, явная отправка теста, история событий и доставки.
+- Редактирование дашбордов для admin/operator; управление правилами и каналами только для admin; чтение для viewer (кроме каналов).
+
+Настройка, интервалы, права и диагностика описаны в [руководстве мониторинга](docs/ru/11-operations.md#monitoring) и [примерах API](docs/ru/02-api.md#monitoring). В портале откройте **Документация → Мониторинг и алерты** или ссылку на справку на странице мониторинга. Это отдельная функция, не плагин `metrics-dashboard` карточки устройства.
+
+### Диагностика MQTT
+
 Страница **MQTT** показывает:
 - Статус брокера (listening / down)
 - Подключённых клиентов (тип, username, IP, подписки)
@@ -603,6 +613,7 @@ make build-linux
 | Схема продукта | [09-product-schema.md](docs/ru/09-product-schema.md) | [09-product-schema.md](docs/en/09-product-schema.md) |
 | MCP (LLM-инструменты) | [10-mcp.md](docs/ru/10-mcp.md) | [10-mcp.md](docs/en/10-mcp.md) |
 | Эксплуатация | [11-operations.md](docs/ru/11-operations.md) | [11-operations.md](docs/en/11-operations.md) |
+| Мониторинг и алерты (v1.9.0) | [Руководство](docs/ru/11-operations.md#monitoring) · [API](docs/ru/02-api.md#monitoring) | [Руководство](docs/en/11-operations.md#monitoring) · [API](docs/en/02-api.md#monitoring) |
 | Развёртывание VDS | [12-deploy-vds.md](docs/ru/12-deploy-vds.md) | [12-deploy-vds.md](docs/en/12-deploy-vds.md) |
 | Развёртывание Docker | [13-deploy-docker.md](docs/ru/13-deploy-docker.md) | [13-deploy-docker.md](docs/en/13-deploy-docker.md) |
 | Диаграммы | [14-diagrams.md](docs/ru/14-diagrams.md) | [14-diagrams.md](docs/en/14-diagrams.md) |

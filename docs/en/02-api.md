@@ -443,7 +443,7 @@ Saving alone does not send a test, but an enabled rule may send. Explicit `POST 
 
 Both history endpoints accept `limit=1..500`, default `100` (the UI shows 100). Event fields: `id`, `rule_id`, `name`, `state`, `message`, `created_at`. Delivery fields: `id`, `event_id`, `channel_id`, `status`, `attempts`, `last_error`, `next_attempt`; timestamps are Unix ms. Errors are sanitized and never expose bot tokens.
 
-Outbox statuses: `pending`, `sending`, `sent`, `failed`; at most 5 attempts with backoff and leased claims. Older pending/sending work for the same rule/channel blocks newer notifications until terminal completion. Delivery is **at-least-once**: transport ambiguity can cause duplicates, not exactly-once delivery. Monitoring history is not automatically telemetry-retention-pruned.
+Outbox statuses: `pending`, `sending`, `sent`, `failed`; at most 5 attempts with backoff and leased claims. Older pending/sending work for the same rule/channel blocks newer notifications until terminal completion. Delivery is **not guaranteed**: retries can exhaust the attempt limit, and transport ambiguity can cause duplicates; there is no exactly-once guarantee. Monitoring history is not automatically telemetry-retention-pruned.
 
 JSON bodies are limited to **128 KiB**; unknown fields and trailing JSON are rejected.
 
