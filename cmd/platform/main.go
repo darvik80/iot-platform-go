@@ -213,7 +213,6 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		log.Error("mqtt broker failed", "addr", cfg.MQTT.Addr, "err", err)
 		os.Exit(1)
 	}
-	defer brk.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -257,9 +256,20 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 	}()
 
 	waitForShutdown()
-	shutdownCtx, c2 := context.WithTimeout(context.Background(), 5*time.Second)
+	log.Info("shutting down...")
+	shutdownCtx, c2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer c2()
+	
+	// Stop background workers
+	cancel()
+	
+	// Shutdown HTTP server (stops accepting new requests, waits for in-flight)
 	_ = httpServer.Shutdown(shutdownCtx)
+	
+	// Close MQTT broker (disconnects all MQTT clients)
+	brk.Close()
+	
+	log.Info("shutdown complete")
 }
 
 // waitForShutdown blocks until SIGINT or SIGTERM is received.
