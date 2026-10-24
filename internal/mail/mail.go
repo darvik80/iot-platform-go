@@ -118,10 +118,10 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 	if html != "" {
 		var altBuf bytes.Buffer
 		alt := multipart.NewWriter(&altBuf)
-		if err := writePart(alt, "text/plain; charset=UTF-8", text); err != nil {
+		if err := writePart(alt, "text/plain; charset=UTF-8", "quoted-printable", text); err != nil {
 			return nil, err
 		}
-		if err := writePart(alt, "text/html; charset=UTF-8", html); err != nil {
+		if err := writePart(alt, "text/html; charset=UTF-8", "base64", html); err != nil {
 			return nil, err
 		}
 		if err := alt.Close(); err != nil {
@@ -139,7 +139,7 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 		if err := writeLogo(related); err != nil {
 			return nil, err
 		}
-	} else if err := writePart(related, "text/plain; charset=UTF-8", text); err != nil {
+	} else if err := writePart(related, "text/plain; charset=UTF-8", "quoted-printable", text); err != nil {
 		return nil, err
 	}
 	if err := related.Close(); err != nil {
@@ -161,12 +161,23 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 	return msg.Bytes(), nil
 }
 
-func writePart(w *multipart.Writer, contentType, body string) error {
+func writePart(w *multipart.Writer, contentType, transferEncoding, body string) error {
 	h := textproto.MIMEHeader{}
 	h.Set("Content-Type", contentType)
-	h.Set("Content-Transfer-Encoding", "quoted-printable")
+	h.Set("Content-Transfer-Encoding", transferEncoding)
 	p, err := w.CreatePart(h)
 	if err != nil {
+		return err
+	}
+	if transferEncoding == "base64" {
+		encoded := base64.StdEncoding.EncodeToString([]byte(body))
+		for len(encoded) > 76 {
+			if _, err := p.Write([]byte(encoded[:76] + "\r\n")); err != nil {
+				return err
+			}
+			encoded = encoded[76:]
+		}
+		_, err = p.Write([]byte(encoded))
 		return err
 	}
 	qp := quotedprintable.NewWriter(p)

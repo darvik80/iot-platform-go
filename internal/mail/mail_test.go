@@ -1,8 +1,8 @@
 package mail
 
 import (
-	"bytes"
 	"encoding/base64"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -28,6 +28,37 @@ func TestVerificationHTMLMatchesBrand(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("html missing %q", want)
 		}
+	}
+}
+
+func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
+	u := "https://iot.example/invite/abcdefghijklmnopqrstuvwxyz0123456789-_"
+	_, html, err := invitationContent("Acme", "viewer", u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hrefs := regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(html, -1)
+	if len(hrefs) < 2 {
+		t.Fatalf("want button + fallback href, got %v in %s", hrefs, html)
+	}
+	for _, m := range hrefs {
+		if m[1] != u {
+			t.Errorf("href=%q want %q", m[1], u)
+		}
+	}
+	if strings.Contains(html, "#ZgotmplZ") {
+		t.Fatal("template rejected the URL")
+	}
+}
+
+func TestMailLinkAddsHTTPS(t *testing.T) {
+	display, href := mailLink("iot.example/invite/tok")
+	if display != "https://iot.example/invite/tok" || string(href) != display {
+		t.Fatalf("display=%q href=%q", display, href)
+	}
+	display, href = mailLink("javascript:alert(1)")
+	if display != "javascript:alert(1)" || href != "" {
+		t.Fatalf("unsafe url display=%q href=%q", display, href)
 	}
 }
 
@@ -85,8 +116,8 @@ func TestBuildMessageEmbedsLogo(t *testing.T) {
 	if !strings.Contains(compact, encoded) {
 		t.Fatal("message does not contain logo payload")
 	}
-	if !bytes.Contains(msg, []byte("cid:cogitor-logo")) {
-		t.Fatal("html does not reference cid")
+	if !strings.Contains(raw, "text/html; charset=UTF-8") || !strings.Contains(raw, "base64") {
+		t.Fatal("html part should be base64 so long hrefs are not QP-wrapped")
 	}
 }
 
