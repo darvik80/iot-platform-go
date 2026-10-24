@@ -118,8 +118,7 @@ func buildMessage(from, to, subject, text, html string) ([]byte, error) {
 		return nil, err
 	}
 	if html != "" {
-		// Base64 so a quoted-printable soft break cannot split href.
-		if err := writePart(alt, "text/html; charset=UTF-8", "base64", html); err != nil {
+		if err := writePart(alt, "text/html; charset=UTF-8", "8bit", html); err != nil {
 			return nil, err
 		}
 	}
@@ -144,6 +143,12 @@ func writePart(w *multipart.Writer, contentType, transferEncoding, body string) 
 	h.Set("Content-Transfer-Encoding", transferEncoding)
 	p, err := w.CreatePart(h)
 	if err != nil {
+		return err
+	}
+	if transferEncoding == "8bit" {
+		body = strings.ReplaceAll(body, "\r\n", "\n")
+		body = strings.ReplaceAll(body, "\n", "\r\n")
+		_, err = p.Write([]byte(body))
 		return err
 	}
 	if transferEncoding == "base64" {

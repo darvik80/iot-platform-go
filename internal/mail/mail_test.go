@@ -16,11 +16,10 @@ func TestVerificationHTMLMatchesBrand(t *testing.T) {
 	for _, want := range []string{
 		"Cogitor",
 		"#3d9cf0",
-		"#0f1419",
-		"#1c2430",
 		"Confirm account",
 		"Hello darvik",
-		"https://iot.example/verify?token=abc",
+		`href="https://iot.example/verify?token=abc"`,
+		">Confirm account</a>",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("html missing %q", want)
@@ -34,15 +33,14 @@ func TestInvitationButtonHrefMatchesVisibleURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(html, `href="`+u+`"`) != 2 {
-		t.Fatalf("want button + fallback href, html:\n%s", html)
+	if !strings.Contains(html, `<a href="`+u+`"`) || !strings.Contains(html, `>Accept invitation</a>`) {
+		t.Fatalf("Accept invitation must be a link to the invite URL, html:\n%s", html)
 	}
-	if !strings.Contains(html, `href="`+u+`" style="display:inline-block;`) || !strings.Contains(html, `>Accept invitation</a>`) {
-		t.Fatalf("Accept invitation must be the button link text, html:\n%s", html)
+	if strings.Count(html, `href="`+u+`"`) != 1 {
+		t.Fatalf("href should appear once, html:\n%s", html)
 	}
-	rest := strings.ReplaceAll(html, `href="`+u+`"`, "")
-	if strings.Contains(rest, u) {
-		t.Fatalf("URL must not appear as visible text (mail clients quote it):\n%s", html)
+	if !strings.Contains(html, `https:<span></span>//iot.example/invite/`) {
+		t.Fatalf("copyable URL missing, html:\n%s", html)
 	}
 }
 
@@ -94,6 +92,12 @@ func TestBuildMessageAlternativeOnly(t *testing.T) {
 	}
 	if strings.Contains(raw, "multipart/related") || strings.Contains(raw, "cid:") {
 		t.Fatal("inline CID images break links in Yandex/Mail.ru")
+	}
+	if !strings.Contains(raw, "8bit") {
+		t.Fatal("html part should be 8bit so href is not encoded/wrapped")
+	}
+	if !strings.Contains(raw, `<a href="https://iot.example/v"`) {
+		t.Fatalf("href must appear as 8bit plaintext, not encoded:\n%s", raw)
 	}
 }
 
