@@ -233,7 +233,13 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		hub.AllowedHosts = append(hub.AllowedHosts, u.Host)
 	}
 	srv := &api.Server{Plat: plat, Hub: hub, SpaFS: spa, Setup: setupService, Version: Version, Commit: Commit}
-	httpServer := &http.Server{Addr: cfg.HTTP.Addr, Handler: srv.Router()}
+	httpServer := &http.Server{
+		Addr:         cfg.HTTP.Addr,
+		Handler:      srv.Router(),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
 	go func() {
 		log.Info("platform listening",
