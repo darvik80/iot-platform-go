@@ -179,6 +179,28 @@ export function DeviceDetailPage() {
         </div>
         <div className="col-lg-6">
           <div className="panel">
+            <h2 className="h6 text-uppercase muted">{t('device.tags')}</h2>
+            <TagsEditor
+              tags={d.tags || []}
+              onSave={async (tags) => {
+                try {
+                  await api(`/devices/${d.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ name: d.name, description: d.description || '', tags }),
+                  });
+                  await load();
+                } catch (err) {
+                  toast.error(errorMsg(err));
+                }
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="row g-3 mt-1">
+        <div className="col-lg-6">
+          <div className="panel">
             <h2 className="h6 text-uppercase muted">{t('device.metrics')}</h2>
             <MetricCards latest={detail.latest_telemetry} product={detail.product} />
           </div>
@@ -575,6 +597,50 @@ function EventsCount({ data }: { data: unknown }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (tags: string[]) => void }) {
+  const [newTag, setNewTag] = useState('');
+  const t = useT();
+
+  const addTag = () => {
+    const tag = newTag.trim();
+    if (tag && !tags.includes(tag)) {
+      onSave([...tags, tag]);
+    }
+    setNewTag('');
+  };
+
+  const removeTag = (tag: string) => {
+    onSave(tags.filter((t) => t !== tag));
+  };
+
+  return (
+    <div>
+      <div className="d-flex flex-wrap gap-1 mb-2">
+        {tags.length === 0 && <span className="muted small">{t('device.noTags')}</span>}
+        {tags.map((tag) => (
+          <span key={tag} className="badge text-bg-secondary d-inline-flex align-items-center gap-1">
+            {tag}
+            <button type="button" className="btn-close btn-close-white" style={{ fontSize: '0.6rem' }} onClick={() => removeTag(tag)} aria-label={`Remove ${tag}`} />
+          </span>
+        ))}
+      </div>
+      <div className="input-group input-group-sm">
+        <input
+          type="text"
+          className="form-control"
+          placeholder={t('device.addTag')}
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+        />
+        <button type="button" className="btn btn-outline-secondary" onClick={addTag}>
+          {t('common.add')}
+        </button>
+      </div>
     </div>
   );
 }

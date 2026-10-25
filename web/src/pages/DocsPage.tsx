@@ -66,6 +66,7 @@ export function DocsPage() {
             <li><Link to="/devices">{t('docs.gettingStarted.registerDevice')}</Link></li>
             <li>{t('docs.gettingStarted.connectDevice')}</li>
             <li><Link to="/">{t('docs.gettingStarted.overview')}</Link></li>
+            <li><Link to="/device-groups">{t('docs.deviceGroups.open')}</Link></li>
             <li><Link to="/monitoring">{t('docs.monitoring.quickStart')}</Link></li>
           </ol>
         </>
@@ -160,6 +161,9 @@ export function DocsPage() {
             <Link to="/devices">{t('docs.productsDevices.openDevices')}</Link> → <strong>{t('docs.productsDevices.newDevice')}</strong>. {t('docs.productsDevices.deviceSetup')}{' '}
             <span className="text-danger">{t('docs.productsDevices.saveCredentials')}</span>
           </p>
+          <p>
+            {t('docs.deviceGroups.tagsDescription')} {t('docs.deviceGroups.tagsUsage')}
+          </p>
           <h4>{t('docs.productsDevices.lifecycle')}</h4>
           <ul>
             <li><strong>{t('docs.productsDevices.enableDisable')}</strong> — {t('docs.productsDevices.enableDisableDescription')}</li>
@@ -224,6 +228,32 @@ export function DocsPage() {
           <p>{t('docs.monitoring.failures')}</p>
           <h4>{t('docs.monitoring.permissions')}</h4>
           <p>{t('docs.monitoring.roles')}</p>
+        </>
+      ),
+    },
+    {
+      id: 'device-groups',
+      title: t('docs.deviceGroups.title'),
+      icon: '📁',
+      content: (
+        <>
+          <p>{t('docs.deviceGroups.intro')}</p>
+          <p><Link to="/device-groups">{t('docs.deviceGroups.open')}</Link></p>
+          <h4>{t('docs.deviceGroups.scopeTypes')}</h4>
+          <ul>
+            <li><strong>{t('deviceGroups.scope.manual')}</strong> — {t('docs.deviceGroups.manual')}</li>
+            <li><strong>{t('deviceGroups.scope.product')}</strong> — {t('docs.deviceGroups.product')}</li>
+            <li><strong>{t('deviceGroups.scope.tag')}</strong> — {t('docs.deviceGroups.tag')}</li>
+          </ul>
+          <h4>{t('docs.deviceGroups.creating')}</h4>
+          <p>{t('docs.deviceGroups.creatingSteps')}</p>
+          <h4>{t('docs.deviceGroups.editing')}</h4>
+          <p>{t('docs.deviceGroups.editingDescription')}</p>
+          <h4>{t('docs.deviceGroups.deleting')}</h4>
+          <p>{t('docs.deviceGroups.deletingDescription')}</p>
+          <h4>{t('docs.deviceGroups.tags')}</h4>
+          <p>{t('docs.deviceGroups.tagsDescription')}</p>
+          <p>{t('docs.deviceGroups.tagsUsage')}</p>
         </>
       ),
     },

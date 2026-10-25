@@ -16,7 +16,7 @@ export function DevicesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [creds, setCreds] = useState<DeviceCredentials | null>(null);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ product_id: '', device_id: '', name: '', topic_style: '', alink_secret: '' });
+  const [form, setForm] = useState({ product_id: '', device_id: '', name: '', topic_style: '', alink_secret: '', tags: '' });
   const toast = useToast();
   const t = useT();
   const formDialect = dialectOf(form.topic_style);
@@ -53,6 +53,7 @@ export function DevicesPage() {
 
   const create = async () => {
     try {
+      const tags = form.tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
       const res = await api<{ credentials: DeviceCredentials }>('/devices', {
         method: 'POST',
         body: JSON.stringify({
@@ -60,6 +61,7 @@ export function DevicesPage() {
           device_id: form.device_id,
           name: form.name,
           topic_style: form.topic_style,
+          tags,
           ...(formDialect.credential === 'secret' ? { alink_secret: form.alink_secret.trim() } : {}),
         }),
       });
@@ -104,6 +106,9 @@ export function DevicesPage() {
             </div>
             <div className="col-md-4">
               <input className="form-control" placeholder={t('common.displayName')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div className="col-md-4">
+              <input className="form-control" placeholder={t('devices.tags')} value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
             </div>
             <div className="col-md-4">
               <select

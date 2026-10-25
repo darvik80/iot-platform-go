@@ -94,6 +94,7 @@ export interface Device {
   device_id: string;
   name: string;
   description?: string;
+  tags?: string[];
   status: string;
   token_prefix?: string;
   topic_style: string;
