@@ -349,6 +349,7 @@ export const ru: Record<string, string> = {
   'device.tags': 'Теги',
   'device.noTags': 'Нет тегов',
   'device.addTag': 'Добавить тег',
+  'device.editTags': 'Редактировать',
   'device.overview': 'Обзор',
   'device.metricsPlus': 'Метрики+',
   'device.noDashboardPanels': 'Нет настроенных панелей. Привяжите плагин metrics-dashboard к этому устройству.',

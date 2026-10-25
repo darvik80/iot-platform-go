@@ -349,6 +349,7 @@ export const en: Record<string, string> = {
   'device.tags': 'Tags',
   'device.noTags': 'No tags',
   'device.addTag': 'Add tag',
+  'device.editTags': 'Edit tags',
   'device.overview': 'Overview',
   'device.metricsPlus': 'Metrics+',
   'device.noDashboardPanels': 'No dashboard panels configured. Bind the metrics-dashboard plugin to this device.',

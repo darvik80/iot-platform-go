@@ -33,6 +33,8 @@ export function DeviceDetailPage() {
   const [dashboard, setDashboard] = useState<DashboardPanel[] | null>(null);
   const [dashLoading, setDashLoading] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'rotateToken' | 'deleteDevice' | null>(null);
+  const [editingTags, setEditingTags] = useState(false);
+  const [newTag, setNewTag] = useState('');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -82,6 +84,30 @@ export function DeviceDetailPage() {
     });
   }, [load]);
 
+  const saveTags = async (tags: string[]) => {
+    try {
+      await api(`/devices/${d.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: d.name, description: d.description || '', tags }),
+      });
+      await load();
+    } catch (err) {
+      toast.error(errorMsg(err));
+    }
+  };
+
+  const addTag = () => {
+    const tag = newTag.trim();
+    if (tag && !(d.tags || []).includes(tag)) {
+      void saveTags([...(d.tags || []), tag]);
+    }
+    setNewTag('');
+  };
+
+  const removeTag = (tag: string) => {
+    void saveTags((d.tags || []).filter((t) => t !== tag));
+  };
+
   if (!detail && !error) return <p className="muted">Loading…</p>;
   if (error && !detail) return <div className="alert alert-danger">{error}</div>;
   if (!detail) return null;
@@ -100,6 +126,35 @@ export function DeviceDetailPage() {
         <h1 className="h4 mb-0" style={{ minWidth: 0 }}>
           {d.product_id} / {d.device_id} <StatusBadge status={d.status} />
         </h1>
+        <div className="d-flex flex-wrap align-items-center gap-1 ms-2">
+          {(d.tags || []).map((tag) => (
+            <span key={tag} className="badge text-bg-secondary d-inline-flex align-items-center gap-1">
+              {tag}
+              {editingTags && (
+                <button type="button" className="btn-close btn-close-white" style={{ fontSize: '0.6rem' }} onClick={() => removeTag(tag)} aria-label={`Remove ${tag}`} />
+              )}
+            </span>
+          ))}
+          {editingTags ? (
+            <div className="input-group input-group-sm" style={{ width: 'auto' }}>
+              <input
+                type="text"
+                className="form-control"
+                placeholder={t('device.addTag')}
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                style={{ width: 120 }}
+              />
+              <button type="button" className="btn btn-outline-secondary" onClick={addTag}>{t('common.add')}</button>
+              <button type="button" className="btn btn-outline-secondary" onClick={() => { setEditingTags(false); setNewTag(''); }}>✕</button>
+            </div>
+          ) : (
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setEditingTags(true)}>
+              {t('device.editTags')}
+            </button>
+          )}
+        </div>
         {detail.product?.id ? (
           <Link className="muted small ms-auto flex-shrink-0" to={`/products/${detail.product.id}`}>
             {t('device.editProductSchema')}
@@ -175,28 +230,6 @@ export function DeviceDetailPage() {
                 {t('device.deleteDevice')}
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="row g-3 mt-1">
-        <div className="col-12">
-          <div className="panel">
-            <h2 className="h6 text-uppercase muted">{t('device.tags')}</h2>
-            <TagsEditor
-              tags={d.tags || []}
-              onSave={async (tags) => {
-                try {
-                  await api(`/devices/${d.id}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ name: d.name, description: d.description || '', tags }),
-                  });
-                  await load();
-                } catch (err) {
-                  toast.error(errorMsg(err));
-                }
-              }}
-            />
           </div>
         </div>
       </div>
@@ -604,46 +637,3 @@ function EventsCount({ data }: { data: unknown }) {
   );
 }
 
-function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (tags: string[]) => void }) {
-  const [newTag, setNewTag] = useState('');
-  const t = useT();
-
-  const addTag = () => {
-    const tag = newTag.trim();
-    if (tag && !tags.includes(tag)) {
-      onSave([...tags, tag]);
-    }
-    setNewTag('');
-  };
-
-  const removeTag = (tag: string) => {
-    onSave(tags.filter((t) => t !== tag));
-  };
-
-  return (
-    <div>
-      <div className="d-flex flex-wrap gap-2 mb-3">
-        {tags.length === 0 && <span className="muted">{t('device.noTags')}</span>}
-        {tags.map((tag) => (
-          <span key={tag} className="badge text-bg-secondary d-inline-flex align-items-center gap-2 py-2 px-3">
-            {tag}
-            <button type="button" className="btn-close btn-close-white" style={{ fontSize: '0.65rem' }} onClick={() => removeTag(tag)} aria-label={`Remove ${tag}`} />
-          </span>
-        ))}
-      </div>
-      <div className="input-group" style={{ maxWidth: 400 }}>
-        <input
-          type="text"
-          className="form-control"
-          placeholder={t('device.addTag')}
-          value={newTag}
-          onChange={(e) => setNewTag(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
-        />
-        <button type="button" className="btn btn-outline-secondary" onClick={addTag}>
-          {t('common.add')}
-        </button>
-      </div>
-    </div>
-  );
-}
