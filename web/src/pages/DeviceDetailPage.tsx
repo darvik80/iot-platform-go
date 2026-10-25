@@ -177,7 +177,10 @@ export function DeviceDetailPage() {
             </div>
           </div>
         </div>
-        <div className="col-lg-6">
+      </div>
+
+      <div className="row g-3 mt-1">
+        <div className="col-12">
           <div className="panel">
             <h2 className="h6 text-uppercase muted">{t('device.tags')}</h2>
             <TagsEditor
@@ -619,16 +622,16 @@ function TagsEditor({ tags, onSave }: { tags: string[]; onSave: (tags: string[])
 
   return (
     <div>
-      <div className="d-flex flex-wrap gap-1 mb-2">
-        {tags.length === 0 && <span className="muted small">{t('device.noTags')}</span>}
+      <div className="d-flex flex-wrap gap-2 mb-3">
+        {tags.length === 0 && <span className="muted">{t('device.noTags')}</span>}
         {tags.map((tag) => (
-          <span key={tag} className="badge text-bg-secondary d-inline-flex align-items-center gap-1">
+          <span key={tag} className="badge text-bg-secondary d-inline-flex align-items-center gap-2 py-2 px-3">
             {tag}
-            <button type="button" className="btn-close btn-close-white" style={{ fontSize: '0.6rem' }} onClick={() => removeTag(tag)} aria-label={`Remove ${tag}`} />
+            <button type="button" className="btn-close btn-close-white" style={{ fontSize: '0.65rem' }} onClick={() => removeTag(tag)} aria-label={`Remove ${tag}`} />
           </span>
         ))}
       </div>
-      <div className="input-group input-group-sm">
+      <div className="input-group" style={{ maxWidth: 400 }}>
         <input
           type="text"
           className="form-control"
