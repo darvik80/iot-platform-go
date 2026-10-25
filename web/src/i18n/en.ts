@@ -169,6 +169,7 @@ export const en: Record<string, string> = {
   'nav.users': 'Users',
   'nav.account': 'Account',
   'nav.auditLog': 'Audit Log',
+  'nav.deviceGroups': 'Device Groups',
 
   // ── Common ──────────────────────────────────────────────────────────
   'common.loading': 'Loading…',
@@ -216,6 +217,7 @@ export const en: Record<string, string> = {
   'common.down': 'down',
   'common.upload': 'Upload',
   'common.download': 'Download',
+  'common.select': 'Select…',
 
   // ── Auth / Login ────────────────────────────────────────────────────
   'auth.createAccount': 'Create an account',
@@ -709,4 +711,20 @@ export const en: Record<string, string> = {
   'docs.monitoring.failures': 'A firing rule does not mean its message was delivered. Check enabled channels, SMTP configuration, Telegram token/chat permissions and delivery errors. Transport timeouts can produce duplicate messages; delivery is not exactly-once.',
   'docs.monitoring.permissions': 'Permissions and account isolation',
   'docs.monitoring.roles': 'Admins manage dashboards, rules and channels. Operators can edit dashboards but only read rules/history; viewers are read-only. Channel configuration and tests are admin-only. All resources and metric sources belong to the active account; suspended accounts cannot access monitoring.',
+
+  // ── Device Groups ───────────────────────────────────────────────────
+  'deviceGroups.create': 'Create device group',
+  'deviceGroups.edit': 'Edit device group',
+  'deviceGroups.name': 'Name',
+  'deviceGroups.description': 'Description',
+  'deviceGroups.scopeType': 'Scope type',
+  'deviceGroups.scope.manual': 'Manual selection',
+  'deviceGroups.scope.product': 'All devices in product',
+  'deviceGroups.scope.tag': 'Devices with tag',
+  'deviceGroups.productId': 'Product',
+  'deviceGroups.tag': 'Tag',
+  'deviceGroups.devices': 'Devices',
+  'deviceGroups.noDevices': 'No devices available',
+  'deviceGroups.confirmDelete': 'Delete this device group?',
+  'deviceGroups.empty': 'No device groups yet. Create a group to monitor multiple devices together.',
 };

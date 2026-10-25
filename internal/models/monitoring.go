@@ -5,6 +5,7 @@ type MetricSource struct {
 	Key      string `json:"key"`
 	Label    string `json:"label"`
 	Color    string `json:"color"`
+	Scope    *Scope `json:"scope,omitempty"`
 }
 
 type MonitoringWidget struct {
@@ -75,6 +76,7 @@ type AlertRule struct {
 	ChannelIDs      []int64 `json:"channel_ids"`
 	State           string  `json:"state"`
 	Since           int64   `json:"since"`
+	Scope           *Scope  `json:"scope,omitempty"`
 }
 
 type NotificationChannel struct {

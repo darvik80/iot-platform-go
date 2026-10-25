@@ -12,6 +12,7 @@ const NAV: [string, string][] = [
   ['/products', 'nav.products'],
   ['/devices', 'nav.devices'],
   ['/monitoring', 'nav.monitoring'],
+  ['/device-groups', 'nav.deviceGroups'],
   ['/events', 'nav.events'],
   ['/logs', 'nav.logs'],
   ['/ota', 'nav.ota'],

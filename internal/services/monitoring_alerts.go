@@ -52,15 +52,16 @@ type monitorStoredChannel struct {
 }
 
 const monitorRuleColumns = `id, account_id, name, device_id, metric, kind, operator, threshold, recovery,
-	for_seconds, missing_seconds, cooldown_seconds, enabled, channel_ids, state, since, created_at, last_notified, last_evaluated, revision`
+	for_seconds, missing_seconds, cooldown_seconds, enabled, channel_ids, state, since, created_at, last_notified, last_evaluated, revision, scope_json`
 const monitorChannelColumns = `id, account_id, name, kind, destination, enabled, secret_ciphertext`
 
 func scanMonitorRule(row interface{ Scan(...any) error }) (monitorStoredRule, error) {
 	var r monitorStoredRule
 	var enabled int
 	var channels string
+	var scopeJSON sql.NullString
 	err := row.Scan(&r.ID, &r.AccountID, &r.Name, &r.DeviceID, &r.Metric, &r.Kind, &r.Operator, &r.Threshold, &r.Recovery,
-		&r.ForSeconds, &r.MissingSeconds, &r.CooldownSeconds, &enabled, &channels, &r.State, &r.Since, &r.createdAt, &r.lastNotified, &r.lastEvaluated, &r.revision)
+		&r.ForSeconds, &r.MissingSeconds, &r.CooldownSeconds, &enabled, &channels, &r.State, &r.Since, &r.createdAt, &r.lastNotified, &r.lastEvaluated, &r.revision, &scopeJSON)
 	if err != nil {
 		return r, err
 	}
@@ -68,6 +69,12 @@ func scanMonitorRule(row interface{ Scan(...any) error }) (monitorStoredRule, er
 	err = json.Unmarshal([]byte(channels), &r.ChannelIDs)
 	if r.ChannelIDs == nil {
 		r.ChannelIDs = []int64{}
+	}
+	if scopeJSON.Valid && scopeJSON.String != "" {
+		var scope models.Scope
+		if err := json.Unmarshal([]byte(scopeJSON.String), &scope); err == nil {
+			r.Scope = &scope
+		}
 	}
 	return r, err
 }
@@ -135,8 +142,28 @@ func (p *Platform) ListMonitorRules(accountID int64) ([]models.AlertRule, error)
 
 func validateMonitorRule(in *models.AlertRule) error {
 	in.Name = strings.TrimSpace(in.Name)
-	if !monitorText(in.Name, 120, true) || !monitorText(in.Metric, 128, false) || in.DeviceID <= 0 {
-		return monitorAlertInvalid("invalid name, metric or device")
+	hasScope := in.Scope != nil && in.Scope.Type != ""
+	hasDevice := in.DeviceID > 0
+	if !monitorText(in.Name, 120, true) || !monitorText(in.Metric, 128, false) || (!hasScope && !hasDevice) {
+		return monitorAlertInvalid("invalid name, metric or device/scope")
+	}
+	if hasScope {
+		validTypes := map[models.ScopeType]bool{models.ScopeDevice: true, models.ScopeGroup: true, models.ScopeProduct: true, models.ScopeTag: true}
+		if !validTypes[in.Scope.Type] {
+			return monitorAlertInvalid("invalid scope type")
+		}
+		if in.Scope.Type == models.ScopeDevice && in.Scope.DeviceID <= 0 {
+			return monitorAlertInvalid("device scope requires device_id")
+		}
+		if in.Scope.Type == models.ScopeGroup && in.Scope.GroupID <= 0 {
+			return monitorAlertInvalid("group scope requires group_id")
+		}
+		if in.Scope.Type == models.ScopeProduct && in.Scope.ProductID <= 0 {
+			return monitorAlertInvalid("product scope requires product_id")
+		}
+		if in.Scope.Type == models.ScopeTag && in.Scope.Tag == "" {
+			return monitorAlertInvalid("tag scope requires tag")
+		}
 	}
 	if in.MissingSeconds == 0 {
 		in.MissingSeconds = 300
@@ -219,11 +246,45 @@ func (p *Platform) SaveMonitorRule(accountID, id int64, in models.AlertRule) (*m
 		}
 	}
 	var owned int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM devices d JOIN products pr ON pr.id=d.product_pk WHERE d.id=? AND pr.account_id=?`, in.DeviceID, accountID).Scan(&owned); err != nil {
-		return nil, err
-	}
-	if owned != 1 {
-		return nil, monitorAlertInvalid("device does not belong to account")
+	var scopeJSON string
+	if in.Scope != nil && in.Scope.Type != "" {
+		switch in.Scope.Type {
+		case models.ScopeDevice:
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM devices d JOIN products pr ON pr.id=d.product_pk WHERE d.id=? AND pr.account_id=?`, in.Scope.DeviceID, accountID).Scan(&owned); err != nil {
+				return nil, err
+			}
+			if owned != 1 {
+				return nil, monitorAlertInvalid("device does not belong to account")
+			}
+			in.DeviceID = in.Scope.DeviceID
+		case models.ScopeGroup:
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM device_groups WHERE id=? AND account_id=?`, in.Scope.GroupID, accountID).Scan(&owned); err != nil {
+				return nil, err
+			}
+			if owned != 1 {
+				return nil, monitorAlertInvalid("group does not belong to account")
+			}
+			in.DeviceID = 0
+		case models.ScopeProduct:
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM products WHERE id=? AND account_id=?`, in.Scope.ProductID, accountID).Scan(&owned); err != nil {
+				return nil, err
+			}
+			if owned != 1 {
+				return nil, monitorAlertInvalid("product does not belong to account")
+			}
+			in.DeviceID = 0
+		case models.ScopeTag:
+			in.DeviceID = 0
+		}
+		scopeBytes, _ := json.Marshal(in.Scope)
+		scopeJSON = string(scopeBytes)
+	} else {
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM devices d JOIN products pr ON pr.id=d.product_pk WHERE d.id=? AND pr.account_id=?`, in.DeviceID, accountID).Scan(&owned); err != nil {
+			return nil, err
+		}
+		if owned != 1 {
+			return nil, monitorAlertInvalid("device does not belong to account")
+		}
 	}
 	for _, channelID := range in.ChannelIDs {
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM monitoring_channels WHERE id=? AND account_id=?`, channelID, accountID).Scan(&owned); err != nil {
@@ -236,11 +297,11 @@ func (p *Platform) SaveMonitorRule(accountID, id int64, in models.AlertRule) (*m
 	channelJSON, _ := json.Marshal(in.ChannelIDs)
 	now := db.NowMS()
 	args := []any{in.Name, in.DeviceID, in.Metric, in.Kind, in.Operator, in.Threshold, in.Recovery,
-		in.ForSeconds, in.MissingSeconds, in.CooldownSeconds, monitorBool(in.Enabled), string(channelJSON), now, now}
+		in.ForSeconds, in.MissingSeconds, in.CooldownSeconds, monitorBool(in.Enabled), string(channelJSON), now, now, scopeJSON}
 	if id == 0 {
 		res, err := tx.Exec(`INSERT INTO monitoring_rules(name, device_id, metric, kind, operator, threshold, recovery,
-			for_seconds, missing_seconds, cooldown_seconds, enabled, channel_ids, since, updated_at, account_id, created_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, append(args, accountID, now)...)
+			for_seconds, missing_seconds, cooldown_seconds, enabled, channel_ids, since, updated_at, account_id, created_at, scope_json)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, append(args, accountID, now)...)
 		if err != nil {
 			return nil, err
 		}
@@ -251,7 +312,7 @@ func (p *Platform) SaveMonitorRule(accountID, id int64, in models.AlertRule) (*m
 	} else {
 		_, err = tx.Exec(`UPDATE monitoring_rules SET name=?, device_id=?, metric=?, kind=?, operator=?, threshold=?, recovery=?,
 			for_seconds=?, missing_seconds=?, cooldown_seconds=?, enabled=?, channel_ids=?, since=?, updated_at=?,
-			state='normal', last_notified=0, last_evaluated=0, revision=revision+1 WHERE id=? AND account_id=?`, append(args, id, accountID)...)
+			state='normal', last_notified=0, last_evaluated=0, revision=revision+1, scope_json=? WHERE id=? AND account_id=?`, append(args, id, accountID)...)
 		if err != nil {
 			return nil, err
 		}
@@ -607,50 +668,68 @@ func (p *Platform) monitorEvaluate(ctx context.Context, now int64) error {
 		return err
 	}
 	if _, err := p.DB.Exec(`UPDATE monitoring_rules SET state='normal', since=?, last_evaluated=0, revision=revision+1
-		WHERE state='pending' AND (enabled=0 OR NOT EXISTS(SELECT 1 FROM devices d JOIN products pr ON pr.id=d.product_pk
-		JOIN accounts a ON a.id=pr.account_id WHERE d.id=monitoring_rules.device_id AND d.enabled=1 AND a.status='active' AND pr.account_id=monitoring_rules.account_id))`, now); err != nil {
+		WHERE state='pending' AND (enabled=0 OR (device_id > 0 AND NOT EXISTS(SELECT 1 FROM devices d JOIN products pr ON pr.id=d.product_pk
+		JOIN accounts a ON a.id=pr.account_id WHERE d.id=monitoring_rules.device_id AND d.enabled=1 AND a.status='active' AND pr.account_id=monitoring_rules.account_id)))`, now); err != nil {
 		return err
 	}
-	// Close each bounded page before opening transactions (SQLite has one conn).
 	var after int64
 	for ctx.Err() == nil {
-		rows, err := p.DB.Query(`SELECT r.id FROM monitoring_rules r JOIN accounts a ON a.id=r.account_id
-			JOIN devices d ON d.id=r.device_id JOIN products pr ON pr.id=d.product_pk
-			WHERE r.id>? AND r.enabled=1 AND a.status='active' AND d.enabled=1 AND pr.account_id=r.account_id ORDER BY r.id LIMIT 128`, after)
+		rows, err := p.DB.Query(`SELECT r.id, r.device_id, r.scope_json FROM monitoring_rules r JOIN accounts a ON a.id=r.account_id
+			WHERE r.id>? AND r.enabled=1 AND a.status='active' AND (r.device_id > 0 OR r.scope_json != '') ORDER BY r.id LIMIT 128`, after)
 		if err != nil {
 			return err
 		}
-		ids := []int64{}
+		type ruleRef struct {
+			id        int64
+			deviceID  int64
+			scopeJSON string
+		}
+		var refs []ruleRef
 		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
+			var ref ruleRef
+			if err := rows.Scan(&ref.id, &ref.deviceID, &ref.scopeJSON); err != nil {
 				rows.Close()
 				return err
 			}
-			ids = append(ids, id)
+			refs = append(refs, ref)
 		}
 		err = rows.Err()
 		rows.Close()
 		if err != nil {
 			return err
 		}
-		for _, id := range ids {
+		for _, ref := range refs {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := p.monitorEvaluateRule(ctx, id, now); err != nil {
-				return err
+			var deviceIDs []int64
+			if ref.scopeJSON != "" {
+				var scope models.Scope
+				if err := json.Unmarshal([]byte(ref.scopeJSON), &scope); err != nil {
+					continue
+				}
+				deviceIDs, err = p.ResolveScope(scope)
+				if err != nil {
+					continue
+				}
+			} else {
+				deviceIDs = []int64{ref.deviceID}
 			}
-			after = id
+			for _, deviceID := range deviceIDs {
+				if err := p.monitorEvaluateRuleForDevice(ctx, ref.id, deviceID, now); err != nil {
+					return err
+				}
+			}
+			after = ref.id
 		}
-		if len(ids) < 128 {
+		if len(refs) < 128 {
 			return nil
 		}
 	}
 	return ctx.Err()
 }
 
-func (p *Platform) monitorEvaluateRule(ctx context.Context, id, now int64) error {
+func (p *Platform) monitorEvaluateRuleForDevice(ctx context.Context, ruleID, deviceID, now int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -659,7 +738,7 @@ func (p *Platform) monitorEvaluateRule(ctx context.Context, id, now int64) error
 		return err
 	}
 	defer tx.Rollback()
-	r, err := scanMonitorRule(tx.QueryRow(`SELECT `+monitorRuleColumns+` FROM monitoring_rules WHERE id=?`, id))
+	r, err := scanMonitorRule(tx.QueryRow(`SELECT `+monitorRuleColumns+` FROM monitoring_rules WHERE id=?`, ruleID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -669,6 +748,7 @@ func (p *Platform) monitorEvaluateRule(ctx context.Context, id, now int64) error
 	if !r.Enabled {
 		return nil
 	}
+	r.DeviceID = deviceID
 	var deviceStatus string
 	var lastSeen sql.NullInt64
 	err = tx.QueryRow(`SELECT d.status, d.last_seen_at FROM devices d JOIN products pr ON pr.id=d.product_pk JOIN accounts a ON a.id=pr.account_id
@@ -766,7 +846,7 @@ func (p *Platform) monitorEvaluateRule(ctx context.Context, id, now int64) error
 		WHERE id=? AND revision=? AND enabled=1
 		AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND status='active')
 		AND EXISTS(SELECT 1 FROM devices d JOIN products pr ON pr.id=d.product_pk WHERE d.id=? AND d.enabled=1 AND pr.account_id=?)`,
-		state, since, lastNotified, now, now, id, r.revision, r.AccountID, r.DeviceID, r.AccountID)
+		state, since, lastNotified, now, now, ruleID, r.revision, r.AccountID, r.DeviceID, r.AccountID)
 	if err != nil {
 		return err
 	}
@@ -784,7 +864,7 @@ func (p *Platform) monitorEvaluateRule(ctx context.Context, id, now int64) error
 	if r.Kind == "threshold" && valid {
 		message += fmt.Sprintf(", value %g", value.Float64)
 	}
-	res, err = tx.Exec(`INSERT INTO monitoring_alert_events(account_id, rule_id, name, state, message, created_at) VALUES(?,?,?,?,?,?)`, r.AccountID, id, r.Name, state, message, now)
+	res, err = tx.Exec(`INSERT INTO monitoring_alert_events(account_id, rule_id, name, state, message, created_at) VALUES(?,?,?,?,?,?)`, r.AccountID, ruleID, r.Name, state, message, now)
 	if err != nil {
 		return err
 	}

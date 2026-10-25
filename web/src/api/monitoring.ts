@@ -14,8 +14,15 @@ export const MAX_SOURCES = 8;
 export const MAX_WIDGETS = 24;
 export const RULE_KINDS = ['threshold', 'no_data', 'offline'] as const;
 export const CHANNEL_KINDS = ['email', 'telegram'] as const;
+export interface Scope {
+  type: 'device' | 'group' | 'product' | 'tag';
+  device_id?: number;
+  group_id?: number;
+  product_id?: number;
+  tag?: string;
+}
 export interface Metric { key: string; kind: 'number' | 'boolean' | 'text'; last_seen: number }
-export interface WidgetSource { device_id: number; key: string; label: string; color: string }
+export interface WidgetSource { device_id: number; key: string; label: string; color: string; scope?: Scope }
 export interface Widget {
   id: string;
   title: string;
@@ -35,7 +42,7 @@ export interface AlertRule {
   id: number; account_id: number; name: string; device_id: number; metric: string;
   kind: typeof RULE_KINDS[number]; operator: 'gt' | 'lt'; threshold: number; recovery: number;
   for_seconds: number; missing_seconds: number; cooldown_seconds: number; enabled: boolean;
-  channel_ids: number[]; state: string; since: number;
+  channel_ids: number[]; state: string; since: number; scope?: Scope;
 }
 export type RuleInput = Omit<AlertRule, 'id' | 'account_id' | 'state' | 'since'>;
 export interface Channel {

@@ -100,14 +100,34 @@ func (p *Platform) validateMonitorWidget(accountID int64, w *models.MonitoringWi
 		if !monitorColor.MatchString(s.Color) {
 			return monitorInvalid("color must be a six-digit hex value")
 		}
-		identity := fmt.Sprintf("%d/%s", s.DeviceID, s.Key)
+		hasScope := s.Scope != nil && s.Scope.Type != ""
+		hasDevice := s.DeviceID > 0
+		if !hasScope && !hasDevice {
+			return monitorInvalid("metric source needs device_id or scope")
+		}
+		if hasScope {
+			validTypes := map[models.ScopeType]bool{models.ScopeDevice: true, models.ScopeGroup: true, models.ScopeProduct: true, models.ScopeTag: true}
+			if !validTypes[s.Scope.Type] {
+				return monitorInvalid("invalid scope type")
+			}
+			if s.Scope.Type == models.ScopeDevice {
+				if err := p.monitorDevice(accountID, s.Scope.DeviceID); err != nil {
+					return err
+				}
+				s.DeviceID = s.Scope.DeviceID
+			} else {
+				s.DeviceID = 0
+			}
+		} else {
+			if err := p.monitorDevice(accountID, s.DeviceID); err != nil {
+				return err
+			}
+		}
+		identity := fmt.Sprintf("%d/%s/%v", s.DeviceID, s.Key, s.Scope)
 		if seen[identity] {
 			return monitorInvalid("duplicate metric source")
 		}
 		seen[identity] = true
-		if err := p.monitorDevice(accountID, s.DeviceID); err != nil {
-			return err
-		}
 	}
 	return nil
 }
