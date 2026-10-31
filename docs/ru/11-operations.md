@@ -19,6 +19,7 @@ YAML-ключи разворачиваются в имена переменны�
 | Переменная | По умолчанию | Назначение |
 |-----------|-------------|-----------|
 | `HTTP_ADDR` | `:8080` | HTTP-адрес (дашборд + API) |
+| `METRICS_ADDR` | `:9102` | Слушатель метрик Prometheus (`/metrics`). Отдельно от `HTTP_ADDR` и от `:9100` node_exporter — см. [Метрики Prometheus](07-internal-plugins.md#метрики-prometheus) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP-слушатель |
 | `MQTT_TLS_ADDR` | `:8883` | Слушатель MQTT over TLS (активен только при заданных `MQTT_TLS_CERT` + `MQTT_TLS_KEY`) |
 | `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | порт слушателя | Порт, который сообщается клиентам (credentials устройств, Settings, статус MQTT), если он отличается от порта слушателя, например Docker `-p 11883:1883`. Слушатель не переносит |

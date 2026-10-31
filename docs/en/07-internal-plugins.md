@@ -4,7 +4,9 @@ Per-device automations that live **in the platform process**. Not to be confused
 
 A plugin is **one device + one catalog type**. It receives device events (status, telemetry, ticks), calls RPC back, and has a UI panel on the device page.
 
-Built-in plugins: `led-garland` (WS2812 strips), `schedule` (RPC by clock time), `prometheus-exporter` (Prometheus metrics endpoint) and `metrics-dashboard` (Metrics+ panels on the device page). Adding your own — one Go file + `init()`.
+Built-in plugins: `led-garland` (WS2812 strips), `schedule` (RPC by clock time) and `metrics-dashboard` (Metrics+ panels on the device page). Adding your own — one Go file + `init()`.
+
+Prometheus metrics are **not** a catalog plugin: the platform binary serves them itself on `METRICS_ADDR` — see [Prometheus metrics](#prometheus-metrics).
 
 Related: [External Plugins](08-external-plugins.md), [Automation](06-automation.md), [Product Schema](09-product-schema.md).
 
@@ -46,7 +48,7 @@ flowchart TB
 
 | Piece | Where | Role |
 |-------|--------|------|
-| **Catalog** | `internal/plugins` `Register()` in `init()` | Builtin types (`led-garland`, `schedule`, `prometheus-exporter`, `metrics-dashboard`). `GET /plugins`. |
+| **Catalog** | `internal/plugins` `Register()` in `init()` | Builtin types (`led-garland`, `schedule`, `metrics-dashboard`). `GET /plugins`. |
 | **Policy** | `/plugins/policies` (admin) | Per-account enable/disable (and settings) of each catalog plugin. |
 | **Binding** | DB table `device_plugin_bindings` (SQLite or PostgreSQL) | `UNIQUE(device_pk, plugin_id)`. Same catalog plugin on many devices = independent instances/configs. One device cannot bind the same `plugin_id` twice. |
 | **Hub** | `services.PluginHub` | One runner per enabled binding. Started from `main` via `StartPlugins`. |
@@ -104,7 +106,6 @@ Plugins must not: open MQTT, use device tokens, replace Node-RED for multi-devic
 |----|------|
 | `led-garland` | WS2812-style strips via firmware `set_led`, optional quiet hours / night-light window |
 | `schedule` | Fire device RPC at local clock times (reboot at 04:00, lights off at 23:00, …) |
-| `prometheus-exporter` | Serves platform metrics (devices, telemetry, RPC) in Prometheus text format on its own HTTP port — see [Prometheus exporter](#prometheus-exporter) |
 | `metrics-dashboard` | Passive: holds the panel layout for the device **Metrics+** tab — see [Metrics dashboard](#metrics-dashboard) |
 
 Each catalog plugin can be enabled or disabled per account by an admin: `GET /plugins/policies` lists the catalog with the effective policy (default: enabled), `PATCH /plugins/policies/{pluginId}` with `{ "enabled"?: bool, "settings"?: {} }` changes it and rebuilds the account's runners on the fly.
@@ -175,31 +176,28 @@ Jobs run once per matching minute while the device is online (10s poll). `days` 
 }
 ```
 
-## Prometheus exporter
+## Prometheus metrics
 
-`prometheus-exporter` starts a separate HTTP server that exposes in-process platform metrics (device online gauges, telemetry samples, RPC calls, rules bus publishes) in Prometheus text format. It sends no RPC and does not tick.
+Metrics are served by the platform core, not by a plugin: `internal/metrics` keeps a private registry that is exposed on `METRICS_ADDR` (default `:9102`, deliberately not `:9100` so it cannot clash with node_exporter). The listener is always on, independent of catalog bindings and of `HTTP_ADDR`. Platform admins can read the same registry at `GET /api/v1/metrics`.
 
-Default config:
+| Metric | Type | Labels |
+|--------|------|--------|
+| `platform_http_requests_total` | counter | `route`, `method`, `status` — `route` is the chi pattern (`/api/v1/devices/{id}`), which keeps cardinality bounded |
+| `platform_http_request_duration_seconds` | histogram | `route`, `method` |
+| `platform_http_in_flight_requests` | gauge | — |
+| `platform_telemetry_samples_total` | counter | `account`, `product` |
+| `platform_telemetry_errors_total` | counter | `account`, `product` |
+| `platform_rpc_calls_total` | counter | `account`, `product`, `method`, `status` |
+| `platform_event_bus_published_total` | counter | `account`, `kind` |
+| `platform_devices` | gauge | `account`, `status` — written by the platform, read from the DB on scrape |
+| `platform_ota_jobs` | gauge | `account`, `status` |
+| `platform_external_plugins` | gauge | `account`, `status` |
+| `platform_mqtt_clients` | gauge | `kind` |
+| `platform_build_info` | gauge | `version`, `commit` |
 
-```json
-{
-  "port": 9100,
-  "bind": "0.0.0.0",
-  "path": "/metrics",
-  "bearer_token": "",
-  "update_interval_ms": 5000
-}
-```
+Standard collectors are included: `go_*` and `process_*` (client_golang), plus DB pool stats as `go_sql_*{db_name="platform"}`.
 
-| Field | Meaning |
-|-------|---------|
-| `port` | Listen port (invalid → `9100`) |
-| `bind` | Listen address (empty → `0.0.0.0`) |
-| `path` | Metrics path (empty → `/metrics`) |
-| `bearer_token` | If set, requests must send `Authorization: Bearer <token>`, otherwise `401` |
-| `update_interval_ms` | Accepted but currently unused (there is no periodic refresh loop) |
-
-The HTTP server is started on the `apply` event (binding save / bind / **Apply now**; the bound device must be online). In v1.0.x the hub never stops it: disabling or removing the binding leaves the listener running, and a changed `port` / `bind` / `path` does not replace a server that already holds the port — restart the platform to apply such changes. Metrics come from a platform-wide store (`cogitor_device_online`, `cogitor_devices_total`, `cogitor_device_telemetry_samples_total`, `cogitor_device_rpc_calls_total`, `cogitor_event_bus_published_total`, `cogitor_mqtt_clients`, `cogitor_external_plugin_online`, `cogitor_device_ota_jobs_total`), not only from the bound device.
+Use `METRICS_ADDR=127.0.0.1:9102` when Prometheus scrapes from the same host; keep `:9102` when it scrapes over the network and firewall the port.
 
 ## Metrics dashboard
 

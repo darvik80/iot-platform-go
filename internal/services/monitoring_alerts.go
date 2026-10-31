@@ -297,11 +297,11 @@ func (p *Platform) SaveMonitorRule(accountID, id int64, in models.AlertRule) (*m
 	channelJSON, _ := json.Marshal(in.ChannelIDs)
 	now := db.NowMS()
 	args := []any{in.Name, in.DeviceID, in.Metric, in.Kind, in.Operator, in.Threshold, in.Recovery,
-		in.ForSeconds, in.MissingSeconds, in.CooldownSeconds, monitorBool(in.Enabled), string(channelJSON), now, now, scopeJSON}
+		in.ForSeconds, in.MissingSeconds, in.CooldownSeconds, monitorBool(in.Enabled), string(channelJSON), now, now}
 	if id == 0 {
 		res, err := tx.Exec(`INSERT INTO monitoring_rules(name, device_id, metric, kind, operator, threshold, recovery,
 			for_seconds, missing_seconds, cooldown_seconds, enabled, channel_ids, since, updated_at, account_id, created_at, scope_json)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, append(args, accountID, now)...)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, append(args, accountID, now, scopeJSON)...)
 		if err != nil {
 			return nil, err
 		}
@@ -312,7 +312,7 @@ func (p *Platform) SaveMonitorRule(accountID, id int64, in models.AlertRule) (*m
 	} else {
 		_, err = tx.Exec(`UPDATE monitoring_rules SET name=?, device_id=?, metric=?, kind=?, operator=?, threshold=?, recovery=?,
 			for_seconds=?, missing_seconds=?, cooldown_seconds=?, enabled=?, channel_ids=?, since=?, updated_at=?,
-			state='normal', last_notified=0, last_evaluated=0, revision=revision+1, scope_json=? WHERE id=? AND account_id=?`, append(args, id, accountID)...)
+			state='normal', last_notified=0, last_evaluated=0, revision=revision+1, scope_json=? WHERE id=? AND account_id=?`, append(args, scopeJSON, id, accountID)...)
 		if err != nil {
 			return nil, err
 		}

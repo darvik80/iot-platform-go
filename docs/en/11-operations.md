@@ -19,6 +19,7 @@ Full examples: `config.yml.example`, `.env.example`.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `HTTP_ADDR` | `:8080` | HTTP listen address (dashboard + API) |
+| `METRICS_ADDR` | `:9102` | Prometheus scrape listener (`/metrics`). Separate from `HTTP_ADDR` and from node_exporter's `:9100` — see [Prometheus metrics](07-internal-plugins.md#prometheus-metrics) |
 | `MQTT_ADDR` | `:1883` | MQTT TCP listener |
 | `MQTT_TLS_ADDR` | `:8883` | MQTT over TLS listener (active only when `MQTT_TLS_CERT` + `MQTT_TLS_KEY` are set) |
 | `MQTT_PUBLIC_PORT` / `MQTT_WS_PUBLIC_PORT` / `MQTT_TLS_PUBLIC_PORT` | listen port | Port announced to clients (device credentials, Settings, MQTT status) when it differs from the listen port, e.g. Docker `-p 11883:1883`. Does not move the listener |

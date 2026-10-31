@@ -25,6 +25,10 @@ type HTTPConfig struct {
 	Addr string
 }
 
+type MetricsConfig struct {
+	Addr string
+}
+
 type MQTTConfig struct {
 	Addr    string
 	WSAddr  string
@@ -93,6 +97,7 @@ type PlatformConfig struct {
 type Config struct {
 	Database  DatabaseConfig
 	HTTP      HTTPConfig
+	Metrics   MetricsConfig
 	MQTT      MQTTConfig
 	Auth      AuthConfig
 	Email     EmailConfig
@@ -171,6 +176,11 @@ func Load() Config {
 		},
 		HTTP: HTTPConfig{
 			Addr: getenv("HTTP_ADDR", ":8080", "SERVER_HTTP_ADDR"),
+		},
+		Metrics: MetricsConfig{
+			// Dedicated scrape listener; keep it off :9100 so it cannot clash
+			// with node_exporter on the same host.
+			Addr: getenv("METRICS_ADDR", ":9102"),
 		},
 		MQTT: MQTTConfig{
 			Addr:    getenv("MQTT_ADDR", ":1883"),

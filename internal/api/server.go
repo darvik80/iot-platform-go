@@ -17,8 +17,8 @@ import (
 
 	"cogitor-iot-platform/internal/auth"
 	"cogitor-iot-platform/internal/mcpbridge"
+	"cogitor-iot-platform/internal/metrics"
 	"cogitor-iot-platform/internal/models"
-	"cogitor-iot-platform/internal/plugins"
 	"cogitor-iot-platform/internal/protocol"
 	"cogitor-iot-platform/internal/services"
 	"cogitor-iot-platform/internal/ws"
@@ -42,7 +42,9 @@ func (s *Server) Router() http.Handler {
 		s.limits = newAuthLimits()
 	}
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+	// metrics.Middleware sits outside Recoverer so recovered panics are counted
+	// as 500 responses.
+	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, metrics.Middleware, middleware.Recoverer)
 	r.Use(requestIDLogContext)
 	r.Use(securityHeaders)
 	r.Use(middleware.Compress(5, "text/html", "application/json", "text/plain", "text/css", "application/javascript"))
@@ -1131,7 +1133,6 @@ func (s *Server) corsOrigins() []string {
 	return []string{base}
 }
 
-func (s *Server) getMetrics(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	_, _ = w.Write([]byte(plugins.RenderMetrics()))
+func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics.Handler().ServeHTTP(w, r)
 }

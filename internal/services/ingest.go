@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/metrics"
 	"cogitor-iot-platform/internal/models"
 	"cogitor-iot-platform/internal/protocol"
 )
@@ -44,10 +45,12 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 	now := db.NowMS()
 	samples, err := parseTelemetry(payload, now)
 	if err != nil {
+		metrics.TelemetryError(d.AccountSlug, d.ProductID)
 		return err
 	}
 	tx, err := p.DB.Begin()
 	if err != nil {
+		metrics.TelemetryError(d.AccountSlug, d.ProductID)
 		return err
 	}
 	defer tx.Rollback()
@@ -74,13 +77,15 @@ func (p *Platform) StoreTelemetry(d *models.Device, payload []byte) error {
 		}
 		if _, err := tx.Exec(`INSERT INTO telemetry_samples(device_pk, account_id, key, value_num, value_text, value_bool, ts, ingested_at) VALUES(?,?,?,?,?,?,?,?)`,
 			d.ID, d.AccountID, s.Key, vn, vt, vb, s.TS, now); err != nil {
+			metrics.TelemetryError(d.AccountSlug, d.ProductID)
 			return err
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		metrics.TelemetryError(d.AccountSlug, d.ProductID)
 		return err
 	}
-	MetricTelemetrySample(d.AccountSlug, d.ProductID, d.DeviceID)
+	metrics.TelemetrySamples(d.AccountSlug, d.ProductID, len(samples))
 	p.TouchSeen(d)
 	p.emit(d.AccountID, "telemetry", map[string]any{"device_id": d.ID, "product_id": d.ProductID, "device": d.DeviceID, "keys": keys, "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusTelemetry, map[string]any{
@@ -486,7 +491,7 @@ func (p *Platform) InvokeRPC(d *models.Device, req RPCRequest, wait bool) (*mode
 		call.Message = "timeout"
 		completed := db.NowMS()
 		call.CompletedAt = &completed
-		MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, req.Method, "timeout")
+		metrics.RPCCall(d.AccountSlug, d.ProductID, req.Method, "timeout")
 		return &call, nil
 	}
 }
@@ -534,7 +539,7 @@ func (p *Platform) CompleteRPC(d *models.Device, payload []byte) error {
 		}
 	}
 	p.emit(d.AccountID, "rpc.completed", call)
-	MetricRPCCall(d.AccountSlug, d.ProductID, d.DeviceID, call.Method, status)
+	metrics.RPCCall(d.AccountSlug, d.ProductID, call.Method, status)
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusRPCResult, map[string]any{
 		"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID,
 		"request_id": reqID, "code": resp.Code, "message": resp.Message, "method": call.Method,

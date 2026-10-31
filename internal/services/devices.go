@@ -429,7 +429,6 @@ func (p *Platform) MarkOnline(d *models.Device) {
 	_, _ = p.DB.Exec(`UPDATE devices SET status='online', last_seen_at=?, updated_at=? WHERE id=?`, now, now, d.ID)
 	d.Status = "online"
 	d.LastSeenAt = &now
-	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, true)
 	p.emit(d.AccountID, "device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "online", "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": true})
 	_ = p.RecordEvent(d, "", "status", "info", "online", "Device online", now, nil)
@@ -444,7 +443,6 @@ func (p *Platform) MarkOffline(d *models.Device, reason string) {
 	now := db.NowMS()
 	_, _ = p.DB.Exec(`UPDATE devices SET status='offline', updated_at=? WHERE id=?`, now, d.ID)
 	d.Status = "offline"
-	MetricDeviceOnline(d.AccountSlug, d.ProductID, d.DeviceID, false)
 	p.emit(d.AccountID, "device.status", map[string]any{"id": d.ID, "product_id": d.ProductID, "device_id": d.DeviceID, "status": "offline", "reason": reason, "ts": now})
 	p.publishRules(d.AccountSlug, d.ProductID, d.DeviceID, protocol.BusStatus, map[string]any{"ts": now, "product_id": d.ProductID, "device_id": d.DeviceID, "online": false, "reason": reason})
 	msg := "Device offline"

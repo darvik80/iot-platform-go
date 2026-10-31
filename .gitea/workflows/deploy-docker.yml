@@ -20,8 +20,9 @@ concurrency:
 
 env:
   CONTAINER_NAME: ${{ vars.IOT_CONTAINER_NAME || 'iot-platform-go' }}
-  # Host ports → container ports 8080 / 1883 / 8083 / 8883.
+  # Host ports → container ports 8080 / 9102 / 1883 / 8083 / 8883.
   IOT_HTTP_PORT: ${{ vars.IOT_HTTP_PORT || '9083' }}
+  IOT_METRICS_PORT: ${{ vars.IOT_METRICS_PORT || '9102' }}
   IOT_MQTT_PORT: ${{ vars.IOT_MQTT_PORT || '1883' }}
   IOT_MQTT_WS_PORT: ${{ vars.IOT_MQTT_WS_PORT || '8083' }}
   IOT_MQTT_TLS_PORT: ${{ vars.IOT_MQTT_TLS_PORT || '8883' }}
@@ -54,7 +55,7 @@ jobs:
           echo "runner    : $(hostname)"
           docker info --format 'daemon    : {{.Name}} ({{.OperatingSystem}}, docker {{.ServerVersion}})'
           echo "container : $CONTAINER_NAME"
-          echo "ports     : http $IOT_HTTP_PORT, mqtt $IOT_MQTT_PORT, ws $IOT_MQTT_WS_PORT, tls $IOT_MQTT_TLS_PORT"
+          echo "ports     : http $IOT_HTTP_PORT, metrics $IOT_METRICS_PORT, mqtt $IOT_MQTT_PORT, ws $IOT_MQTT_WS_PORT, tls $IOT_MQTT_TLS_PORT"
           echo "host dir  : $IOT_HOST_DIR/{data,etc}"
           echo "public url: ${PUBLIC_BASE_URL:-<config.yml>}, broker host: ${BROKER_HOST_PUBLIC:-<config.yml>}, tz: ${TIMEZONE:-<config.yml>}"
 
@@ -73,6 +74,7 @@ jobs:
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             -p "$IOT_HTTP_PORT:8080" \
+            -p "$IOT_METRICS_PORT:9102" \
             -p "$IOT_MQTT_PORT:1883" \
             -p "$IOT_MQTT_WS_PORT:8083" \
             -p "$IOT_MQTT_TLS_PORT:8883" \

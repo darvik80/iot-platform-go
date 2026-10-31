@@ -4,7 +4,9 @@
 
 Плагин — это **одно устройство + один тип из каталога**. Получает события устройства (статус, телеметрия, тики), вызывает RPC обратно, имеет UI-панель на странице устройства.
 
-Встроенные плагины: `led-garland` (WS2812-ленты), `schedule` (RPC по времени), `prometheus-exporter` (endpoint метрик Prometheus) и `metrics-dashboard` (панели Metrics+ на странице устройства). Свой плагин — один Go-файл + `init()`.
+Встроенные плагины: `led-garland` (WS2812-ленты), `schedule` (RPC по времени) и `metrics-dashboard` (панели Metrics+ на странице устройства). Свой плагин — один Go-файл + `init()`.
+
+Метрики Prometheus — **не** каталожный плагин: их отдаёт сам бинарник платформы на `METRICS_ADDR` — см. [Метрики Prometheus](#метрики-prometheus).
 
 ---
 
@@ -46,7 +48,7 @@ flowchart TB
 
 | Компонент | Где | Роль |
 |-----------|-----|------|
-| **Каталог** | `internal/plugins` `Register()` в `init()` | Встроенные типы (`led-garland`, `schedule`, `prometheus-exporter`, `metrics-dashboard`). `GET /plugins`. |
+| **Каталог** | `internal/plugins` `Register()` в `init()` | Встроенные типы (`led-garland`, `schedule`, `metrics-dashboard`). `GET /plugins`. |
 | **Политика** | `/plugins/policies` (admin) | Включение/выключение (и настройки) каждого плагина каталога для аккаунта. |
 | **Binding** | Таблица БД `device_plugin_bindings` (SQLite или PostgreSQL) | `UNIQUE(device_pk, plugin_id)`. Один плагин на многих устройствах = независимые инстансы/конфиги. |
 | **Hub** | `services.PluginHub` | Один runner на каждый включённый binding. Запускается из `main` через `StartPlugins`. |
@@ -106,7 +108,6 @@ sequenceDiagram
 |----|----------|
 | `led-garland` | WS2812-ленты через firmware `set_led`, тихие часы / ночной свет |
 | `schedule` | Вызов RPC устройства по локальному времени (перезагрузка в 04:00, свет выключить в 23:00, …) |
-| `prometheus-exporter` | Отдаёт метрики платформы (устройства, телеметрия, RPC) в текстовом формате Prometheus на собственном HTTP-порту — см. [Prometheus exporter](#prometheus-exporter) |
 | `metrics-dashboard` | Пассивный: хранит раскладку панелей вкладки **Metrics+** устройства — см. [Metrics dashboard](#metrics-dashboard) |
 
 Каждый плагин каталога админ может включить или выключить для аккаунта: `GET /plugins/policies` возвращает каталог с действующей политикой (по умолчанию включено), `PATCH /plugins/policies/{pluginId}` с `{ "enabled"?: bool, "settings"?: {} }` меняет её и сразу пересобирает runner-ы аккаунта.
@@ -183,31 +184,28 @@ RPC:
 
 ---
 
-## Prometheus exporter
+## Метрики Prometheus
 
-`prometheus-exporter` запускает отдельный HTTP-сервер, который отдаёт внутренние метрики платформы (онлайн-гейджи устройств, сэмплы телеметрии, RPC-вызовы, публикации в шину правил) в текстовом формате Prometheus. RPC не отправляет и не тикает.
+Метрики отдаёт ядро платформы, а не плагин: `internal/metrics` держит приватный registry и публикует его на `METRICS_ADDR` (по умолчанию `:9102` — намеренно не `:9100`, чтобы не конфликтовать с node_exporter). Слушатель работает всегда, независимо от bindings каталога и от `HTTP_ADDR`. Администратор платформы может получить тот же registry через `GET /api/v1/metrics`.
 
-Конфиг по умолчанию:
+| Метрика | Тип | Метки |
+|---------|-----|-------|
+| `platform_http_requests_total` | counter | `route`, `method`, `status` — `route` это паттерн chi (`/api/v1/devices/{id}`), кардинальность ограничена |
+| `platform_http_request_duration_seconds` | histogram | `route`, `method` |
+| `platform_http_in_flight_requests` | gauge | — |
+| `platform_telemetry_samples_total` | counter | `account`, `product` |
+| `platform_telemetry_errors_total` | counter | `account`, `product` |
+| `platform_rpc_calls_total` | counter | `account`, `product`, `method`, `status` |
+| `platform_event_bus_published_total` | counter | `account`, `kind` |
+| `platform_devices` | gauge | `account`, `status` — читается из БД при scrape |
+| `platform_ota_jobs` | gauge | `account`, `status` |
+| `platform_external_plugins` | gauge | `account`, `status` |
+| `platform_mqtt_clients` | gauge | `kind` |
+| `platform_build_info` | gauge | `version`, `commit` |
 
-```json
-{
-  "port": 9100,
-  "bind": "0.0.0.0",
-  "path": "/metrics",
-  "bearer_token": "",
-  "update_interval_ms": 5000
-}
-```
+Стандартные коллекторы включены: `go_*` и `process_*` (client_golang), плюс статистика пула БД как `go_sql_*{db_name="platform"}`.
 
-| Поле | Значение |
-|------|----------|
-| `port` | Порт (некорректный → `9100`) |
-| `bind` | Адрес (пусто → `0.0.0.0`) |
-| `path` | Путь метрик (пусто → `/metrics`) |
-| `bearer_token` | Если задан, запрос должен содержать `Authorization: Bearer <token>`, иначе `401` |
-| `update_interval_ms` | Принимается, но сейчас не используется (периодического цикла обновления нет) |
-
-HTTP-сервер запускается по событию `apply` (сохранение binding / bind / **Apply now**; привязанное устройство должно быть онлайн). В v1.0.x хаб его никогда не останавливает: выключение или удаление binding оставляет listener работающим, а изменённые `port` / `bind` / `path` не заменяют сервер, уже занявший порт, — для применения таких изменений перезапустите платформу. Метрики берутся из общего стора платформы (`cogitor_device_online`, `cogitor_devices_total`, `cogitor_device_telemetry_samples_total`, `cogitor_device_rpc_calls_total`, `cogitor_event_bus_published_total`, `cogitor_mqtt_clients`, `cogitor_external_plugin_online`, `cogitor_device_ota_jobs_total`), а не только по привязанному устройству.
+Если Prometheus скрейпит с того же хоста — `METRICS_ADDR=127.0.0.1:9102`; если по сети — оставьте `:9102` и закройте порт файрволом.
 
 ---
 

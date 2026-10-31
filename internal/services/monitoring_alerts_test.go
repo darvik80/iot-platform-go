@@ -601,13 +601,13 @@ func TestMonitorAlertReceiveTimeAndReplayedRecovery(t *testing.T) {
 func TestMonitorAlertConcurrentEvaluatorsAndAbandonedFinalLease(t *testing.T) {
 	p, deviceID, now := alertFixture(t)
 	c := alertChannel(t, p)
-	r := alertRule(t, p, deviceID, now, "threshold", c.ID)
+	alertRule(t, p, deviceID, now, "threshold", c.ID)
 	alertSample(t, p, deviceID, now, 40)
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); errs <- p.monitorEvaluateRule(context.Background(), r.ID, now) }()
+		go func() { defer wg.Done(); errs <- p.monitorEvaluate(context.Background(), now) }()
 	}
 	wg.Wait()
 	close(errs)

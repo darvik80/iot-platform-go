@@ -18,6 +18,7 @@ import (
 	"cogitor-iot-platform/internal/auth"
 	"cogitor-iot-platform/internal/config"
 	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/metrics"
 	"cogitor-iot-platform/internal/models"
 	"cogitor-iot-platform/internal/plugins"
 	"cogitor-iot-platform/internal/protocol"
@@ -201,7 +202,7 @@ func (p *Platform) publishRules(accountSlug, productID, deviceID, kind string, p
 				"error", err)
 		}
 	}
-	MetricEventBusPublished(accountSlug, productID, deviceID, kind)
+	metrics.EventBusPublished(accountSlug, kind)
 }
 
 // ObserveTopicStyle stores the MQTT dialect inferred from Will / subscribe / publish prefixes.

@@ -9,6 +9,11 @@ server:
   http_addr: ":8080"                                  # env: SERVER_HTTP_ADDR (or HTTP_ADDR)
   platform_name: "Cogitor IoT"                        # env: SERVER_PLATFORM_NAME (or PLATFORM_NAME)
 
+# Prometheus scrape endpoint: Go runtime, process, DB pool, HTTP routes and
+# business counters. Use "127.0.0.1:9102" when Prometheus runs on the same host.
+metrics:
+  addr: ":9102"                                       # env: METRICS_ADDR
+
 timezone: "Asia/Bangkok"                              # env: TIMEZONE
 log_level: info                                       # env: LOG_LEVEL  —  debug | info | warn | error
 

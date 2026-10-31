@@ -32,11 +32,12 @@ RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 # Container-side listeners. Remap on the host with -p HOST:CONTAINER and announce
 # the host ports to clients with PUBLIC_BASE_URL / MQTT_*_PUBLIC_PORT.
 ENV HTTP_ADDR=:8080 \
+    METRICS_ADDR=:9102 \
     MQTT_ADDR=:1883 \
     MQTT_WS_ADDR=:8083 \
     MQTT_TLS_ADDR=:8883 \
     SQLITE_PATH=/opt/iot-platform/lib/platform.db
-EXPOSE 8080 1883 8083 8883
+EXPOSE 8080 9102 1883 8083 8883
 
 # lib: SQLite database + firmware; etc: config.yml written by the setup wizard + certs.
 VOLUME ["/opt/iot-platform/lib", "/opt/iot-platform/etc"]

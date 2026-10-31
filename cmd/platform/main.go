@@ -16,6 +16,7 @@ import (
 	"cogitor-iot-platform/internal/api"
 	"cogitor-iot-platform/internal/config"
 	"cogitor-iot-platform/internal/db"
+	"cogitor-iot-platform/internal/metrics"
 	mqttbroker "cogitor-iot-platform/internal/mqtt"
 	"cogitor-iot-platform/internal/services"
 	"cogitor-iot-platform/internal/webui"
@@ -60,6 +61,7 @@ func initConfig() (config.Config, *slog.Logger) {
 		"db_driver", cfg.Database.Driver,
 		"db_dsn", config.RedactDSN(cfg.Database.DSN),
 		"http_addr", cfg.HTTP.Addr,
+		"metrics_addr", cfg.Metrics.Addr,
 		"mqtt_addr", cfg.MQTT.Addr,
 		"data_dir", cfg.DataDir,
 		"email_mode", cfg.Email.EffectiveMode(),
@@ -209,6 +211,11 @@ func waitForSetup(s *services.SetupService) {
 func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *services.Platform, setupService *services.SetupService) {
 	_ = plat.ReloadDeviceMaps()
 
+	metrics.SetBuildInfo(Version, Commit)
+	metrics.RegisterDB(database.Raw)
+	metrics.RegisterDomain(database, log)
+	metricsServer := metrics.Start(cfg.Metrics.Addr, log)
+
 	hub := ws.NewHub()
 	plat.SetHub(hub)
 
@@ -219,6 +226,13 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 		log.Error("mqtt broker failed", "addr", cfg.MQTT.Addr, "err", err)
 		os.Exit(1)
 	}
+	metrics.SetMQTTClientProvider(func() map[string]int {
+		out := map[string]int{}
+		for _, c := range brk.Status().Clients {
+			out[c.Kind]++
+		}
+		return out
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -276,6 +290,7 @@ func startPlatform(cfg config.Config, log *slog.Logger, database *db.DB, plat *s
 
 	// Shutdown HTTP server (stops accepting new requests, waits for in-flight)
 	_ = httpServer.Shutdown(shutdownCtx)
+	_ = metricsServer.Shutdown(shutdownCtx)
 
 	// Close MQTT broker (disconnects all MQTT clients)
 	brk.Close()

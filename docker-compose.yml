@@ -19,6 +19,7 @@ services:
     # Host ports are configurable; container ports are fixed by the image.
     ports:
       - "${IOT_HTTP_PORT:-8080}:8080"
+      - "${IOT_METRICS_PORT:-9102}:9102"
       - "${IOT_MQTT_PORT:-1883}:1883"
       - "${IOT_MQTT_WS_PORT:-8083}:8083"
       - "${IOT_MQTT_TLS_PORT:-8883}:8883"

@@ -401,12 +401,12 @@ Fire device RPC at configurable local times:
 - Set time and weekdays (e.g. reboot at 04:00 on weekdays)
 - Timezone-aware (uses platform `TIMEZONE` or per-binding override)
 
-#### Prometheus Exporter & Metrics Dashboard
+#### Prometheus Metrics & Metrics Dashboard
 
-- **prometheus-exporter** — starts a separate HTTP listener (default `:9100`, optional bearer token) with device / telemetry / RPC counters labelled by account
+- **Metrics endpoint** — `/metrics` on `METRICS_ADDR` (default `:9102`): HTTP route latency, telemetry / RPC counters, device / OTA / plugin gauges, plus Go runtime, process and DB pool stats
 - **metrics-dashboard** — per-device dashboard with telemetry charts, gauges, RPC history and online timeline
 
-Catalog plugins can be enabled or disabled per account (**Account** page, `/api/v1/plugins/policies`).
+`metrics-dashboard` can be enabled or disabled per account (**Account** page, `/api/v1/plugins/policies`).
 
 #### Adding Plugins
 
