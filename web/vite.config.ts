@@ -18,8 +18,8 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          router: ['react-router-dom'],
+        manualChunks(id) {
+          if (id.includes('/node_modules/react-router')) return 'router'
         },
       },
     },
