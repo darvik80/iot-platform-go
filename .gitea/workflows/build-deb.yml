@@ -132,20 +132,50 @@ jobs:
         with:
           name: ${{ needs.build.outputs.deb }}
 
+      # Direct API calls: gitea.com/actions/release-action declares
+      # `runs: using: go`, so it needs a Go toolchain in this job and cannot
+      # be pinned — the repo has no tags or releases.
       - name: Create Release
-        uses: https://gitea.com/actions/release-action@main
-        with:
-          files: ${{ needs.build.outputs.deb }}
-          tag: ${{ github.ref_name }}
-          title: "v${{ needs.build.outputs.version }}"
-          body: |
-            IoT Platform Go v${{ needs.build.outputs.version }}
+        env:
+          API: https://gitea.darvik.synology.me:8443/api/v1/repos/${{ github.repository }}
+          TOKEN: ${{ secrets.GITEA_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          DEB: ${{ needs.build.outputs.deb }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          test -n "$TOKEN" || { echo "missing secret GITEA_TOKEN"; exit 1; }
+          AUTH="Authorization: token ${TOKEN}"
 
-            **Install:**
-            ```
-            sudo dpkg -i ${{ needs.build.outputs.deb }}
-            sudo apt-get install -f
-            ```
+          # Parsers must not fail the job on their own: `sed -n 1p` reads to EOF
+          # (no SIGPIPE under pipefail) and `|| true` covers the no-match case.
+          # The explicit `test -n "$RELEASE_ID"` below is what fails the job.
+          first_id() { grep -oE '"id":[[:space:]]*[0-9]+' | sed -n 1p | tr -dc '0-9'; }
 
-            After installation open `http://<host>:8080` to run the setup wizard.
-          api_key: ${{ secrets.GITEA_TOKEN }}
+          # Re-run friendly: reuse the release for this tag when it exists.
+          RELEASE_ID="$(curl -k -s -H "$AUTH" "${API}/releases/tags/${TAG}" | first_id || true)"
+          if [ -z "$RELEASE_ID" ]; then
+            # JSON + terminator stay at the block's base indent so YAML strips
+            # them to column 0, where the heredoc needs them.
+            cat > release.json <<EOF
+          {"tag_name":"${TAG}","target_commitish":"${GITHUB_SHA}","name":"v${VERSION}","body":"IoT Platform Go v${VERSION}\n\n**Install:**\n\`\`\`\nsudo dpkg -i ${DEB}\nsudo apt-get install -f\n\`\`\`\n\nAfter installation open \`http://<host>:8080\` to run the setup wizard."}
+          EOF
+            RELEASE_ID="$(curl -k -sSf -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+              --data-binary @release.json "${API}/releases" | first_id)"
+          fi
+          test -n "$RELEASE_ID" || { echo "no release id for ${TAG}"; exit 1; }
+          echo "release id ${RELEASE_ID}"
+
+          # Drop an asset of the same name from an earlier run before uploading.
+          # One JSON object per line, so a name match can never select a
+          # neighbouring asset's id.
+          STALE_IDS="$(curl -k -s -H "$AUTH" "${API}/releases/${RELEASE_ID}/assets" \
+            | sed -E 's/\},[[:space:]]*\{/}\n{/g' \
+            | grep -E "\"name\":[[:space:]]*\"${DEB}\"" \
+            | grep -oE '"id":[[:space:]]*[0-9]+' | tr -dc '0-9\n' || true)"
+          for id in $STALE_IDS; do
+            curl -k -s -X DELETE -H "$AUTH" "${API}/releases/${RELEASE_ID}/assets/${id}" > /dev/null
+          done
+
+          curl -k -sSf -X POST -H "$AUTH" --form "attachment=@${DEB}" \
+            "${API}/releases/${RELEASE_ID}/assets?name=${DEB}" > /dev/null
+          echo "attached ${DEB} to release ${TAG}"
