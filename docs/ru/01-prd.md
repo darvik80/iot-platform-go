@@ -420,7 +420,7 @@ make build        # web UI + Go binary → bin/platform.exe
 | Real-time | gorilla/websocket (`/api/v1/ws`) |
 | Automation | Node-RED (опционально, через шину правил MQTT) |
 | AI Integration | MCP (modelcontextprotocol/go-sdk) |
-| Container | Multi-stage Docker (Node.js 24 → Go 1.27 → Alpine 3.24) |
+| Container | Multi-stage Docker (Node.js 26 → Go 1.27 → Alpine 3.24) |
 
 ---
 

@@ -70,7 +70,7 @@ Cogitor IoT Platform is a **single-process IoT backend** that runs on your NAS, 
 ### Prerequisites
 
 - Go 1.27+ (for bare-metal) or Docker (for containerized deploy)
-- Node.js 24+ (only needed to build the frontend; pre-built in Docker)
+- Node.js 26+ (only needed to build the frontend; pre-built in Docker)
 
 ### 1. Build & Run (bare metal)
 

@@ -18,7 +18,7 @@ Production on VPS uses systemd instead — see [12-deploy-vds.md](12-deploy-vds.
 ```
 docker build -t localhost/iot-platform-go:latest .
          │
-         ├── node:24-bookworm     → npm ci && npm run build  (React SPA)
+         ├── node:26-bookworm     → npm ci && npm run build  (React SPA)
          ├── golang:1.27-bookworm → go build                 (Go binary + embedded SPA)
          └── alpine:3.24          → /opt/iot-platform/bin/platform
                                     │
