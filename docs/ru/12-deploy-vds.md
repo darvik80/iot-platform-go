@@ -255,7 +255,7 @@ Workflow **`.gitea/workflows/deploy-vds.yml`** — push в ветку `vds` ил
 4. Устанавливает юнит, если он изменился, `systemctl restart iot-platform`
 5. Проверка health: `curl http://127.0.0.1:8080/healthz`
 
-> **Известная проблема**: `deploy-vds.yml` (и `build-deb.yml`) фиксируют `go-version: "1.25.x"`, тогда как `go.mod` требует `go 1.26.0`, а `Dockerfile` использует `golang:1.26-bookworm`. Если сборка падает на проверке версии Go, поднимите версию в workflow до `1.26.x` (или положитесь на автозагрузку toolchain).
+> **Известная проблема**: `deploy-vds.yml` (и `build-deb.yml`) фиксируют `go-version: "1.25.x"`, тогда как `go.mod` требует `go 1.27.0`, а `Dockerfile` использует `golang:1.27-bookworm`. Если сборка падает на проверке версии Go, поднимите версию в workflow до `1.27.x` (или положитесь на автозагрузку toolchain).
 
 **Секреты Gitea:**
 

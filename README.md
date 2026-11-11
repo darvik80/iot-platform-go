@@ -37,7 +37,7 @@ Cogitor IoT Platform is a **single-process IoT backend** that runs on your NAS, 
 
 | Layer | Stack |
 |-------|--------|
-| API / ingest | Go 1.26+, chi router, SQLite / PostgreSQL |
+| API / ingest | Go 1.27+, chi router, SQLite / PostgreSQL |
 | Broker | Embedded MQTT ([mochi-mqtt](https://github.com/mochi-mqtt/server)) inside the platform process |
 | Automation | In-process plugins + external plugins / Node-RED over the MQTT rules bus (`platform/v1/...`) |
 | UI | React 19 + Bootstrap 5 (Vite), embedded in Go binary |
@@ -69,8 +69,8 @@ Cogitor IoT Platform is a **single-process IoT backend** that runs on your NAS, 
 
 ### Prerequisites
 
-- Go 1.26+ (for bare-metal) or Docker (for containerized deploy)
-- Node.js 22+ (only needed to build the frontend; pre-built in Docker)
+- Go 1.27+ (for bare-metal) or Docker (for containerized deploy)
+- Node.js 26+ (only needed to build the frontend; pre-built in Docker)
 
 ### 1. Build & Run (bare metal)
 

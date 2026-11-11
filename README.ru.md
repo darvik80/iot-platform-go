@@ -37,7 +37,7 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 
 | Слой | Стек |
 |------|------|
-| API / ingest | Go 1.26+, chi router, SQLite / PostgreSQL |
+| API / ingest | Go 1.27+, chi router, SQLite / PostgreSQL |
 | Брокер | Встроенный MQTT ([mochi-mqtt](https://github.com/mochi-mqtt/server)) в процессе платформы |
 | Автоматизация | Встроенные плагины + внешние плагины / Node-RED через MQTT-шину `platform/v1/...` |
 | UI | React 19 + Bootstrap 5 (Vite), встроен в Go-бинарник |
@@ -70,8 +70,8 @@ Cogitor IoT Platform — **однопросцессный IoT-бэкенд**, р
 
 ### Требования
 
-- Go 1.26+ (для bare-metal) или Docker (для контейнерного развёртывания)
-- Node.js 22+ (только для сборки фронтенда; в Docker уже собран)
+- Go 1.27+ (для bare-metal) или Docker (для контейнерного развёртывания)
+- Node.js 26+ (только для сборки фронтенда; в Docker уже собран)
 
 ### 1. Сборка и запуск (bare metal)
 

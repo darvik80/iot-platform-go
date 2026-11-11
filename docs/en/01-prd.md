@@ -412,7 +412,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.26+, chi router |
+| Backend | Go 1.27+, chi router |
 | Database | SQLite (modernc.org/sqlite — pure Go, no CGO) or PostgreSQL |
 | MQTT Broker | mochi-mqtt (embedded) |
 | Frontend | React 19 + Bootstrap 5 + Vite |
@@ -420,7 +420,7 @@ make build        # builds web UI + Go binary → bin/platform.exe
 | Real-time | gorilla/websocket (`/api/v1/ws`) |
 | Automation | Node-RED (optional, via MQTT rules bus) |
 | AI Integration | MCP (modelcontextprotocol/go-sdk) |
-| Container | Multi-stage Docker (Node.js 22 → Go 1.26 → Alpine 3.20) |
+| Container | Multi-stage Docker (Node.js 26 → Go 1.27 → Alpine 3.24) |
 
 ---
 
